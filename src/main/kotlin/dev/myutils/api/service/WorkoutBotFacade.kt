@@ -118,32 +118,20 @@ class WorkoutBotFacade(
 		val now = ZonedDateTime.now(USER_ZONE)
 		val today = now.toLocalDate()
 		val yesterday = today.minusDays(1)
-		val exercises = workoutService.listExercises()
-		val recent = recentEntriesSummary(limit = 8)
+		val user = localWorkoutUser()
+		val exercises = exerciseRepository.findByUserIdOrderByNameAsc(user.id)
+		val allEntries = workoutEntryRepository.findByUserIdOrderByPerformedOnDescCreatedAtDesc(user.id)
+		val nowLine =
+			"Сейчас: ${now.format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))} (Europe/Moscow)"
 
-		return buildString {
-			appendLine("## Актуальный снимок дневника")
-			appendLine(
-				"Сейчас: ${now.format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))} (Europe/Moscow)",
-			)
-			appendLine("Сегодня: ${today}, вчера: $yesterday")
-			appendLine()
-			appendLine("### Упражнения (${exercises.size})")
-			if (exercises.isEmpty()) {
-				appendLine("— пока нет")
-			} else {
-				appendLine(exercises.joinToString(" · ") { "«${it.name}»" })
-			}
-			appendLine()
-			appendLine("### Сегодня")
-			appendLine(getDaySummary(today))
-			appendLine()
-			appendLine("### Вчера")
-			appendLine(getDaySummary(yesterday))
-			appendLine()
-			appendLine("### Последние записи (новые сверху)")
-			appendLine(recent)
-		}.trim()
+		return WorkoutAgentSnapshotFormatter.format(
+			today = today,
+			nowLine = nowLine,
+			exercises = exercises,
+			allEntries = allEntries,
+			todaySummary = getDaySummary(today),
+			yesterdaySummary = getDaySummary(yesterday),
+		)
 	}
 
 	@Transactional(readOnly = true)
@@ -166,23 +154,6 @@ class WorkoutBotFacade(
 	}
 
 	private fun today(): LocalDate = LocalDate.now(USER_ZONE)
-
-	@Transactional(readOnly = true)
-	private fun recentEntriesSummary(limit: Int): String {
-		val user = localWorkoutUser()
-		val entries =
-			workoutEntryRepository
-				.findByUserIdOrderByPerformedOnDescCreatedAtDesc(user.id)
-				.take(limit)
-		if (entries.isEmpty()) {
-			return "— записей нет"
-		}
-		val names = exerciseRepository.findByUserIdOrderByNameAsc(user.id).associateBy { it.id }
-		return entries.joinToString("\n") { entry ->
-			val name = names[entry.exercise.id]?.name ?: "?"
-			"• ${dateFmt.format(entry.performedOn)} «$name»: ${WorkoutNotation.format(entry)}"
-		}
-	}
 
 	private fun resolveExercise(name: String): Exercise {
 		val user = localWorkoutUser()
