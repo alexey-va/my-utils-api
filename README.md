@@ -63,7 +63,7 @@ Workers and workflows live in `dev.myutils.api.temporal`. Task queue: `myutils-m
 
 **Host dev** (`./gradlew bootRun`): infra + Temporal via `docker compose -f docker-compose.dev.yml up -d`, set `TEMPORAL_TARGET=127.0.0.1:7233` in `.env`.
 
-**Jenkins** deploy keeps `MYUTILS_TEMPORAL_ENABLED=false` (no Temporal server on that host yet).
+**Jenkins** deploy starts Temporal + UI (`127.0.0.1:17233` gRPC, `127.0.0.1:18233` UI). API has `MYUTILS_TEMPORAL_ENABLED=false` until you turn workers on.
 
 ## Local development (Gradle on host)
 

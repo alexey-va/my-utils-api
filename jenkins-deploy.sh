@@ -16,5 +16,5 @@ export OPENROUTER_PROXY_PORT=8888
 
 COMPOSE="docker compose -f docker-compose.yml -f docker-compose.jenkins.yml"
 
-${COMPOSE} up -d postgres redis
+${COMPOSE} up -d postgres redis temporal-postgresql temporal temporal-ui
 ${COMPOSE} up -d --build api
