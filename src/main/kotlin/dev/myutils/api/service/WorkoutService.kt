@@ -149,6 +149,39 @@ class WorkoutService(
 		exerciseRepository.deleteById(exerciseId)
 	}
 
+	@Transactional
+	fun deleteEntry(
+		exerciseId: UUID,
+		performedOn: LocalDate,
+		source: String = "api",
+	) {
+		val user = localWorkoutUser()
+		val exercise = findOwnedExercise(user, exerciseId)
+		val existing =
+			workoutEntryRepository.findByUserIdAndExerciseIdAndPerformedOn(
+				user.id,
+				exercise.id,
+				performedOn,
+			)
+		if (existing.isEmpty) {
+			throw ResponseStatusException(
+				HttpStatus.NOT_FOUND,
+				"No workout entry for ${exercise.name} on $performedOn",
+			)
+		}
+		val entry = existing.get()
+		workoutEntryRepository.delete(entry)
+		log.info(
+			"DB DELETE workout_entry source={} user={} entryId={} exerciseId={} exerciseName={} date={}",
+			source,
+			user.email,
+			entry.id,
+			exercise.id,
+			exercise.name,
+			performedOn,
+		)
+	}
+
 	fun upsertEntry(
 		request: UpsertWorkoutEntryRequest,
 		source: String = "api",

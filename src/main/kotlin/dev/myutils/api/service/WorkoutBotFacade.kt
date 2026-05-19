@@ -72,6 +72,16 @@ class WorkoutBotFacade(
 		return "Записано: ${exercise.name}, ${dateFmt.format(date)} — $notation"
 	}
 
+	fun deleteWorkout(
+		exerciseName: String,
+		performedOn: LocalDate?,
+	): String {
+		val exercise = resolveExercise(exerciseName)
+		val date = performedOn ?: today()
+		workoutService.deleteEntry(exercise.id, date, source = "telegram-bot")
+		return "Удалено: ${exercise.name}, ${dateFmt.format(date)}"
+	}
+
 	@Transactional(readOnly = true)
 	fun getExerciseProgressSummary(
 		exerciseName: String,
@@ -133,12 +143,6 @@ class WorkoutBotFacade(
 			appendLine()
 			appendLine("### Последние записи (новые сверху)")
 			appendLine(recent)
-			appendLine()
-			appendLine(
-				"Используй этот снимок для ответов о прогрессе и «что сегодня». " +
-					"Инструменты get_day_summary / get_exercise_progress / list_exercises — только если данных не хватает. " +
-					"После log_workout или create_exercise снимок обновится автоматически.",
-			)
 		}.trim()
 	}
 

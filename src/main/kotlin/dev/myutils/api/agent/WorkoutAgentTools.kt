@@ -34,8 +34,22 @@ class WorkoutAgentTools(
 				""".trimIndent(),
 			),
 			tool(
+				"delete_workout",
+				"Удалить запись за день (упражнение + дата).",
+				"""
+				{
+				  "type": "object",
+				  "properties": {
+				    "exercise_name": {"type": "string"},
+				    "performed_on": {"type": "string", "description": "YYYY-MM-DD, по умолчанию сегодня"}
+				  },
+				  "required": ["exercise_name"]
+				}
+				""".trimIndent(),
+			),
+			tool(
 				"log_workout",
-				"""Записать или обновить тренировку за день. Формат тренера: вес 3*X/МАХ — set_count=3, reps_per_set=X (8–10), max_reps=МАХ (4-й подход). weight_kg — полный вес штанги (гриф+блинья); для гантелей вес одной гантели, в названии упражнения указать «гантели».""",
+				"Записать/обновить за день: вес 3*X/МАХ → set_count=3, reps_per_set=X, max_reps=МАХ, weight_kg полный.",
 				"""
 				{
 				  "type": "object",
@@ -53,7 +67,7 @@ class WorkoutAgentTools(
 			),
 			tool(
 				"get_exercise_progress",
-				"Прогресс и статистика по упражнению — для ответов на вопросы и сверки после записи.",
+				"Прогресс по упражнению (если нет в снимке).",
 				"""
 				{
 				  "type": "object",
@@ -67,7 +81,7 @@ class WorkoutAgentTools(
 			),
 			tool(
 				"get_day_summary",
-				"Что записано за день — для сверки и ответов «что сегодня сделал».",
+				"Записи за день (если нет в снимке).",
 				"""
 				{
 				  "type": "object",

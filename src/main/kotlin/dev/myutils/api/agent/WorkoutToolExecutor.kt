@@ -27,6 +27,7 @@ class WorkoutToolExecutor(
 					"list_exercises" -> listExercises()
 					"create_exercise" -> createExercise(args)
 					"log_workout" -> logWorkout(args)
+					"delete_workout" -> deleteWorkout(args)
 					"get_exercise_progress" -> getExerciseProgress(args)
 					"get_day_summary" -> getDaySummary(args)
 					else -> "Неизвестный инструмент: ${call.function.name}"
@@ -78,6 +79,19 @@ class WorkoutToolExecutor(
 			repsPerSet = repsPerSet,
 			maxReps = maxReps,
 		)
+	}
+
+	private fun deleteWorkout(args: JsonNode): String {
+		val exerciseName = text(args, "exercise_name") ?: return "Нужно поле exercise_name"
+		val performedOn =
+			text(args, "performed_on")?.let { raw ->
+				try {
+					LocalDate.parse(raw)
+				} catch (_: DateTimeParseException) {
+					return "Неверная дата performed_on: формат YYYY-MM-DD"
+				}
+			}
+		return workoutBotFacade.deleteWorkout(exerciseName, performedOn)
 	}
 
 	private fun getExerciseProgress(args: JsonNode): String {

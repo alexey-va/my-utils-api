@@ -9,6 +9,7 @@ import dev.myutils.api.web.dto.UpsertWorkoutEntryRequest
 import dev.myutils.api.web.dto.WorkoutGridResponse
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
+import org.springframework.format.annotation.DateTimeFormat
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import java.time.LocalDate
 import java.util.UUID
 
 @RestController
@@ -54,5 +56,14 @@ class WorkoutController(
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	fun upsertEntry(@Valid @RequestBody body: UpsertWorkoutEntryRequest) {
 		workoutService.upsertEntry(body)
+	}
+
+	@DeleteMapping("/exercises/{exerciseId}/entries/{performedOn}")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	fun deleteEntry(
+		@PathVariable exerciseId: UUID,
+		@PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) performedOn: LocalDate,
+	) {
+		workoutService.deleteEntry(exerciseId, performedOn)
 	}
 }
