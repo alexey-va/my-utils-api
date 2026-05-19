@@ -14,8 +14,10 @@ Kotlin/Spring Boot REST API for [my-utils](https://github.com/alexey-va/my-utils
 Build and start API + Postgres + Redis:
 
 ```bash
-docker compose up -d --build
+DOCKER_BUILDKIT=1 docker compose up -d --build
 ```
+
+Docker build uses `gradle:9.4.1-jdk21` (no wrapper zip download each time). Local dev still uses `./gradlew`.
 
 | Service  | URL |
 |----------|-----|
