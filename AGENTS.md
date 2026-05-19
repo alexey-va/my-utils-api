@@ -8,7 +8,10 @@ Kotlin **Spring Boot 3** API for my-utils. **Postgres** + **Redis**. Runnable as
 src/main/kotlin/dev/myutils/api/
 ├── domain/          — JPA entities + repositories
 ├── session/         — Redis SessionService
-├── service/         — AuthService, WorkoutService
+├── service/         — AuthService, WorkoutService, WorkoutBotFacade
+├── agent/           — OpenRouter tool-calling agent (Telegram)
+├── telegram/        — Webhook + Telegram API client
+├── openrouter/      — Chat completions client
 ├── security/        — JWT filter + SecurityConfig
 ├── web/             — REST controllers
 └── config/

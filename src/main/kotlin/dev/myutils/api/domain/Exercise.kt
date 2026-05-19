@@ -20,6 +20,8 @@ class Exercise(
 	val user: User,
 	@Column(nullable = false)
 	var name: String,
+	@Column(name = "muscle_group", nullable = false)
+	var muscleGroup: String = "other",
 	@Column(name = "created_at", nullable = false)
 	val createdAt: Instant = Instant.now(),
 )

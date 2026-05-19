@@ -72,6 +72,10 @@ class WorkoutControllerTest : IntegrationTestBase() {
 		val i19 = dates.indexOf("2026-05-19")
 		val i20 = dates.indexOf("2026-05-20")
 		assertTrue(i18 >= 0 && i19 > i18 && i20 > i19)
+
+		mockMvc.delete("/api/workouts/exercises/$exerciseId").andExpect {
+			status { isNoContent() }
+		}
 	}
 
 	@Test

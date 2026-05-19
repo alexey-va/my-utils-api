@@ -18,4 +18,9 @@ interface WorkoutEntryRepository : JpaRepository<WorkoutEntry, UUID> {
 		userId: UUID,
 		exerciseId: UUID,
 	): List<WorkoutEntry>
+
+	fun findByUserIdAndPerformedOnOrderByCreatedAtAsc(
+		userId: UUID,
+		performedOn: LocalDate,
+	): List<WorkoutEntry>
 }

@@ -16,6 +16,7 @@ import dev.myutils.api.web.dto.ExerciseStatsDto
 import dev.myutils.api.web.dto.ProgressPointDto
 import dev.myutils.api.web.dto.WorkoutGridResponse
 import dev.myutils.api.web.dto.WorkoutGridRowDto
+import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -29,10 +30,15 @@ class WorkoutService(
 	private val exerciseRepository: ExerciseRepository,
 	private val workoutEntryRepository: WorkoutEntryRepository,
 ) {
+	private val log = LoggerFactory.getLogger(javaClass)
+
 	fun listExercises(): List<ExerciseResponse> =
 		exerciseRepository.findByUserIdOrderByNameAsc(localWorkoutUser().id).map(::toExerciseResponse)
 
-	fun createExercise(request: CreateExerciseRequest): ExerciseResponse {
+	fun createExercise(
+		request: CreateExerciseRequest,
+		source: String = "api",
+	): ExerciseResponse {
 		val user = localWorkoutUser()
 		val name = request.name.trim()
 		if (name.isEmpty()) {
@@ -41,7 +47,18 @@ class WorkoutService(
 		if (exerciseRepository.existsByUserIdAndNameIgnoreCase(user.id, name)) {
 			throw ResponseStatusException(HttpStatus.CONFLICT, "Exercise already exists")
 		}
-		val exercise = exerciseRepository.save(Exercise(user = user, name = name))
+		val exercise =
+			exerciseRepository.save(
+				Exercise(user = user, name = name, muscleGroup = normalizeMuscleGroup(request.muscleGroup)),
+			)
+		log.info(
+			"DB INSERT exercise source={} user={} exerciseId={} name={} muscleGroup={}",
+			source,
+			user.email,
+			exercise.id,
+			exercise.name,
+			exercise.muscleGroup,
+		)
 		return toExerciseResponse(exercise)
 	}
 
@@ -119,6 +136,9 @@ class WorkoutService(
 			throw ResponseStatusException(HttpStatus.CONFLICT, "Exercise already exists")
 		}
 		exercise.name = name
+		if (request.muscleGroup != null) {
+			exercise.muscleGroup = normalizeMuscleGroup(request.muscleGroup)
+		}
 		return toExerciseResponse(exerciseRepository.save(exercise))
 	}
 
@@ -129,7 +149,10 @@ class WorkoutService(
 		exerciseRepository.deleteById(exerciseId)
 	}
 
-	fun upsertEntry(request: UpsertWorkoutEntryRequest) {
+	fun upsertEntry(
+		request: UpsertWorkoutEntryRequest,
+		source: String = "api",
+	) {
 		val user = localWorkoutUser()
 		val exercise =
 			exerciseRepository
@@ -144,20 +167,38 @@ class WorkoutService(
 				request.performedOn,
 			)
 
+		val replacedEntryId = existing.map { it.id }.orElse(null)
 		if (existing.isPresent) {
 			workoutEntryRepository.delete(existing.get())
 		}
 
-		workoutEntryRepository.save(
-			WorkoutEntry(
-				user = user,
-				exercise = exercise,
-				performedOn = request.performedOn,
-				weightKg = request.weightKg,
-				setCount = request.setCount,
-				repsPerSet = request.repsPerSet,
-				maxReps = request.maxReps,
-			),
+		val saved =
+			workoutEntryRepository.save(
+				WorkoutEntry(
+					user = user,
+					exercise = exercise,
+					performedOn = request.performedOn,
+					weightKg = request.weightKg,
+					setCount = request.setCount,
+					repsPerSet = request.repsPerSet,
+					maxReps = request.maxReps,
+				),
+			)
+		log.info(
+			"DB UPSERT workout_entry source={} user={} action={} entryId={} replacedEntryId={} " +
+				"exerciseId={} exerciseName={} date={} weightKg={} sets={} reps={} maxReps={}",
+			source,
+			user.email,
+			if (replacedEntryId != null) "replace" else "insert",
+			saved.id,
+			replacedEntryId,
+			exercise.id,
+			exercise.name,
+			request.performedOn,
+			request.weightKg,
+			request.setCount,
+			request.repsPerSet,
+			request.maxReps,
 		)
 	}
 
@@ -202,7 +243,12 @@ class WorkoutService(
 	}
 
 	private fun toExerciseResponse(exercise: Exercise) =
-		ExerciseResponse(id = exercise.id, name = exercise.name)
+		ExerciseResponse(id = exercise.id, name = exercise.name, muscleGroup = exercise.muscleGroup)
+
+	private fun normalizeMuscleGroup(raw: String?): String {
+		val value = raw?.trim()?.lowercase() ?: "other"
+		return if (value in ALLOWED_MUSCLE_GROUPS) value else "other"
+	}
 
 	private fun localWorkoutUser(): User =
 		userRepository
@@ -216,5 +262,8 @@ class WorkoutService(
 
 	companion object {
 		const val LOCAL_WORKOUT_EMAIL = "local@workout"
+
+		private val ALLOWED_MUSCLE_GROUPS =
+			setOf("chest", "back", "legs", "shoulders", "arms", "core", "other")
 	}
 }

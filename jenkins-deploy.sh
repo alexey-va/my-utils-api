@@ -6,6 +6,13 @@ cd "${WORKSPACE}"
 # Public URL of the frontend (browser Origin header). Comma-separated for several hosts.
 export MYUTILS_CORS_ALLOWED_ORIGINS="${MYUTILS_CORS_ALLOWED_ORIGINS:-http://utils.alexeyav.ru,https://utils.alexeyav.ru,http://127.0.0.1:13082}"
 
+# Telegram bot — TELEGRAM_BOT_TOKEN + OPENROUTER_API_KEY from Jenkins credentials; webhook vars in job env.
+export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+export TELEGRAM_WEBHOOK_SECRET="${TELEGRAM_WEBHOOK_SECRET:-}"
+export TELEGRAM_ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS:-303179278}"
+export TELEGRAM_WEBHOOK_BASE_URL="${TELEGRAM_WEBHOOK_BASE_URL:-https://utils.alexeyav.ru}"
+export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
+
 COMPOSE="docker compose -f docker-compose.yml -f docker-compose.jenkins.yml"
 
 ${COMPOSE} up -d postgres redis

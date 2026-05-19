@@ -1,0 +1,66 @@
+package dev.myutils.api.agent
+
+import com.fasterxml.jackson.databind.ObjectMapper
+import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import dev.myutils.api.openrouter.ToolCall
+import dev.myutils.api.openrouter.ToolCallFunction
+import dev.myutils.api.service.WorkoutBotFacade
+import org.junit.jupiter.api.Assertions.assertTrue
+import org.junit.jupiter.api.Test
+import org.mockito.kotlin.mock
+import org.mockito.kotlin.whenever
+
+class WorkoutToolExecutorTest {
+	private val objectMapper: ObjectMapper = jacksonObjectMapper()
+	private val facade: WorkoutBotFacade = mock()
+
+	@Test
+	fun `list_exercises delegates to facade`() {
+		whenever(facade.listExercises()).thenReturn(emptyList())
+		val executor = WorkoutToolExecutor(facade, objectMapper)
+		val result =
+			executor.execute(
+				ToolCall(
+					id = "1",
+					function = ToolCallFunction(name = "list_exercises", arguments = "{}"),
+				),
+			)
+		assertTrue(result.contains("Упражнений пока нет"))
+	}
+
+	@Test
+	fun `log_workout parses arguments`() {
+		whenever(
+			facade.logWorkout(
+				exerciseName = "Bench press",
+				performedOn = null,
+				weightKg = 80,
+				setCount = 3,
+				repsPerSet = 5,
+				maxReps = 5,
+			),
+		).thenReturn("Записано: Bench press")
+		val executor = WorkoutToolExecutor(facade, objectMapper)
+		val result =
+			executor.execute(
+				ToolCall(
+					id = "2",
+					function =
+						ToolCallFunction(
+							name = "log_workout",
+							arguments =
+								"""
+								{
+								  "exercise_name": "Bench press",
+								  "weight_kg": 80,
+								  "set_count": 3,
+								  "reps_per_set": 5,
+								  "max_reps": 5
+								}
+								""".trimIndent(),
+						),
+				),
+			)
+		assertTrue(result.contains("Записано"))
+	}
+}

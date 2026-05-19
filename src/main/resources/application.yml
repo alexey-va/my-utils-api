@@ -1,7 +1,13 @@
 server:
   port: 8080
 
+logging:
+  level:
+    dev.myutils.api: INFO
+
 spring:
+  config:
+    import: optional:file:.env[.properties]
   application:
     name: my-utils-api
   datasource:
@@ -34,3 +40,13 @@ myutils:
       - http://127.0.0.1:5173
   session:
     redis-key-prefix: "myutils:session:"
+  telegram:
+    bot-token: ${TELEGRAM_BOT_TOKEN:}
+    webhook-secret: ${TELEGRAM_WEBHOOK_SECRET:}
+    allowed-user-ids: ${TELEGRAM_ALLOWED_USER_IDS:}
+    webhook-base-url: ${TELEGRAM_WEBHOOK_BASE_URL:}
+    conversation-ttl-hours: 48
+  openrouter:
+    api-key: ${OPENROUTER_API_KEY:}
+    model: anthropic/claude-3.5-haiku
+    max-tool-iterations: 8

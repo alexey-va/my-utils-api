@@ -8,15 +8,18 @@ import java.util.UUID
 
 data class CreateExerciseRequest(
 	@field:NotBlank val name: String,
+	val muscleGroup: String? = null,
 )
 
 data class UpdateExerciseRequest(
 	@field:NotBlank val name: String,
+	val muscleGroup: String? = null,
 )
 
 data class ExerciseResponse(
 	val id: UUID,
 	val name: String,
+	val muscleGroup: String,
 )
 
 data class UpsertWorkoutEntryRequest(

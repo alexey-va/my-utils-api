@@ -28,6 +28,7 @@ class SecurityConfig(
 					.requestMatchers(HttpMethod.GET, "/api/health").permitAll()
 					.requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
 					.requestMatchers("/api/workouts/**").permitAll()
+					.requestMatchers("/api/telegram/webhook/**").permitAll()
 					.requestMatchers("/api/auth/**").authenticated()
 					.anyRequest().denyAll()
 			}
