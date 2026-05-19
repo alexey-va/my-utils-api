@@ -31,7 +31,8 @@ services:
       dockerfile: Dockerfile
     image: my-utils-api:local
     env_file:
-      - .env
+      - path: .env
+        required: false
     ports:
       - "8080:8080"
     environment:
@@ -42,6 +43,9 @@ services:
       POSTGRES_PASSWORD: myutils
       REDIS_HOST: redis
       REDIS_PORT: 6379
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN:-}
+      TELEGRAM_ALLOWED_USER_IDS: ${TELEGRAM_ALLOWED_USER_IDS:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy

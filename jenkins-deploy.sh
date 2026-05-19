@@ -8,9 +8,8 @@ export MYUTILS_CORS_ALLOWED_ORIGINS="${MYUTILS_CORS_ALLOWED_ORIGINS:-http://util
 
 # Telegram bot — TELEGRAM_BOT_TOKEN + OPENROUTER_API_KEY from Jenkins credentials; webhook vars in job env.
 export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-export TELEGRAM_WEBHOOK_SECRET="${TELEGRAM_WEBHOOK_SECRET:-}"
 export TELEGRAM_ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS:-303179278}"
-export TELEGRAM_WEBHOOK_BASE_URL="${TELEGRAM_WEBHOOK_BASE_URL:-https://utils.alexeyav.ru}"
+export TELEGRAM_WEBHOOK_BASE_URL=""
 export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
 
 COMPOSE="docker compose -f docker-compose.yml -f docker-compose.jenkins.yml"
