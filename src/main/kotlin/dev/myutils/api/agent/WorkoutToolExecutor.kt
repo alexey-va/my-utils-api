@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.myutils.api.openrouter.ToolCall
 import dev.myutils.api.service.WorkoutBotFacade
+import dev.myutils.api.temporal.TemporalNotificationFacade
 import dev.myutils.api.util.LogPreview
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -14,13 +15,22 @@ import java.time.format.DateTimeParseException
 @Component
 class WorkoutToolExecutor(
 	private val workoutBotFacade: WorkoutBotFacade,
+	private val temporalNotificationFacade: TemporalNotificationFacade,
 	private val objectMapper: ObjectMapper,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
-	fun execute(call: ToolCall): String {
+	fun execute(
+		call: ToolCall,
+		chatId: Long,
+	): String {
 		val args = parseArgs(call.function.arguments)
-		log.info("Tool {} args={}", call.function.name, LogPreview.of(call.function.arguments, max = 240))
+		log.info(
+			"Tool {} chatId={} args={}",
+			call.function.name,
+			chatId,
+			LogPreview.of(call.function.arguments, max = 240),
+		)
 		val result =
 			try {
 				when (call.function.name) {
@@ -31,6 +41,9 @@ class WorkoutToolExecutor(
 					"delete_workout" -> deleteWorkout(args)
 					"get_exercise_progress" -> getExerciseProgress(args)
 					"get_day_summary" -> getDaySummary(args)
+					"send_notification" -> sendNotification(chatId, args)
+					"schedule_notification" -> scheduleNotification(chatId, args)
+					"cancel_notification" -> cancelNotification(args)
 					else -> "Неизвестный инструмент: ${call.function.name}"
 				}
 			} catch (ex: ResponseStatusException) {
@@ -106,6 +119,28 @@ class WorkoutToolExecutor(
 		val exerciseName = text(args, "exercise_name") ?: return "Нужно поле exercise_name"
 		val recent = int(args, "recent_sessions") ?: 6
 		return workoutBotFacade.getExerciseProgressSummary(exerciseName, recent)
+	}
+
+	private fun sendNotification(
+		chatId: Long,
+		args: JsonNode,
+	): String {
+		val message = text(args, "message") ?: return "Нужно поле message"
+		return temporalNotificationFacade.sendNow(chatId, message)
+	}
+
+	private fun scheduleNotification(
+		chatId: Long,
+		args: JsonNode,
+	): String {
+		val message = text(args, "message") ?: return "Нужно поле message"
+		val deliverAt = text(args, "deliver_at") ?: return "Нужно поле deliver_at"
+		return temporalNotificationFacade.schedule(chatId, message, deliverAt)
+	}
+
+	private fun cancelNotification(args: JsonNode): String {
+		val workflowId = text(args, "workflow_id") ?: return "Нужно поле workflow_id"
+		return temporalNotificationFacade.cancel(workflowId)
 	}
 
 	private fun getDaySummary(args: JsonNode): String {

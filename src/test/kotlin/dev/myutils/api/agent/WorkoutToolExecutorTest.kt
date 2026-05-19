@@ -5,6 +5,7 @@ import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import dev.myutils.api.openrouter.ToolCall
 import dev.myutils.api.openrouter.ToolCallFunction
 import dev.myutils.api.service.WorkoutBotFacade
+import dev.myutils.api.temporal.TemporalNotificationFacade
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
@@ -13,17 +14,19 @@ import org.mockito.kotlin.whenever
 class WorkoutToolExecutorTest {
 	private val objectMapper: ObjectMapper = jacksonObjectMapper()
 	private val facade: WorkoutBotFacade = mock()
+	private val notifications: TemporalNotificationFacade = mock()
 
 	@Test
 	fun `list_exercises delegates to facade`() {
 		whenever(facade.listExercises()).thenReturn(emptyList())
-		val executor = WorkoutToolExecutor(facade, objectMapper)
+		val executor = WorkoutToolExecutor(facade, notifications, objectMapper)
 		val result =
 			executor.execute(
 				ToolCall(
 					id = "1",
 					function = ToolCallFunction(name = "list_exercises", arguments = "{}"),
 				),
+				chatId = 1L,
 			)
 		assertTrue(result.contains("Упражнений пока нет"))
 	}
@@ -40,7 +43,7 @@ class WorkoutToolExecutorTest {
 				maxReps = 5,
 			),
 		).thenReturn("Записано: Bench press")
-		val executor = WorkoutToolExecutor(facade, objectMapper)
+		val executor = WorkoutToolExecutor(facade, notifications, objectMapper)
 		val result =
 			executor.execute(
 				ToolCall(
@@ -60,6 +63,7 @@ class WorkoutToolExecutorTest {
 								""".trimIndent(),
 						),
 				),
+				chatId = 1L,
 			)
 		assertTrue(result.contains("Записано"))
 	}
@@ -73,7 +77,7 @@ class WorkoutToolExecutorTest {
 				muscleGroup = null,
 			),
 		).thenReturn("Переименовано: «Жим» → «Жим грудь» (chest).")
-		val executor = WorkoutToolExecutor(facade, objectMapper)
+		val executor = WorkoutToolExecutor(facade, notifications, objectMapper)
 		val result =
 			executor.execute(
 				ToolCall(
@@ -90,6 +94,7 @@ class WorkoutToolExecutorTest {
 								""".trimIndent(),
 						),
 				),
+				chatId = 1L,
 			)
 		assertTrue(result.contains("Переименовано"))
 	}

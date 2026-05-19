@@ -1,6 +1,7 @@
 package dev.myutils.api.agent
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.myutils.api.config.MyUtilsProperties
 import dev.myutils.api.openrouter.ToolDefinition
 import dev.myutils.api.openrouter.ToolFunction
 import org.springframework.stereotype.Component
@@ -8,8 +9,17 @@ import org.springframework.stereotype.Component
 @Component
 class WorkoutAgentTools(
 	private val objectMapper: ObjectMapper,
+	private val properties: MyUtilsProperties,
 ) {
 	fun definitions(): List<ToolDefinition> =
+		buildList {
+			addAll(workoutTools())
+			if (properties.temporal.enabled) {
+				addAll(notificationTools())
+			}
+		}
+
+	private fun workoutTools(): List<ToolDefinition> =
 		listOf(
 			tool(
 				"list_exercises",
@@ -106,6 +116,53 @@ class WorkoutAgentTools(
 				  "properties": {
 				    "performed_on": {"type": "string", "description": "YYYY-MM-DD, по умолчанию сегодня"}
 				  }
+				}
+				""".trimIndent(),
+			),
+		)
+
+	private fun notificationTools(): List<ToolDefinition> =
+		listOf(
+			tool(
+				"send_notification",
+				"Сразу отправить сообщение пользователю в этот Telegram-чат (через Temporal).",
+				"""
+				{
+				  "type": "object",
+				  "properties": {
+				    "message": {"type": "string", "description": "Текст сообщения"}
+				  },
+				  "required": ["message"]
+				}
+				""".trimIndent(),
+			),
+			tool(
+				"schedule_notification",
+				"Запланировать напоминание в Telegram на время deliver_at (Temporal workflow).",
+				"""
+				{
+				  "type": "object",
+				  "properties": {
+				    "message": {"type": "string"},
+				    "deliver_at": {
+				      "type": "string",
+				      "description": "ISO дата-время, напр. 2026-05-20T20:00:00+03:00 (Europe/Moscow)"
+				    }
+				  },
+				  "required": ["message", "deliver_at"]
+				}
+				""".trimIndent(),
+			),
+			tool(
+				"cancel_notification",
+				"Отменить запланированное уведомление по workflow_id из ответа schedule_notification.",
+				"""
+				{
+				  "type": "object",
+				  "properties": {
+				    "workflow_id": {"type": "string"}
+				  },
+				  "required": ["workflow_id"]
 				}
 				""".trimIndent(),
 			),

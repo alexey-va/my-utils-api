@@ -143,7 +143,7 @@ class WorkoutAgentService(
 
 			var dataChanged = false
 			for (call in toolCalls) {
-				val result = toolExecutor.execute(call)
+				val result = toolExecutor.execute(call, chatId)
 				if (call.mutatesWorkoutData()) {
 					dataChanged = true
 				}
@@ -199,6 +199,7 @@ class WorkoutAgentService(
 		## Данные
 		2-е system — снимок дневника. Сначала он; tools только если данных нет.
 		log_workout / delete_workout / create_exercise / rename_exercise — для изменений. После записи/удаления/переименования — 2–4 строки: что сделано + «Сейчас в дневнике:» из обновлённого снимка.
+		send_notification / schedule_notification / cancel_notification — уведомления в этот чат через Temporal (если доступны). Сохраняй workflow_id из schedule для отмены.
 
 		## Формат ответа (пример)
 		«На неделе уже: присед 50, бицепс 40. Осталось: жим, бабочка, пулл. Сегодня: Жим грудь 70 кг 3*10/МАХ, Бабочка 35 кг 3*10/МАХ, Пулл даун 72 кг 3*8/МАХ — спина после груди.»
