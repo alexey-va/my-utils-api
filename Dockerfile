@@ -1,14 +1,16 @@
 # syntax=docker/dockerfile:1
 
-FROM eclipse-temurin:21-jdk AS build
+# Gradle уже в образе — не качаем gradle-9.4.1-bin.zip через wrapper на каждый build.
+FROM gradle:9.4.1-jdk21 AS build
 WORKDIR /app
 
-COPY gradlew settings.gradle.kts build.gradle.kts ./
-COPY gradle gradle
-RUN chmod +x gradlew
+COPY build.gradle.kts settings.gradle.kts ./
+RUN --mount=type=cache,target=/home/gradle/.gradle \
+	gradle dependencies --no-daemon -q || true
 
 COPY src src
-RUN ./gradlew bootJar --no-daemon -x test
+RUN --mount=type=cache,target=/home/gradle/.gradle \
+	gradle bootJar --no-daemon -x test
 
 FROM eclipse-temurin:21-jre
 WORKDIR /app

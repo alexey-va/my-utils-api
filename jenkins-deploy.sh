@@ -14,6 +14,9 @@ export OPENROUTER_PROXY_ENABLED=true
 export OPENROUTER_PROXY_HOST=185.242.106.81
 export OPENROUTER_PROXY_PORT=8888
 
+export DOCKER_BUILDKIT=1
+export COMPOSE_DOCKER_CLI_BUILD=1
+
 COMPOSE="docker compose -f docker-compose.yml -f docker-compose.jenkins.yml"
 
 ${COMPOSE} up -d postgres redis temporal-postgresql temporal temporal-ui
