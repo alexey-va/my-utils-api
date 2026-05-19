@@ -67,27 +67,8 @@ class TelegramClient(
 		}.onFailure { log.debug("sendChatAction failed", it) }
 	}
 
-	fun setWebhook(publicUrl: String) {
-		val response =
-			client
-				.post()
-				.uri("/setWebhook")
-				.body(
-					SetWebhookRequest(
-						url = publicUrl,
-					),
-				)
-				.retrieve()
-				.body(TelegramApiResponse::class.java)
-		if (response?.ok == true) {
-			log.info("Telegram webhook set to {}", publicUrl)
-		} else {
-			log.error("setWebhook failed: {}", response?.description)
-		}
-	}
-
-	/** Required before long polling — Telegram allows only one update mode. */
-	fun deleteWebhook() {
+	/** Telegram allows either getUpdates or a push URL — clear any stale push URL on startup. */
+	fun clearPushUrlIfAny() {
 		val response =
 			client
 				.post()
@@ -95,9 +76,9 @@ class TelegramClient(
 				.retrieve()
 				.body(TelegramApiResponse::class.java)
 		if (response?.ok == true) {
-			log.info("Telegram webhook removed (long polling mode)")
+			log.info("Telegram ready for getUpdates")
 		} else {
-			log.warn("deleteWebhook failed: {}", response?.description)
+			log.warn("Telegram deleteWebhook failed: {}", response?.description)
 		}
 	}
 

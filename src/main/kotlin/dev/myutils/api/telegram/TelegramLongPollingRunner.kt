@@ -11,10 +11,7 @@ import org.springframework.stereotype.Component
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-/**
- * Local / dev mode: only [TelegramClient] bot token required.
- * Telegram pushes nothing — we poll [getUpdates] (same as typical hobby bots).
- */
+/** Receives bot messages via Telegram [getUpdates] long polling. */
 @Component
 @ConditionalOnTelegramBot
 class TelegramLongPollingRunner(
@@ -27,19 +24,19 @@ class TelegramLongPollingRunner(
 	private val nextOffset = AtomicLong(0)
 	private var pollingThread: Thread? = null
 
-	fun shouldUsePolling(): Boolean = properties.telegram.webhookBaseUrl.isBlank()
-
 	@EventListener(ApplicationReadyEvent::class)
-	fun startIfNeeded() {
-		if (!shouldUsePolling()) {
-			return
-		}
+	fun start() {
+		val allowed = properties.telegram.allowedUserIdSet()
+		log.info(
+			"Telegram bot starting long polling allowedUsers={} proxy={}",
+			allowed.ifEmpty { "any" },
+			properties.openrouter.proxy.enabled,
+		)
 		running.set(true)
-		log.info("Telegram long polling starting (deleteWebhook, then getUpdates)")
 		pollingThread =
 			Thread.ofVirtual().name("telegram-long-poll").start {
-				telegramClient.deleteWebhook()
-				log.info("Telegram long polling active (no TELEGRAM_WEBHOOK_BASE_URL)")
+				telegramClient.clearPushUrlIfAny()
+				log.info("Telegram long polling active")
 				pollLoop()
 			}
 	}

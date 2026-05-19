@@ -1,5 +1,5 @@
 # Jenkins deploy: bind only on localhost, non-default ports (no clash with 8080/5432/6379).
-# Telegram: long polling (no webhook / TELEGRAM_WEBHOOK_BASE_URL).
+# Telegram: long polling via getUpdates.
 services:
   postgres:
     ports:
@@ -16,7 +16,6 @@ services:
       MYUTILS_CORS_ALLOWED_ORIGINS: "${MYUTILS_CORS_ALLOWED_ORIGINS}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
       TELEGRAM_ALLOWED_USER_IDS: "${TELEGRAM_ALLOWED_USER_IDS}"
-      TELEGRAM_WEBHOOK_BASE_URL: ""
       OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
       OPENROUTER_PROXY_ENABLED: "true"
       OPENROUTER_PROXY_HOST: "185.242.106.81"

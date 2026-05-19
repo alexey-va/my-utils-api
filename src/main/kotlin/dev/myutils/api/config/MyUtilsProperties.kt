@@ -25,11 +25,8 @@ data class MyUtilsProperties(
 
 	data class TelegramProperties(
 		val botToken: String = "",
-		val webhookSecret: String = "",
 		/** Comma-separated Telegram user IDs allowed to use the bot. */
 		val allowedUserIds: String = "",
-		/** Public API base URL for setWebhook, e.g. https://utils.example.com */
-		val webhookBaseUrl: String = "",
 		val conversationTtlHours: Long = 48,
 		val conversationKeyPrefix: String = "myutils:telegram:chat:",
 	) {

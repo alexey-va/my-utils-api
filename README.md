@@ -112,15 +112,10 @@ Log workouts by messaging a Telegram bot. Messages are parsed by an OpenRouter m
 | `TELEGRAM_BOT_TOKEN` | From [@BotFather](https://t.me/BotFather) — bot starts when this is set |
 | `TELEGRAM_ALLOWED_USER_IDS` | Your Telegram user id (comma-separated) |
 | `OPENROUTER_API_KEY` | [OpenRouter](https://openrouter.ai/) API key |
-| `TELEGRAM_WEBHOOK_SECRET` | Production only — random string in webhook URL path |
-| `TELEGRAM_WEBHOOK_BASE_URL` | Production only — public API URL (e.g. `https://utils.alexeyav.ru`) |
+| `OPENROUTER_PROXY_*` | Optional HTTP proxy for Telegram + OpenRouter (see `.env.example`) |
 
-**Local dev:** `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, `OPENROUTER_API_KEY` in `.env`. No webhook vars — the API uses **long polling** (`getUpdates`).
-
-**Production:** also set `TELEGRAM_WEBHOOK_BASE_URL` and `TELEGRAM_WEBHOOK_SECRET`. On startup the API registers:
-
-`{TELEGRAM_WEBHOOK_BASE_URL}/api/telegram/webhook/{TELEGRAM_WEBHOOK_SECRET}`
+Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, and `OPENROUTER_API_KEY` in `.env`. The API receives messages via **long polling** (`getUpdates`) — no public URL required.
 
 Example message: `bench 80kg 3x5` or `сегодня присед 100 на 5х5`.
 
-**Get your Telegram user id:** message [@userinfobot](https://t.me/userinfobot) or inspect webhook updates in logs during testing.
+**Get your Telegram user id:** message [@userinfobot](https://t.me/userinfobot).

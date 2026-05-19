@@ -6,10 +6,9 @@ cd "${WORKSPACE}"
 # Public URL of the frontend (browser Origin header). Comma-separated for several hosts.
 export MYUTILS_CORS_ALLOWED_ORIGINS="${MYUTILS_CORS_ALLOWED_ORIGINS:-http://utils.alexeyav.ru,https://utils.alexeyav.ru,http://127.0.0.1:13082}"
 
-# Telegram bot — TELEGRAM_BOT_TOKEN + OPENROUTER_API_KEY from Jenkins credentials; webhook vars in job env.
+# Telegram bot — TELEGRAM_BOT_TOKEN + OPENROUTER_API_KEY from Jenkins credentials.
 export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 export TELEGRAM_ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS:-303179278}"
-export TELEGRAM_WEBHOOK_BASE_URL=""
 export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
 export OPENROUTER_PROXY_ENABLED=true
 export OPENROUTER_PROXY_HOST=185.242.106.81

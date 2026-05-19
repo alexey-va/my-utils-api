@@ -53,13 +53,6 @@ data class SendChatActionRequest(
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
-data class SetWebhookRequest(
-	val url: String,
-	@JsonProperty("allowed_updates")
-	val allowedUpdates: List<String> = listOf("message", "edited_message"),
-)
-
-@JsonIgnoreProperties(ignoreUnknown = true)
 data class TelegramApiResponse<T>(
 	val ok: Boolean = false,
 	val result: T? = null,

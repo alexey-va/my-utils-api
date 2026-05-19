@@ -10,7 +10,7 @@ src/main/kotlin/dev/myutils/api/
 ├── session/         — Redis SessionService
 ├── service/         — AuthService, WorkoutService, WorkoutBotFacade
 ├── agent/           — OpenRouter tool-calling agent (Telegram)
-├── telegram/        — Webhook + Telegram API client
+├── telegram/        — Long polling + Telegram API client
 ├── openrouter/      — Chat completions client
 ├── security/        — JWT filter + SecurityConfig
 ├── web/             — REST controllers
