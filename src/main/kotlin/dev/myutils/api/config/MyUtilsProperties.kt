@@ -47,5 +47,12 @@ data class MyUtilsProperties(
 		val maxToolIterations: Int = 8,
 		val httpReferer: String = "https://github.com/alexey-va/my-utils",
 		val appTitle: String = "my-utils-workout-bot",
-	)
+		val proxy: HttpProxyProperties = HttpProxyProperties(),
+	) {
+		data class HttpProxyProperties(
+			val enabled: Boolean = false,
+			val host: String = "",
+			val port: Int = 8888,
+		)
+	}
 }

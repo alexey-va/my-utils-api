@@ -4,8 +4,6 @@ import dev.myutils.api.config.ConditionalOnTelegramBot
 import dev.myutils.api.config.MyUtilsProperties
 import dev.myutils.api.util.LogPreview
 import org.slf4j.LoggerFactory
-import org.springframework.http.HttpHeaders
-import org.springframework.http.MediaType
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
 
@@ -16,16 +14,7 @@ class OpenRouterClient(
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val config = properties.openrouter
-
-	private val client: RestClient =
-		RestClient
-			.builder()
-			.baseUrl(config.baseUrl.trimEnd('/'))
-			.defaultHeader(HttpHeaders.AUTHORIZATION, "Bearer ${config.apiKey}")
-			.defaultHeader(HttpHeaders.CONTENT_TYPE, MediaType.APPLICATION_JSON_VALUE)
-			.defaultHeader("HTTP-Referer", config.httpReferer)
-			.defaultHeader("X-Title", config.appTitle)
-			.build()
+	private val client: RestClient = OpenRouterRestClientFactory.create(properties)
 
 	fun chat(request: ChatCompletionRequest): ChatCompletionResponse {
 		val lastUser =

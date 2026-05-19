@@ -50,3 +50,7 @@ myutils:
     api-key: ${OPENROUTER_API_KEY:}
     model: anthropic/claude-3.5-haiku
     max-tool-iterations: 8
+    proxy:
+      enabled: ${OPENROUTER_PROXY_ENABLED:false}
+      host: ${OPENROUTER_PROXY_HOST:}
+      port: ${OPENROUTER_PROXY_PORT:8888}
