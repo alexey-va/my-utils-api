@@ -7,6 +7,7 @@ import dev.myutils.api.domain.UserRepository
 import dev.myutils.api.domain.WorkoutEntryRepository
 import dev.myutils.api.web.dto.CreateExerciseRequest
 import dev.myutils.api.web.dto.ExerciseResponse
+import dev.myutils.api.web.dto.UpdateExerciseRequest
 import dev.myutils.api.web.dto.UpsertWorkoutEntryRequest
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
@@ -44,6 +45,24 @@ class WorkoutBotFacade(
 				source = "telegram-bot",
 			)
 		return "Создано упражнение «${created.name}» (${created.muscleGroup})."
+	}
+
+	fun renameExercise(
+		currentName: String,
+		newName: String,
+		muscleGroup: String? = null,
+	): String {
+		val exercise = resolveExercise(currentName)
+		val trimmed = newName.trim()
+		if (trimmed.isEmpty()) {
+			throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Новое название не может быть пустым")
+		}
+		val updated =
+			workoutService.updateExercise(
+				exercise.id,
+				UpdateExerciseRequest(name = trimmed, muscleGroup = muscleGroup),
+			)
+		return "Переименовано: «${exercise.name}» → «${updated.name}» (${updated.muscleGroup})."
 	}
 
 	fun logWorkout(

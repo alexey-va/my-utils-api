@@ -26,6 +26,7 @@ class WorkoutToolExecutor(
 				when (call.function.name) {
 					"list_exercises" -> listExercises()
 					"create_exercise" -> createExercise(args)
+					"rename_exercise" -> renameExercise(args)
 					"log_workout" -> logWorkout(args)
 					"delete_workout" -> deleteWorkout(args)
 					"get_exercise_progress" -> getExerciseProgress(args)
@@ -55,6 +56,13 @@ class WorkoutToolExecutor(
 		val name = text(args, "name") ?: return "Нужно поле name"
 		val muscleGroup = text(args, "muscle_group")
 		return workoutBotFacade.createExercise(name, muscleGroup)
+	}
+
+	private fun renameExercise(args: JsonNode): String {
+		val currentName = text(args, "current_name") ?: return "Нужно поле current_name"
+		val newName = text(args, "new_name") ?: return "Нужно поле new_name"
+		val muscleGroup = text(args, "muscle_group")
+		return workoutBotFacade.renameExercise(currentName, newName, muscleGroup)
 	}
 
 	private fun logWorkout(args: JsonNode): String {

@@ -63,4 +63,34 @@ class WorkoutToolExecutorTest {
 			)
 		assertTrue(result.contains("Записано"))
 	}
+
+	@Test
+	fun `rename_exercise delegates to facade`() {
+		whenever(
+			facade.renameExercise(
+				currentName = "Жим",
+				newName = "Жим грудь",
+				muscleGroup = null,
+			),
+		).thenReturn("Переименовано: «Жим» → «Жим грудь» (chest).")
+		val executor = WorkoutToolExecutor(facade, objectMapper)
+		val result =
+			executor.execute(
+				ToolCall(
+					id = "3",
+					function =
+						ToolCallFunction(
+							name = "rename_exercise",
+							arguments =
+								"""
+								{
+								  "current_name": "Жим",
+								  "new_name": "Жим грудь"
+								}
+								""".trimIndent(),
+						),
+				),
+			)
+		assertTrue(result.contains("Переименовано"))
+	}
 }

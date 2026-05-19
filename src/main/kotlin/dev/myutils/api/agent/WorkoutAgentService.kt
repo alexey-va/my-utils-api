@@ -198,7 +198,7 @@ class WorkoutAgentService(
 
 		## Данные
 		2-е system — снимок дневника. Сначала он; tools только если данных нет.
-		log_workout / delete_workout / create_exercise — для изменений. После записи/удаления — 2–4 строки: что сделано + «Сейчас в дневнике:» из обновлённого снимка.
+		log_workout / delete_workout / create_exercise / rename_exercise — для изменений. После записи/удаления/переименования — 2–4 строки: что сделано + «Сейчас в дневнике:» из обновлённого снимка.
 
 		## Формат ответа (пример)
 		«На неделе уже: присед 50, бицепс 40. Осталось: жим, бабочка, пулл. Сегодня: Жим грудь 70 кг 3*10/МАХ, Бабочка 35 кг 3*10/МАХ, Пулл даун 72 кг 3*8/МАХ — спина после груди.»
@@ -213,6 +213,6 @@ class WorkoutAgentService(
 
 private fun ToolCall.mutatesWorkoutData(): Boolean =
 	when (function.name) {
-		"log_workout", "delete_workout", "create_exercise" -> true
+		"log_workout", "delete_workout", "create_exercise", "rename_exercise" -> true
 		else -> false
 	}

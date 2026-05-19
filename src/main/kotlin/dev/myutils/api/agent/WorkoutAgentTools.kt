@@ -17,6 +17,24 @@ class WorkoutAgentTools(
 				"""{"type":"object","properties":{}}""",
 			),
 			tool(
+				"rename_exercise",
+				"Переименовать упражнение в дневнике (записи сохраняются). Можно сменить группу мышц.",
+				"""
+				{
+				  "type": "object",
+				  "properties": {
+				    "current_name": {"type": "string", "description": "Текущее название в дневнике"},
+				    "new_name": {"type": "string", "description": "Новое название"},
+				    "muscle_group": {
+				      "type": "string",
+				      "description": "Опционально: chest, back, legs, shoulders, arms, core, other"
+				    }
+				  },
+				  "required": ["current_name", "new_name"]
+				}
+				""".trimIndent(),
+			),
+			tool(
 				"create_exercise",
 				"Создать новое упражнение, если его ещё нет. Для гантелей укажи «гантели» в названии.",
 				"""
