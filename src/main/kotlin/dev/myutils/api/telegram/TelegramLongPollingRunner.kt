@@ -35,10 +35,11 @@ class TelegramLongPollingRunner(
 			return
 		}
 		running.set(true)
+		log.info("Telegram long polling starting (deleteWebhook, then getUpdates)")
 		pollingThread =
 			Thread.ofVirtual().name("telegram-long-poll").start {
 				telegramClient.deleteWebhook()
-				log.info("Telegram long polling started (no TELEGRAM_WEBHOOK_BASE_URL — token-only mode)")
+				log.info("Telegram long polling active (no TELEGRAM_WEBHOOK_BASE_URL)")
 				pollLoop()
 			}
 	}

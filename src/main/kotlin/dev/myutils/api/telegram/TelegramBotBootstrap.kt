@@ -19,8 +19,15 @@ class TelegramBotBootstrap(
 	@EventListener(ApplicationReadyEvent::class)
 	fun onReady() {
 		val telegram = properties.telegram
+		val polling = longPollingRunner.shouldUsePolling()
+		log.info(
+			"Telegram bot ready mode={} allowedUsers={} proxy={}",
+			if (polling) "long-polling" else "webhook",
+			telegram.allowedUserIdSet().ifEmpty { "any" },
+			properties.openrouter.proxy.enabled,
+		)
 
-		if (longPollingRunner.shouldUsePolling()) {
+		if (polling) {
 			return
 		}
 

@@ -1,9 +1,10 @@
 package dev.myutils.api.telegram
 
+import dev.myutils.api.config.ConditionalOnTelegramBot
 import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.http.OutboundHttpClientFactory
 import dev.myutils.api.util.LogPreview
 import org.slf4j.LoggerFactory
-import dev.myutils.api.config.ConditionalOnTelegramBot
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
 
@@ -15,11 +16,19 @@ class TelegramClient(
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val config = properties.telegram
 
-	private val client: RestClient =
-		RestClient
-			.builder()
-			.baseUrl("https://api.telegram.org/bot${config.botToken}")
-			.build()
+	private val client: RestClient = createRestClient(properties)
+
+	private fun createRestClient(properties: MyUtilsProperties): RestClient {
+		val builder =
+			RestClient
+				.builder()
+				.baseUrl("https://api.telegram.org/bot${config.botToken}")
+		val proxy = properties.openrouter.proxy
+		if (proxy.enabled && proxy.host.isNotBlank()) {
+			builder.requestFactory(OutboundHttpClientFactory.jdkRequestFactory(proxy))
+		}
+		return builder.build()
+	}
 
 	fun sendMessage(
 		chatId: Long,
