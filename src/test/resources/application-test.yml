@@ -7,3 +7,16 @@ spring:
     redis:
       host: localhost
       port: 6379
+  temporal:
+    connection:
+      enable: true
+    test-server:
+      enabled: true
+    workers-auto-discovery:
+      packages:
+        - dev.myutils.api.temporal
+
+myutils:
+  temporal:
+    enabled: true
+    evening-reminder-enabled: false

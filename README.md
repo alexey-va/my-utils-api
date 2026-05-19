@@ -6,6 +6,7 @@ Kotlin/Spring Boot REST API for [my-utils](https://github.com/alexey-va/my-utils
 
 - **PostgreSQL** — users, exercises, workout entries (Flyway)
 - **Redis** — JWT sessions
+- **Temporal** — durable workflows (evening workout reminders, future automations)
 - **Docker** — full stack in one command
 
 ## Run everything in Docker (recommended)
@@ -21,6 +22,8 @@ docker compose up -d --build
 | API      | http://localhost:8080 |
 | Postgres | localhost:5432 (`myutils` / `myutils`) |
 | Redis    | localhost:6379 |
+| Temporal | `localhost:7233` (gRPC) |
+| Temporal UI | http://localhost:8233 |
 
 **Restart API after code changes:**
 
@@ -47,6 +50,20 @@ docker compose down
 ```
 
 Health: `GET http://localhost:8080/api/health`
+
+### Temporal
+
+Workers and workflows live in `dev.myutils.api.temporal`. Task queue: `myutils-main`.
+
+| Env | Default (Docker) | Description |
+|-----|------------------|-------------|
+| `MYUTILS_TEMPORAL_ENABLED` | `true` | Connect workers to Temporal |
+| `TEMPORAL_TARGET` | `temporal:7233` | Temporal frontend address |
+| `MYUTILS_TEMPORAL_EVENING_REMINDER` | `true` | Daily 20:00 MSK reminder if diary empty |
+
+**Host dev** (`./gradlew bootRun`): infra + Temporal via `docker compose -f docker-compose.dev.yml up -d`, set `TEMPORAL_TARGET=127.0.0.1:7233` in `.env`.
+
+**Jenkins** deploy keeps `MYUTILS_TEMPORAL_ENABLED=false` (no Temporal server on that host yet).
 
 ## Local development (Gradle on host)
 

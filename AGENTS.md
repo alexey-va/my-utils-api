@@ -12,6 +12,7 @@ src/main/kotlin/dev/myutils/api/
 ├── agent/           — OpenRouter tool-calling agent (Telegram)
 ├── telegram/        — Long polling + Telegram API client
 ├── openrouter/      — Chat completions client
+├── temporal/        — Temporal workflows + activities (reminders)
 ├── security/        — JWT filter + SecurityConfig
 ├── web/             — REST controllers
 └── config/

@@ -9,6 +9,7 @@ data class MyUtilsProperties(
 	val session: SessionProperties = SessionProperties(),
 	val telegram: TelegramProperties = TelegramProperties(),
 	val openrouter: OpenRouterProperties = OpenRouterProperties(),
+	val temporal: TemporalProperties = TemporalProperties(),
 ) {
 	data class JwtProperties(
 		val secret: String = "dev-secret",
@@ -36,6 +37,15 @@ data class MyUtilsProperties(
 				.mapNotNull { it.trim().takeIf(String::isNotEmpty)?.toLongOrNull() }
 				.toSet()
 	}
+
+	data class TemporalProperties(
+		val enabled: Boolean = false,
+		val taskQueue: String = "myutils-main",
+		val eveningReminderEnabled: Boolean = false,
+		val eveningReminderHour: Int = 20,
+		val eveningReminderMinute: Int = 0,
+		val zoneId: String = "Europe/Moscow",
+	)
 
 	data class OpenRouterProperties(
 		val apiKey: String = "",

@@ -154,6 +154,14 @@ class WorkoutBotFacade(
 	}
 
 	@Transactional(readOnly = true)
+	fun hasWorkoutEntriesOn(date: LocalDate): Boolean {
+		val user = localWorkoutUser()
+		return workoutEntryRepository
+			.findByUserIdAndPerformedOnOrderByCreatedAtAsc(user.id, date)
+			.isNotEmpty()
+	}
+
+	@Transactional(readOnly = true)
 	fun getDaySummary(date: LocalDate? = null): String {
 		val user = localWorkoutUser()
 		val day = date ?: today()

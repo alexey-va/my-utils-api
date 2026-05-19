@@ -28,6 +28,14 @@ spring:
     redis:
       host: ${REDIS_HOST:localhost}
       port: ${REDIS_PORT:6379}
+  temporal:
+    connection:
+      enable: ${MYUTILS_TEMPORAL_ENABLED:false}
+      target: ${TEMPORAL_TARGET:127.0.0.1:7233}
+    namespace: default
+    workers-auto-discovery:
+      packages:
+        - dev.myutils.api.temporal
 
 myutils:
   jwt:
@@ -44,6 +52,13 @@ myutils:
     bot-token: ${TELEGRAM_BOT_TOKEN:}
     allowed-user-ids: ${TELEGRAM_ALLOWED_USER_IDS:}
     conversation-ttl-hours: 48
+  temporal:
+    enabled: ${MYUTILS_TEMPORAL_ENABLED:false}
+    task-queue: myutils-main
+    evening-reminder-enabled: ${MYUTILS_TEMPORAL_EVENING_REMINDER:false}
+    evening-reminder-hour: 20
+    evening-reminder-minute: 0
+    zone-id: Europe/Moscow
   openrouter:
     api-key: ${OPENROUTER_API_KEY:}
     model: anthropic/claude-3.5-haiku
