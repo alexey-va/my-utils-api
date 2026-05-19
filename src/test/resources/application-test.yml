@@ -1,0 +1,9 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/myutils
+    username: myutils
+    password: myutils
+  data:
+    redis:
+      host: localhost
+      port: 6379

@@ -1,0 +1,71 @@
+package dev.myutils.api.web.dto
+
+import jakarta.validation.constraints.Min
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.NotNull
+import java.time.LocalDate
+import java.util.UUID
+
+data class CreateExerciseRequest(
+	@field:NotBlank val name: String,
+)
+
+data class UpdateExerciseRequest(
+	@field:NotBlank val name: String,
+)
+
+data class ExerciseResponse(
+	val id: UUID,
+	val name: String,
+)
+
+data class UpsertWorkoutEntryRequest(
+	@field:NotNull val exerciseId: UUID,
+	@field:NotNull val performedOn: LocalDate,
+	@field:Min(1) val weightKg: Int,
+	@field:Min(1) val setCount: Int,
+	@field:Min(1) val repsPerSet: Int,
+	@field:Min(1) val maxReps: Int,
+)
+
+data class WorkoutCellDto(
+	val weightKg: Int,
+	val setCount: Int,
+	val repsPerSet: Int,
+	val maxReps: Int,
+	val display: String,
+)
+
+data class WorkoutGridRowDto(
+	val exerciseId: UUID,
+	val exerciseName: String,
+	val cells: Map<String, WorkoutCellDto>,
+)
+
+data class WorkoutGridResponse(
+	val dates: List<LocalDate>,
+	val rows: List<WorkoutGridRowDto>,
+)
+
+data class ProgressPointDto(
+	val date: LocalDate,
+	val weightKg: Int,
+	val setCount: Int,
+	val repsPerSet: Int,
+	val maxReps: Int,
+	val volume: Int,
+)
+
+data class ExerciseStatsDto(
+	val sessions: Int,
+	val bestWeightKg: Int?,
+	val latestWeightKg: Int?,
+	val bestMaxReps: Int?,
+	val bestVolume: Int?,
+)
+
+data class ExerciseProgressResponse(
+	val exercise: ExerciseResponse,
+	val points: List<ProgressPointDto>,
+	val stats: ExerciseStatsDto,
+)
