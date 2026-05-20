@@ -2,6 +2,8 @@
 
 Kotlin/Spring Boot REST API for [my-utils](https://github.com/alexey-va/my-utils).
 
+**Подробная архитектура:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — стек, БД, авторизация, Telegram-бот, Temporal, деплой.
+
 ## Stack
 
 - **PostgreSQL** — users, exercises, workout entries (Flyway)
