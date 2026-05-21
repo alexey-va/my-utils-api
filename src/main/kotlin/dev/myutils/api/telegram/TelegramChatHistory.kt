@@ -2,8 +2,9 @@ package dev.myutils.api.telegram
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
-import dev.myutils.api.config.MyUtilsProperties
 import dev.myutils.api.config.ConditionalOnTelegramBot
+import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.openrouter.ChatMessage
 import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -37,7 +38,7 @@ class TelegramChatHistory(
 		redis.opsForValue().set(
 			key(chatId),
 			objectMapper.writeValueAsString(trimmed),
-			Duration.ofHours(config.conversationTtlHours),
+			Duration.ofHours(AppProperties.TELEGRAM_CONVERSATION_TTL_HOURS.get().toLong()),
 		)
 	}
 

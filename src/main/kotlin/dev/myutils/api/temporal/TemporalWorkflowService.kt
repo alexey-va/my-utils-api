@@ -1,6 +1,7 @@
 package dev.myutils.api.temporal
 
 import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.temporal.notification.NotificationWorkflowInput
 import dev.myutils.api.temporal.notification.TelegramNotificationWorkflow
 import dev.myutils.api.temporal.reminder.EveningWorkoutReminderWorkflow
@@ -25,13 +26,16 @@ class TemporalWorkflowService(
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	fun ensureEveningReminderRunning(chatId: Long) {
-		val temporal = properties.temporal
+		if (!AppProperties.TEMPORAL_EVENING_REMINDER_ENABLED.get()) {
+			log.info("Evening reminder disabled in runtime settings, skip chatId={}", chatId)
+			return
+		}
 		val input =
 			ReminderWorkflowInput(
 				chatId = chatId,
-				zoneId = temporal.zoneId,
-				hour = temporal.eveningReminderHour,
-				minute = temporal.eveningReminderMinute,
+				zoneId = AppProperties.TEMPORAL_ZONE_ID.get(),
+				hour = AppProperties.TEMPORAL_EVENING_REMINDER_HOUR.get(),
+				minute = AppProperties.TEMPORAL_EVENING_REMINDER_MINUTE.get(),
 			)
 		val workflowId = eveningReminderWorkflowId(chatId)
 		val stub =
@@ -78,6 +82,16 @@ class TemporalWorkflowService(
 			),
 		)
 		return workflowId
+	}
+
+	fun cancelEveningReminder(chatId: Long) {
+		val workflowId = eveningReminderWorkflowId(chatId)
+		try {
+			workflowClient.newUntypedWorkflowStub(workflowId).cancel()
+			log.info("Cancelled evening reminder workflowId={}", workflowId)
+		} catch (_: WorkflowNotFoundException) {
+			log.debug("Evening reminder not found workflowId={}", workflowId)
+		}
 	}
 
 	fun cancelNotification(workflowId: String): Boolean =

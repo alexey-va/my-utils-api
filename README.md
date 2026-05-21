@@ -63,7 +63,8 @@ Workers and workflows live in `dev.myutils.api.temporal`. Task queue: `myutils-m
 |-----|------------------|-------------|
 | `MYUTILS_TEMPORAL_ENABLED` | `true` | Connect workers to Temporal |
 | `TEMPORAL_TARGET` | `temporal:7233` | Temporal frontend address |
-| `MYUTILS_TEMPORAL_EVENING_REMINDER` | `true` | Daily 20:00 MSK reminder if diary empty |
+
+Evening reminder, model, TTL — **runtime settings** in Postgres (`PUT /api/admin/settings/{key}`, JWT). See `docs/ARCHITECTURE.md`.
 
 **Host dev** (`./gradlew bootRun`): infra + Temporal via `docker compose -f docker-compose.dev.yml up -d`, set `TEMPORAL_TARGET=127.0.0.1:7233` in `.env`.
 

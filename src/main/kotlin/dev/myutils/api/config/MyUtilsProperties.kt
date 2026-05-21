@@ -28,7 +28,6 @@ data class MyUtilsProperties(
 		val botToken: String = "",
 		/** Comma-separated Telegram user IDs allowed to use the bot. */
 		val allowedUserIds: String = "",
-		val conversationTtlHours: Long = 48,
 		val conversationKeyPrefix: String = "myutils:telegram:chat:",
 	) {
 		fun allowedUserIdSet(): Set<Long> =
@@ -41,17 +40,11 @@ data class MyUtilsProperties(
 	data class TemporalProperties(
 		val enabled: Boolean = false,
 		val taskQueue: String = "myutils-main",
-		val eveningReminderEnabled: Boolean = false,
-		val eveningReminderHour: Int = 20,
-		val eveningReminderMinute: Int = 0,
-		val zoneId: String = "Europe/Moscow",
 	)
 
 	data class OpenRouterProperties(
 		val apiKey: String = "",
-		val model: String = "anthropic/claude-3.5-haiku",
 		val baseUrl: String = "https://openrouter.ai/api/v1",
-		val maxToolIterations: Int = 8,
 		val httpReferer: String = "https://github.com/alexey-va/my-utils",
 		val appTitle: String = "my-utils-workout-bot",
 		val proxy: HttpProxyProperties = HttpProxyProperties(),

@@ -51,18 +51,11 @@ myutils:
   telegram:
     bot-token: ${TELEGRAM_BOT_TOKEN:}
     allowed-user-ids: ${TELEGRAM_ALLOWED_USER_IDS:}
-    conversation-ttl-hours: 48
   temporal:
     enabled: ${MYUTILS_TEMPORAL_ENABLED:false}
     task-queue: myutils-main
-    evening-reminder-enabled: ${MYUTILS_TEMPORAL_EVENING_REMINDER:false}
-    evening-reminder-hour: 20
-    evening-reminder-minute: 0
-    zone-id: Europe/Moscow
   openrouter:
     api-key: ${OPENROUTER_API_KEY:}
-    model: anthropic/claude-3.5-haiku
-    max-tool-iterations: 8
     proxy:
       enabled: ${OPENROUTER_PROXY_ENABLED:false}
       host: ${OPENROUTER_PROXY_HOST:}

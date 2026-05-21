@@ -2,6 +2,7 @@ package dev.myutils.api.agent
 
 import dev.myutils.api.config.ConditionalOnTelegramBot
 import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.openrouter.ChatCompletionRequest
 import dev.myutils.api.openrouter.ChatMessage
 import dev.myutils.api.openrouter.OpenRouterClient
@@ -26,7 +27,6 @@ class WorkoutAgentService(
 	private val contextBuilder: WorkoutAgentContextBuilder,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
-	private val config = properties.openrouter
 	private val telegram = properties.telegram
 
 	@Async
@@ -94,19 +94,21 @@ class WorkoutAgentService(
 
 		messages.addAll(history)
 
-		for (iteration in 1..config.maxToolIterations) {
+		val maxIterations = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get()
+		val model = AppProperties.OPENROUTER_MODEL.get()
+		for (iteration in 1..maxIterations) {
 			log.info(
 				"Agent chatId={} iteration={}/{} contextMessages={}",
 				chatId,
 				iteration,
-				config.maxToolIterations,
+				maxIterations,
 				messages.size,
 			)
 
 			val response =
 				openRouterClient.chat(
 					ChatCompletionRequest(
-						model = config.model,
+						model = model,
 						messages = messages,
 						tools = workoutAgentTools.definitions(),
 					),
@@ -163,7 +165,7 @@ class WorkoutAgentService(
 			}
 		}
 
-		log.warn("Agent chatId={} hit maxToolIterations={}", chatId, config.maxToolIterations)
+		log.warn("Agent chatId={} hit maxToolIterations={}", chatId, maxIterations)
 		return "Слишком много шагов. Упрости запрос или разбей на части."
 	}
 

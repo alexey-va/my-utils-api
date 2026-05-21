@@ -2,6 +2,7 @@ package dev.myutils.api.service
 
 import dev.myutils.api.domain.Exercise
 import dev.myutils.api.domain.ExerciseRepository
+import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.domain.User
 import dev.myutils.api.domain.UserRepository
 import dev.myutils.api.domain.WorkoutEntryRepository
@@ -134,14 +135,15 @@ class WorkoutBotFacade(
 	/** Компактный снимок для агента — пересобирается на каждое сообщение, не кешируется в Redis. */
 	@Transactional(readOnly = true)
 	fun buildAgentSnapshot(): String {
-		val now = ZonedDateTime.now(USER_ZONE)
+		val zone = userZone()
+		val now = ZonedDateTime.now(zone)
 		val today = now.toLocalDate()
 		val yesterday = today.minusDays(1)
 		val user = localWorkoutUser()
 		val exercises = exerciseRepository.findByUserIdOrderByNameAsc(user.id)
 		val allEntries = workoutEntryRepository.findByUserIdOrderByPerformedOnDescCreatedAtDesc(user.id)
 		val nowLine =
-			"Сейчас: ${now.format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))} (Europe/Moscow)"
+			"Сейчас: ${now.format(DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm"))} (${zone.id})"
 
 		return WorkoutAgentSnapshotFormatter.format(
 			today = today,
@@ -180,7 +182,9 @@ class WorkoutBotFacade(
 		return sb.toString().trim()
 	}
 
-	private fun today(): LocalDate = LocalDate.now(USER_ZONE)
+	private fun today(): LocalDate = LocalDate.now(userZone())
+
+	private fun userZone(): ZoneId = ZoneId.of(AppProperties.TEMPORAL_ZONE_ID.get())
 
 	private fun resolveExercise(name: String): Exercise {
 		val user = localWorkoutUser()
@@ -227,7 +231,4 @@ class WorkoutBotFacade(
 				)
 			}
 
-	companion object {
-		val USER_ZONE: ZoneId = ZoneId.of("Europe/Moscow")
-	}
 }

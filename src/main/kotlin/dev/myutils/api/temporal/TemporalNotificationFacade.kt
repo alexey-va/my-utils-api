@@ -1,6 +1,6 @@
 package dev.myutils.api.temporal
 
-import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.properties.AppProperties
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Component
 import java.time.LocalDateTime
@@ -11,11 +11,10 @@ import java.time.format.DateTimeParseException
 
 @Component
 class TemporalNotificationFacade(
-	private val properties: MyUtilsProperties,
 	private val temporalWorkflowService: ObjectProvider<TemporalWorkflowService>,
 ) {
 	private val zoneId: ZoneId
-		get() = ZoneId.of(properties.temporal.zoneId)
+		get() = ZoneId.of(AppProperties.TEMPORAL_ZONE_ID.get())
 
 	fun sendNow(
 		chatId: Long,
@@ -44,7 +43,7 @@ class TemporalNotificationFacade(
 			parseDeliverAt(deliverAtRaw)
 				?: return "Неверный deliver_at: укажи ISO дату-время, например 2026-05-20T20:00:00+03:00"
 		if (!deliverAt.isAfter(ZonedDateTime.now(zoneId))) {
-			return "deliver_at должен быть в будущем (часовой пояс ${properties.temporal.zoneId})."
+			return "deliver_at должен быть в будущем (часовой пояс ${zoneId.id})."
 		}
 		val workflowId = temporal.scheduleNotification(chatId, message, deliverAt)
 		val formatted = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm").format(deliverAt)

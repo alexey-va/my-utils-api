@@ -240,7 +240,7 @@ TelegramLongPollingRunner (virtual thread)
 - последняя сессия по каждому упражнению
 - сегодня / вчера
 
-Часовой пояс снимка: **Europe/Moscow**.
+Часовой пояс снимка: runtime-настройка `temporal.zone-id` (по умолчанию Europe/Moscow).
 
 ### Tools агента
 
@@ -279,8 +279,9 @@ Workers поднимаются Spring Boot autoconfig (`workers-auto-discovery` 
 #### 1. `EveningWorkoutReminderWorkflow` (долгоживущий)
 
 - **ID:** `evening-reminder-{chatId}`
-- Стартует при подъёме API, если `evening-reminder-enabled=true` и есть Telegram
-- Цикл: sleep до 20:00 MSK → activity «есть ли записи сегодня?» → если нет — сообщение в Telegram
+- Стартует при подъёме API, если `temporal.evening-reminder.enabled=true` в `app_settings` и есть Telegram
+- Час/минута/zone — из runtime settings (`temporal.evening-reminder.*`, `temporal.zone-id`)
+- Цикл: sleep до заданного времени → activity «есть ли записи сегодня?» → если нет — сообщение в Telegram
 
 #### 2. `TelegramNotificationWorkflow` (одноразовый)
 
@@ -323,6 +324,28 @@ flowchart LR
 
 ---
 
+## Runtime properties (`app_settings`)
+
+Свойства (`Property`), меняемые без рестарта. Все определения — в одном файле `properties/Properties.kt` (реестр `AppProperties`). Сервис: `RuntimePropertiesService`.
+
+| Ключ | Тип | Назначение |
+|------|-----|------------|
+| `temporal.evening-reminder.enabled` | bool | Вечерний workflow |
+| `temporal.evening-reminder.hour` | int | Час (0–23) |
+| `temporal.evening-reminder.minute` | int | Минута (0–59) |
+| `temporal.zone-id` | string | Часовой пояс снимка и Temporal |
+| `openrouter.model` | string | Модель агента |
+| `openrouter.max-tool-iterations` | int | Лимит tool-calling |
+| `telegram.conversation-ttl-hours` | int | TTL истории в Redis |
+
+**Admin API** (JWT): `GET/PUT /api/admin/settings`, `GET/PUT /api/admin/settings/{key}`.
+
+При `PUT` связанных temporal-свойств вызывается `onApplied` на `Property` (без отдельных listener-классов) — старт/отмена evening workflows.
+
+Кэш перезагружается из БД **каждую минуту**. При ошибке парсинга — **лог** и **default** из определения `Property`.
+
+---
+
 ## Переменные окружения (основные)
 
 | Переменная | Назначение |
@@ -334,7 +357,6 @@ flowchart LR
 | `OPENROUTER_API_KEY` | Ключ LLM |
 | `OPENROUTER_PROXY_ENABLED/HOST/PORT` | Прокси |
 | `MYUTILS_TEMPORAL_ENABLED` | Workers Temporal |
-| `MYUTILS_TEMPORAL_EVENING_REMINDER` | Вечерний workflow |
 | `TEMPORAL_TARGET` | gRPC Temporal |
 | `MYUTILS_CORS_ALLOWED_ORIGINS` | CORS для фронта |
 

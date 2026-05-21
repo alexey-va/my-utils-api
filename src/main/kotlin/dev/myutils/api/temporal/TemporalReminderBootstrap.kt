@@ -2,6 +2,7 @@ package dev.myutils.api.temporal
 
 import dev.myutils.api.config.ConditionalOnTelegramBot
 import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.properties.AppProperties
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.event.ApplicationReadyEvent
@@ -9,11 +10,7 @@ import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Component
 
 @Component
-@ConditionalOnProperty(
-	prefix = "myutils.temporal",
-	name = ["enabled", "evening-reminder-enabled"],
-	havingValue = "true",
-)
+@ConditionalOnProperty(prefix = "myutils.temporal", name = ["enabled"], havingValue = "true")
 @ConditionalOnTelegramBot
 class TemporalReminderBootstrap(
 	private val properties: MyUtilsProperties,
@@ -23,6 +20,10 @@ class TemporalReminderBootstrap(
 
 	@EventListener(ApplicationReadyEvent::class)
 	fun startEveningReminders() {
+		if (!AppProperties.TEMPORAL_EVENING_REMINDER_ENABLED.get()) {
+			log.info("Evening reminder disabled in runtime settings")
+			return
+		}
 		val allowed = properties.telegram.allowedUserIdSet()
 		if (allowed.isEmpty()) {
 			log.warn("Temporal evening reminders not started: TELEGRAM_ALLOWED_USER_IDS is empty")
