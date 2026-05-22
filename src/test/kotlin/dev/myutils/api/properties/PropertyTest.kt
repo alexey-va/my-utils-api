@@ -4,11 +4,18 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
+import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.web.server.ResponseStatusException
 
 class PropertyTest {
 	private val mapper = jacksonObjectMapper()
+
+	@Test
+	fun `AppProperties ALL discovers runtime properties without recursion`() {
+		assertEquals(7, AppProperties.ALL.size)
+		assertTrue(AppProperties.ALL.any { it.key == "openrouter.model" })
+	}
 
 	@Test
 	fun `BooleanProperty parses stored value`() {

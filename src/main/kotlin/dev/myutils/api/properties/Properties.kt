@@ -156,6 +156,7 @@ object AppProperties {
 	private fun discoverAll(): List<Property<*>> {
 		val properties =
 			AppProperties::class.memberProperties
+				.filter { member -> member.name != "ALL" }
 				.mapNotNull { member -> member.getter.call(AppProperties) as? Property<*> }
 				.sortedBy { it.key }
 		val duplicateKeys = properties.groupBy { it.key }.filter { it.value.size > 1 }.keys
