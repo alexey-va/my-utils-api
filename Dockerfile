@@ -8,6 +8,7 @@ COPY build.gradle.kts settings.gradle.kts ./
 RUN --mount=type=cache,target=/home/gradle/.gradle \
 	gradle dependencies --no-daemon -q || true
 
+ARG GIT_COMMIT=unknown
 COPY src src
 RUN --mount=type=cache,target=/home/gradle/.gradle \
 	gradle bootJar --no-daemon -x test

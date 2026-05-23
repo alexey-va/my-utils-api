@@ -20,5 +20,7 @@ export COMPOSE_DOCKER_CLI_BUILD=1
 
 COMPOSE="docker compose -f docker-compose.yml -f docker-compose.jenkins.yml"
 
+export GIT_COMMIT="$(git rev-parse HEAD)"
+
 ${COMPOSE} up -d postgres redis temporal-postgresql temporal temporal-ui
 ${COMPOSE} up -d --build --force-recreate api

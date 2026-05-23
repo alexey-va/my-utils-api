@@ -34,6 +34,7 @@ class TelegramLongPollingRunner(
 		running.set(true)
 		pollingThread =
 			Thread.ofVirtual().name("telegram-long-poll").start {
+				telegramClient.ensureLongPollingMode()
 				log.info("Telegram long polling active")
 				pollLoop()
 			}
@@ -63,7 +64,7 @@ class TelegramLongPollingRunner(
 				Thread.currentThread().interrupt()
 				break
 			} catch (ex: Exception) {
-				log.warn("Telegram polling error: {}", ex.message)
+				log.warn("Telegram polling error: {}", ex.message, ex)
 				sleep(3_000)
 			}
 		}

@@ -58,6 +58,25 @@ class TelegramClient(
 		}.onFailure { log.debug("sendChatAction failed", it) }
 	}
 
+	/** Clears a stale Telegram webhook so getUpdates can receive messages. Best-effort only. */
+	fun ensureLongPollingMode() {
+		runCatching {
+			val response =
+				client
+					.post()
+					.uri("/deleteWebhook")
+					.retrieve()
+					.body(TelegramApiResponse::class.java)
+			if (response?.ok == true) {
+				log.info("Telegram webhook cleared")
+			} else {
+				log.warn("Telegram deleteWebhook failed: {}", response?.description)
+			}
+		}.onFailure { ex ->
+			log.warn("Telegram deleteWebhook error: {}", ex.message)
+		}
+	}
+
 	fun getUpdates(
 		offset: Long,
 		timeoutSeconds: Int = 30,
