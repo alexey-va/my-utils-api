@@ -33,6 +33,7 @@ sealed interface Property<T> {
 	val type: PropertyType
 	val objectType: String?
 	val description: String
+	val tags: List<String>
 	val default: T
 	val editor: PropertyEditor get() = PropertyEditor.DEFAULT
 	val onApplied: ((PropertyApplyContext) -> Unit)?
@@ -90,6 +91,7 @@ data class PropertyView(
 	val type: PropertyType,
 	val objectType: String?,
 	val description: String,
+	val tags: List<String>,
 	val value: JsonNode,
 	val defaultValue: JsonNode,
 	val editor: PropertyEditor,
@@ -102,6 +104,7 @@ object AppProperties {
 		BooleanProperty(
 			key = "temporal.evening-reminder.enabled",
 			description = "Вечернее напоминание в Telegram, если дневник пуст (Temporal workflow).",
+			tags = listOf("temporal"),
 			default = false,
 			onApplied = PropertySideEffects::refreshEveningReminder,
 		)
@@ -110,6 +113,7 @@ object AppProperties {
 		IntProperty(
 			key = "temporal.evening-reminder.hour",
 			description = "Час напоминания (0–23), часовой пояс temporal.zone-id.",
+			tags = listOf("temporal"),
 			default = 20,
 			range = 0..23,
 			onApplied = PropertySideEffects::refreshEveningReminder,
@@ -119,6 +123,7 @@ object AppProperties {
 		IntProperty(
 			key = "temporal.evening-reminder.minute",
 			description = "Минута напоминания (0–59).",
+			tags = listOf("temporal"),
 			default = 0,
 			range = 0..59,
 			onApplied = PropertySideEffects::refreshEveningReminder,
@@ -128,6 +133,7 @@ object AppProperties {
 		StringProperty(
 			key = "temporal.zone-id",
 			description = "Часовой пояс для напоминаний и снимка дневника (например Europe/Moscow).",
+			tags = listOf("temporal"),
 			default = "Europe/Moscow",
 			validate = { runCatching { ZoneId.of(it) }.isSuccess },
 			onApplied = PropertySideEffects::refreshEveningReminder,
@@ -137,6 +143,7 @@ object AppProperties {
 		StringProperty(
 			key = "openrouter.model",
 			description = "Модель OpenRouter для Telegram-агента (формат provider/model-id).",
+			tags = listOf("agent"),
 			default = "anthropic/claude-3.5-haiku",
 			validate = { model -> model.length in 3..200 && model.contains('/') },
 		)
@@ -145,6 +152,7 @@ object AppProperties {
 		IntProperty(
 			key = "openrouter.max-tool-iterations",
 			description = "Максимум итераций tool-calling за одно сообщение.",
+			tags = listOf("agent"),
 			default = 8,
 			range = 1..32,
 		)
@@ -153,6 +161,7 @@ object AppProperties {
 		IntProperty(
 			key = "telegram.conversation-ttl-hours",
 			description = "Сколько часов хранить историю чата в Redis.",
+			tags = listOf("telegram"),
 			default = 48,
 			range = 1..(24 * 30),
 		)
@@ -161,6 +170,7 @@ object AppProperties {
 		StringProperty(
 			key = "agent.system-prompt",
 			description = "System prompt Telegram-агента (OpenRouter). Редактируется без перезапуска.",
+			tags = listOf("agent", "telegram"),
 			default = AgentSystemPromptDefault.PROMPT,
 			editor = PropertyEditor.TEXTAREA,
 			validate = { prompt -> prompt.isNotBlank() && prompt.length <= 32_000 },
@@ -210,6 +220,7 @@ private object PropertySideEffects {
 class BooleanProperty(
 	override val key: String,
 	override val description: String,
+	override val tags: List<String> = emptyList(),
 	override val default: Boolean,
 	override val onApplied: ((PropertyApplyContext) -> Unit)? = null,
 ) : Property<Boolean> {
@@ -244,6 +255,7 @@ class BooleanProperty(
 class IntProperty(
 	override val key: String,
 	override val description: String,
+	override val tags: List<String> = emptyList(),
 	override val default: Int,
 	private val range: IntRange,
 	override val onApplied: ((PropertyApplyContext) -> Unit)? = null,
@@ -279,6 +291,7 @@ class IntProperty(
 class StringProperty(
 	override val key: String,
 	override val description: String,
+	override val tags: List<String> = emptyList(),
 	override val default: String,
 	private val validate: (String) -> Boolean = { true },
 	override val editor: PropertyEditor = PropertyEditor.DEFAULT,
@@ -316,6 +329,7 @@ class StringProperty(
 class DataProperty<T : Any>(
 	override val key: String,
 	override val description: String,
+	override val tags: List<String> = emptyList(),
 	override val default: T,
 	private val valueClass: Class<T>,
 	override val onApplied: ((PropertyApplyContext) -> Unit)? = null,
@@ -349,6 +363,7 @@ class DataProperty<T : Any>(
 inline fun <reified T : Any> dataProperty(
 	key: String,
 	description: String,
+	tags: List<String> = emptyList(),
 	default: T,
 	noinline onApplied: ((PropertyApplyContext) -> Unit)? = null,
 	noinline validate: (T) -> Boolean = { true },
@@ -356,6 +371,7 @@ inline fun <reified T : Any> dataProperty(
 	DataProperty(
 		key = key,
 		description = description,
+		tags = tags,
 		default = default,
 		valueClass = T::class.java,
 		onApplied = onApplied,

@@ -12,6 +12,7 @@ data class PropertyResponse(
 	/** Имя data class для type=OBJECT, иначе null. */
 	val objectType: String?,
 	val description: String,
+	val tags: List<String>,
 	val value: JsonNode,
 	val defaultValue: JsonNode,
 	val editor: PropertyEditor,
@@ -29,6 +30,7 @@ fun PropertyView.toResponse(): PropertyResponse =
 		type = type,
 		objectType = objectType,
 		description = description,
+		tags = tags,
 		value = value,
 		defaultValue = defaultValue,
 		editor = editor,

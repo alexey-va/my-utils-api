@@ -17,6 +17,9 @@ class AppSetting(
 	@JdbcTypeCode(SqlTypes.JSON)
 	@Column(columnDefinition = "jsonb", nullable = false)
 	var value: String,
+	@JdbcTypeCode(SqlTypes.JSON)
+	@Column(columnDefinition = "jsonb", nullable = false)
+	var tags: List<String> = emptyList(),
 	@Column(name = "updated_at", nullable = false)
 	var updatedAt: Instant = Instant.now(),
 	@Column(name = "updated_by")

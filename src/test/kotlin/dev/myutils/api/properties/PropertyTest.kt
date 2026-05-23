@@ -17,6 +17,8 @@ class PropertyTest {
 		assertTrue(AppProperties.ALL.any { it.key == "openrouter.model" })
 		assertTrue(AppProperties.ALL.any { it.key == "agent.system-prompt" })
 		assertEquals(PropertyEditor.TEXTAREA, AppProperties.AGENT_SYSTEM_PROMPT.editor)
+		assertEquals(listOf("agent", "telegram"), AppProperties.AGENT_SYSTEM_PROMPT.tags)
+		assertTrue(AppProperties.TEMPORAL_EVENING_REMINDER_ENABLED.tags.contains("temporal"))
 	}
 
 	@Test

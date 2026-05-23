@@ -50,7 +50,13 @@ class TelegramClient(
 				client
 					.post()
 					.uri("/sendMessage")
-					.body(SendMessageRequest(chatId = chatId, text = text.take(4096)))
+					.body(
+						SendMessageRequest(
+							chatId = chatId,
+							text = text.take(4096),
+							parseMode = "HTML",
+						),
+					)
 					.retrieve()
 					.body(TelegramApiResponse::class.java)
 			if (response?.ok == true) {

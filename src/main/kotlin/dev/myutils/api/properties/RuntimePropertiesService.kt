@@ -60,7 +60,11 @@ class RuntimePropertiesService(
 			}
 		val entity =
 			repository.findById(key).orElseGet {
-				AppSetting(key = key, value = property.storedDefault(objectMapper))
+				AppSetting(
+					key = key,
+					value = property.storedDefault(objectMapper),
+					tags = property.tags,
+				)
 			}
 		entity.value = normalized
 		entity.updatedAt = Instant.now()
@@ -106,12 +110,25 @@ class RuntimePropertiesService(
 					AppSetting(
 						key = property.key,
 						value = property.storedDefault(objectMapper),
+						tags = property.tags,
 					),
 				)
 				log.info("Seeded default runtime property {}", property.key)
 			}
 		}
+		syncTagsFromDefinitions()
 		reloadFromDatabase()
+	}
+
+	private fun syncTagsFromDefinitions() {
+		for (property in AppProperties.ALL) {
+			val entity = repository.findById(property.key).orElse(null) ?: continue
+			if (entity.tags != property.tags) {
+				entity.tags = property.tags
+				repository.save(entity)
+				log.info("Synced tags for runtime property {}", property.key)
+			}
+		}
 	}
 
 	private fun <T> read(property: Property<T>): T {
@@ -166,6 +183,7 @@ class RuntimePropertiesService(
 			type = property.type,
 			objectType = property.objectType,
 			description = property.description,
+			tags = entity?.tags?.takeIf { it.isNotEmpty() } ?: property.tags,
 			value = objectMapper.readTree(safeRaw),
 			defaultValue = objectMapper.readTree(defaultStored),
 			editor = property.editor,
