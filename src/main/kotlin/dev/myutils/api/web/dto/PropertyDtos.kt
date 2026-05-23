@@ -1,6 +1,7 @@
 package dev.myutils.api.web.dto
 
 import com.fasterxml.jackson.databind.JsonNode
+import dev.myutils.api.properties.PropertyEditor
 import dev.myutils.api.properties.PropertyType
 import dev.myutils.api.properties.PropertyView
 import java.time.Instant
@@ -13,6 +14,7 @@ data class PropertyResponse(
 	val description: String,
 	val value: JsonNode,
 	val defaultValue: JsonNode,
+	val editor: PropertyEditor,
 	val updatedAt: Instant?,
 	val updatedBy: String?,
 )
@@ -29,6 +31,7 @@ fun PropertyView.toResponse(): PropertyResponse =
 		description = description,
 		value = value,
 		defaultValue = defaultValue,
+		editor = editor,
 		updatedAt = updatedAt,
 		updatedBy = updatedBy,
 	)

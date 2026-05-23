@@ -168,6 +168,7 @@ class RuntimePropertiesService(
 			description = property.description,
 			value = objectMapper.readTree(safeRaw),
 			defaultValue = objectMapper.readTree(defaultStored),
+			editor = property.editor,
 			updatedAt = entity?.updatedAt,
 			updatedBy = entity?.updatedBy,
 		)

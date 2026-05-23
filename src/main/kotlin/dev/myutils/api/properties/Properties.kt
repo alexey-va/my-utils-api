@@ -2,6 +2,7 @@ package dev.myutils.api.properties
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.myutils.api.agent.AgentSystemPromptDefault
 import dev.myutils.api.config.MyUtilsProperties
 import dev.myutils.api.temporal.TemporalWorkflowService
 import org.slf4j.LoggerFactory
@@ -10,6 +11,11 @@ import org.springframework.http.HttpStatus
 import org.springframework.web.server.ResponseStatusException
 import java.time.ZoneId
 import kotlin.reflect.full.memberProperties
+
+enum class PropertyEditor {
+	DEFAULT,
+	TEXTAREA,
+}
 
 enum class PropertyType {
 	BOOLEAN,
@@ -28,6 +34,7 @@ sealed interface Property<T> {
 	val objectType: String?
 	val description: String
 	val default: T
+	val editor: PropertyEditor get() = PropertyEditor.DEFAULT
 	val onApplied: ((PropertyApplyContext) -> Unit)?
 
 	fun serialize(
@@ -85,6 +92,7 @@ data class PropertyView(
 	val description: String,
 	val value: JsonNode,
 	val defaultValue: JsonNode,
+	val editor: PropertyEditor,
 	val updatedAt: java.time.Instant?,
 	val updatedBy: String?,
 )
@@ -147,6 +155,15 @@ object AppProperties {
 			description = "Сколько часов хранить историю чата в Redis.",
 			default = 48,
 			range = 1..(24 * 30),
+		)
+
+	val AGENT_SYSTEM_PROMPT: StringProperty =
+		StringProperty(
+			key = "agent.system-prompt",
+			description = "System prompt Telegram-агента (OpenRouter). Редактируется без перезапуска.",
+			default = AgentSystemPromptDefault.PROMPT,
+			editor = PropertyEditor.TEXTAREA,
+			validate = { prompt -> prompt.isNotBlank() && prompt.length <= 32_000 },
 		)
 
 	val ALL: List<Property<*>> by lazy { discoverAll() }
@@ -264,6 +281,7 @@ class StringProperty(
 	override val description: String,
 	override val default: String,
 	private val validate: (String) -> Boolean = { true },
+	override val editor: PropertyEditor = PropertyEditor.DEFAULT,
 	override val onApplied: ((PropertyApplyContext) -> Unit)? = null,
 ) : Property<String> {
 	override val type = PropertyType.STRING
