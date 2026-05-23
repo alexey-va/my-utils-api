@@ -10,6 +10,7 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.http.SessionCreationPolicy
 import org.springframework.security.web.SecurityFilterChain
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter
+import org.springframework.security.web.util.matcher.AntPathRequestMatcher
 
 @Configuration
 @EnableWebSecurity
@@ -28,7 +29,10 @@ class SecurityConfig(
 					.requestMatchers(HttpMethod.GET, "/api/health").permitAll()
 					.requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
 					.requestMatchers("/api/workouts/**").permitAll()
-					.requestMatchers("/api/admin/settings/**").permitAll()
+					.requestMatchers(
+						AntPathRequestMatcher("/api/admin/settings"),
+						AntPathRequestMatcher("/api/admin/settings/**"),
+					).permitAll()
 					.requestMatchers("/api/admin/**").authenticated()
 					.requestMatchers("/api/auth/**").authenticated()
 					.anyRequest().denyAll()

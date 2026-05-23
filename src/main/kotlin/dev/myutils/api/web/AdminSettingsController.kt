@@ -7,7 +7,6 @@ import dev.myutils.api.web.dto.UpdatePropertyRequest
 import dev.myutils.api.web.dto.toResponse
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
-import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PutMapping
@@ -37,6 +36,5 @@ class AdminSettingsController(
 	fun update(
 		@PathVariable key: String,
 		@Valid @RequestBody body: UpdatePropertyRequest,
-		@AuthenticationPrincipal email: String?,
-	): PropertyResponse = runtimeProperties.update(key, body.value, updatedBy = email).toResponse()
+	): PropertyResponse = runtimeProperties.update(key, body.value, updatedBy = null).toResponse()
 }

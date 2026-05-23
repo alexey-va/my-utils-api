@@ -28,14 +28,12 @@ class TelegramLongPollingRunner(
 	fun start() {
 		val allowed = properties.telegram.allowedUserIdSet()
 		log.info(
-			"Telegram bot starting long polling allowedUsers={} proxy={}",
+			"Telegram bot starting long polling allowedUsers={}",
 			allowed.ifEmpty { "any" },
-			properties.openrouter.proxy.enabled,
 		)
 		running.set(true)
 		pollingThread =
 			Thread.ofVirtual().name("telegram-long-poll").start {
-				telegramClient.clearPushUrlIfAny()
 				log.info("Telegram long polling active")
 				pollLoop()
 			}

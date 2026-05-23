@@ -2,7 +2,6 @@ package dev.myutils.api.telegram
 
 import dev.myutils.api.config.ConditionalOnTelegramBot
 import dev.myutils.api.config.MyUtilsProperties
-import dev.myutils.api.http.OutboundHttpClientFactory
 import dev.myutils.api.util.LogPreview
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
@@ -16,19 +15,11 @@ class TelegramClient(
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val config = properties.telegram
 
-	private val client: RestClient = createRestClient(properties)
-
-	private fun createRestClient(properties: MyUtilsProperties): RestClient {
-		val builder =
-			RestClient
-				.builder()
-				.baseUrl("https://api.telegram.org/bot${config.botToken}")
-		val proxy = properties.openrouter.proxy
-		if (proxy.enabled && proxy.host.isNotBlank()) {
-			builder.requestFactory(OutboundHttpClientFactory.jdkRequestFactory(proxy))
-		}
-		return builder.build()
-	}
+	private val client: RestClient =
+		RestClient
+			.builder()
+			.baseUrl("https://api.telegram.org/bot${config.botToken}")
+			.build()
 
 	fun sendMessage(
 		chatId: Long,
@@ -65,21 +56,6 @@ class TelegramClient(
 				.retrieve()
 				.toBodilessEntity()
 		}.onFailure { log.debug("sendChatAction failed", it) }
-	}
-
-	/** Telegram allows either getUpdates or a push URL — clear any stale push URL on startup. */
-	fun clearPushUrlIfAny() {
-		val response =
-			client
-				.post()
-				.uri("/deleteWebhook")
-				.retrieve()
-				.body(TelegramApiResponse::class.java)
-		if (response?.ok == true) {
-			log.info("Telegram ready for getUpdates")
-		} else {
-			log.warn("Telegram deleteWebhook failed: {}", response?.description)
-		}
 	}
 
 	fun getUpdates(
