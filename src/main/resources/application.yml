@@ -8,6 +8,9 @@ logging:
 spring:
   config:
     import: optional:file:.env[.properties]
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.security.servlet.UserDetailsServiceAutoConfiguration
   application:
     name: my-utils-api
   datasource:
