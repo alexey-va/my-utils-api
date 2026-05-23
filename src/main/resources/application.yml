@@ -49,6 +49,7 @@ myutils:
   session:
     redis-key-prefix: "myutils:session:"
   telegram:
+    enabled: ${MYUTILS_TELEGRAM_ENABLED:false}
     bot-token: ${TELEGRAM_BOT_TOKEN:}
     allowed-user-ids: ${TELEGRAM_ALLOWED_USER_IDS:}
   temporal:

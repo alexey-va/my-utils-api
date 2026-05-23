@@ -9,6 +9,7 @@ export MYUTILS_CORS_ALLOWED_ORIGINS="${MYUTILS_CORS_ALLOWED_ORIGINS:-http://util
 # Telegram bot — TELEGRAM_BOT_TOKEN + OPENROUTER_API_KEY from Jenkins credentials.
 export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
 export TELEGRAM_ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS:-303179278}"
+export MYUTILS_TELEGRAM_ENABLED="${MYUTILS_TELEGRAM_ENABLED:-true}"
 export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
 export OPENROUTER_PROXY_ENABLED=true
 export OPENROUTER_PROXY_HOST=185.242.106.81
@@ -20,4 +21,4 @@ export COMPOSE_DOCKER_CLI_BUILD=1
 COMPOSE="docker compose -f docker-compose.yml -f docker-compose.jenkins.yml"
 
 ${COMPOSE} up -d postgres redis temporal-postgresql temporal temporal-ui
-${COMPOSE} up -d --build api
+${COMPOSE} up -d --build --force-recreate api

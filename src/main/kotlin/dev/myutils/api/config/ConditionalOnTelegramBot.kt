@@ -15,9 +15,11 @@ class OnTelegramBotCondition : Condition {
 		context: ConditionContext,
 		metadata: AnnotatedTypeMetadata,
 	): Boolean {
+		val enabled =
+			context.environment.getProperty("myutils.telegram.enabled", Boolean::class.java, false)
 		val token =
 			context.environment.getProperty("myutils.telegram.bot-token")
 				?: context.environment.getProperty("TELEGRAM_BOT_TOKEN")
-		return !token.isNullOrBlank()
+		return enabled && !token.isNullOrBlank()
 	}
 }

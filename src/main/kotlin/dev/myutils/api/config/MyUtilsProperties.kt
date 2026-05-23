@@ -25,6 +25,7 @@ data class MyUtilsProperties(
 	)
 
 	data class TelegramProperties(
+		val enabled: Boolean = false,
 		val botToken: String = "",
 		/** Comma-separated Telegram user IDs allowed to use the bot. */
 		val allowedUserIds: String = "",
