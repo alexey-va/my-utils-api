@@ -11,6 +11,7 @@ import dev.myutils.api.telegram.TelegramChatHistory
 import dev.myutils.api.telegram.TelegramClient
 import dev.myutils.api.telegram.TelegramUpdate
 import dev.myutils.api.util.LogPreview
+import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Service
@@ -44,7 +45,16 @@ class WorkoutAgentService(
 		val userId = message.from?.id ?: return
 		val chatId = message.chat.id
 		val text = message.text?.trim() ?: return
+		runBlocking {
+			handleMessage(chatId, userId, text)
+		}
+	}
 
+	suspend fun handleMessage(
+		chatId: Long,
+		userId: Long,
+		text: String,
+	) {
 		if (telegram.allowedUserIdSet().isNotEmpty() && userId !in telegram.allowedUserIdSet()) {
 			log.warn("Rejected Telegram user {}", userId)
 			telegramClient.sendMessage(chatId, "У вас нет доступа к этому боту.")

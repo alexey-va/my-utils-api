@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.stereotype.Component
+import kotlinx.coroutines.runBlocking
 
 @Component
 @ConditionalOnProperty(prefix = "myutils.temporal", name = ["enabled"], havingValue = "true")
@@ -26,7 +27,9 @@ class TelegramActivitiesImpl(
 					log.warn("Telegram send skipped: bot not configured chatId={}", chatId)
 					return
 				}
-		client.sendMessage(chatId, text)
+		runBlocking {
+			client.sendMessage(chatId, text)
+		}
 		log.info("Temporal Telegram message sent chatId={} chars={}", chatId, text.length)
 	}
 }

@@ -1,14 +1,18 @@
 package dev.myutils.api.telegram
 
-import dev.myutils.api.agent.WorkoutAgentService
-import dev.myutils.api.config.MyUtilsProperties
-import jakarta.annotation.PreDestroy
-import org.slf4j.LoggerFactory
 import dev.myutils.api.config.ConditionalOnTelegramBot
+import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.telegram.TelegramApiSupport.describeError
+import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import org.slf4j.LoggerFactory
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Component
-import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
 /** Receives bot messages via Telegram [getUpdates] long polling. */
@@ -17,12 +21,12 @@ import java.util.concurrent.atomic.AtomicLong
 class TelegramLongPollingRunner(
 	private val properties: MyUtilsProperties,
 	private val telegramClient: TelegramClient,
-	private val workoutAgentService: WorkoutAgentService,
+	private val inboundCoalescer: TelegramInboundCoalescer,
+	private val telegramScope: TelegramCoroutineScope,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
-	private val running = AtomicBoolean(false)
 	private val nextOffset = AtomicLong(0)
-	private var pollingThread: Thread? = null
+	private var pollingJob: Job? = null
 
 	@EventListener(ApplicationReadyEvent::class)
 	fun start() {
@@ -31,10 +35,17 @@ class TelegramLongPollingRunner(
 			"Telegram bot starting long polling allowedUsers={}",
 			allowed.ifEmpty { "any" },
 		)
-		running.set(true)
-		pollingThread =
-			Thread.ofVirtual().name("telegram-long-poll").start {
-				telegramClient.ensureLongPollingMode()
+		pollingJob =
+			telegramScope.launch {
+				launch {
+					try {
+						telegramClient.ensureLongPollingMode()
+					} catch (ex: CancellationException) {
+						throw ex
+					} catch (ex: Exception) {
+						log.warn("Telegram webhook setup failed: {}", describeError(ex), ex)
+					}
+				}
 				log.info("Telegram long polling active")
 				pollLoop()
 			}
@@ -42,40 +53,34 @@ class TelegramLongPollingRunner(
 
 	@PreDestroy
 	fun stop() {
-		running.set(false)
-		pollingThread?.interrupt()
+		pollingJob?.cancel()
 	}
 
-	private fun pollLoop() {
-		while (running.get() && !Thread.currentThread().isInterrupted) {
+	private suspend fun pollLoop() {
+		while (telegramScope.isActive) {
 			try {
 				val updates = telegramClient.getUpdates(nextOffset.get(), timeoutSeconds = 30)
-				if (updates.isNotEmpty()) {
-					log.info("Telegram poll received {} update(s)", updates.size)
-				}
 				for (update in updates) {
 					val updateId = update.updateId
 					if (updateId != null) {
 						nextOffset.set(updateId + 1)
 					}
-					workoutAgentService.handleUpdateAsync(update)
+					val message = update.message ?: update.editedMessage ?: continue
+					val userId = message.from?.id ?: continue
+					val text = message.text?.trim() ?: continue
+					inboundCoalescer.enqueue(message.chat.id, userId, text)
 				}
-			} catch (ex: InterruptedException) {
-				Thread.currentThread().interrupt()
-				break
+			} catch (ex: CancellationException) {
+				throw ex
 			} catch (ex: Exception) {
-				log.warn("Telegram polling error: {}", ex.message, ex)
-				sleep(3_000)
+				log.warn("Telegram polling error: {}", describeError(ex), ex)
+				delay(POLL_ERROR_BACKOFF_MS)
 			}
 		}
 		log.info("Telegram long polling stopped")
 	}
 
-	private fun sleep(ms: Long) {
-		try {
-			Thread.sleep(ms)
-		} catch (_: InterruptedException) {
-			Thread.currentThread().interrupt()
-		}
+	private companion object {
+		const val POLL_ERROR_BACKOFF_MS = 3_000L
 	}
 }

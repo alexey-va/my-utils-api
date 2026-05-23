@@ -65,3 +65,19 @@ data class TelegramUpdatesResult(
 	val result: List<TelegramUpdate> = emptyList(),
 	val description: String? = null,
 )
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class TelegramWebhookInfo(
+	val url: String? = null,
+	@JsonProperty("has_custom_certificate")
+	val hasCustomCertificate: Boolean = false,
+	@JsonProperty("pending_update_count")
+	val pendingUpdateCount: Int = 0,
+)
+
+@JsonIgnoreProperties(ignoreUnknown = true)
+data class TelegramWebhookInfoResponse(
+	val ok: Boolean = false,
+	val result: TelegramWebhookInfo? = null,
+	val description: String? = null,
+)
