@@ -1,6 +1,6 @@
 package dev.myutils.api.temporal
 
-import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.temporal.agent.AgentTurnInput
 import dev.myutils.api.temporal.agent.WorkoutAgentWorkflow

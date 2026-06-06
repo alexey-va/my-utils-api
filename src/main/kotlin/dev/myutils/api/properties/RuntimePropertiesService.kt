@@ -2,7 +2,7 @@ package dev.myutils.api.properties
 
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
-import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.domain.AppSetting
 import dev.myutils.api.domain.AppSettingRepository
 import dev.myutils.api.temporal.TemporalWorkflowService

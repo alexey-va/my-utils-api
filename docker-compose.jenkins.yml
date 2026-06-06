@@ -16,6 +16,8 @@ services:
   temporal-ui:
     ports:
       - "127.0.0.1:18233:8080"
+    environment:
+      TEMPORAL_CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,https://temporal.alexeyav.ru,http://temporal.alexeyav.ru"
 
   api:
     ports:

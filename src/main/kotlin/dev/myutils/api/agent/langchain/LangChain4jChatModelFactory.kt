@@ -1,7 +1,7 @@
 package dev.myutils.api.agent.langchain
 
-import dev.myutils.api.config.ConditionalOnTelegramBot
-import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.infra.config.ConditionalOnTelegramBot
+import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.properties.AppProperties
 import dev.langchain4j.http.client.jdk.JdkHttpClient
 import dev.langchain4j.model.chat.ChatModel
@@ -13,14 +13,18 @@ import java.net.ProxySelector
 import java.net.http.HttpClient
 import java.time.Duration
 
+fun interface ChatModelFactory {
+	fun create(): ChatModel
+}
+
 @Component
 @ConditionalOnTelegramBot
 class LangChain4jChatModelFactory(
 	private val properties: MyUtilsProperties,
-) {
+) : ChatModelFactory {
 	private val log = LoggerFactory.getLogger(javaClass)
 
-	fun create(): ChatModel {
+	override fun create(): ChatModel {
 		val config = properties.openrouter
 		val jdkBuilder =
 			HttpClient

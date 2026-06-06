@@ -1,6 +1,6 @@
 package dev.myutils.api.agent.langchain
 
-import dev.myutils.api.openrouter.ChatMessage
+import dev.myutils.api.infra.openrouter.ChatMessage
 import dev.myutils.api.telegram.TelegramChatHistory
 import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.ChatMessage as LcChatMessage

@@ -2,7 +2,7 @@ package dev.myutils.api.agent
 
 import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.temporal.TemporalNotificationFacade
-import dev.myutils.api.util.LogPreview
+import dev.myutils.api.infra.util.LogPreview
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException

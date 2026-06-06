@@ -1,6 +1,6 @@
 package dev.myutils.api.web
 
-import dev.myutils.api.security.SessionPrincipal
+import dev.myutils.api.infra.security.SessionPrincipal
 import dev.myutils.api.service.AuthService
 import dev.myutils.api.web.dto.LoginRequest
 import dev.myutils.api.web.dto.LoginResponse

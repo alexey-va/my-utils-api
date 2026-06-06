@@ -1,9 +1,9 @@
 package dev.myutils.api.telegram
 
 import dev.myutils.api.agent.WorkoutAgentService
-import dev.myutils.api.config.ConditionalOnTelegramBot
-import dev.myutils.api.util.LogPreview
-import dev.myutils.api.util.PerKeyLatestBuffer
+import dev.myutils.api.infra.config.ConditionalOnTelegramBot
+import dev.myutils.api.infra.util.LogPreview
+import dev.myutils.api.infra.util.PerKeyLatestBuffer
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope

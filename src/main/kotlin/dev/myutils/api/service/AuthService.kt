@@ -1,10 +1,10 @@
 package dev.myutils.api.service
 
-import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.domain.UserRepository
-import dev.myutils.api.security.IssuedToken
-import dev.myutils.api.security.JwtService
-import dev.myutils.api.session.SessionService
+import dev.myutils.api.infra.security.IssuedToken
+import dev.myutils.api.infra.security.JwtService
+import dev.myutils.api.infra.session.SessionService
 import dev.myutils.api.web.dto.LoginResponse
 import dev.myutils.api.web.dto.UserDto
 import org.springframework.http.HttpStatus

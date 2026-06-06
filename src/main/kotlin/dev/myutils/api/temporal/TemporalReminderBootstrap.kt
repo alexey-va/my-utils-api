@@ -1,7 +1,7 @@
 package dev.myutils.api.temporal
 
-import dev.myutils.api.config.ConditionalOnTelegramBot
-import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.infra.config.ConditionalOnTelegramBot
+import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.properties.AppProperties
 import org.slf4j.LoggerFactory
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty

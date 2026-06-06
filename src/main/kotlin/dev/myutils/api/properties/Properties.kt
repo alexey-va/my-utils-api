@@ -3,7 +3,7 @@ package dev.myutils.api.properties
 import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.myutils.api.agent.AgentSystemPromptDefault
-import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.temporal.TemporalWorkflowService
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider

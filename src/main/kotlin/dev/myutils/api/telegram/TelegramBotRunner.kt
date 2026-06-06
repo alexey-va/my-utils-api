@@ -6,10 +6,11 @@ import com.pengrad.telegrambot.model.CallbackQuery
 import com.pengrad.telegrambot.model.Message
 import com.pengrad.telegrambot.model.Update
 import com.pengrad.telegrambot.request.DeleteWebhook
-import dev.myutils.api.config.ConditionalOnTelegramBot
-import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.infra.config.ConditionalOnTelegramBot
+import dev.myutils.api.infra.config.MyUtilsProperties
 import jakarta.annotation.PreDestroy
 import org.slf4j.LoggerFactory
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Component
@@ -17,9 +18,11 @@ import org.springframework.stereotype.Component
 /** Starts pengrad long-polling and routes updates to the agent coalescer. */
 @Component
 @ConditionalOnTelegramBot
+@ConditionalOnProperty(prefix = "myutils.telegram", name = ["polling-enabled"], havingValue = "true", matchIfMissing = true)
 class TelegramBotRunner(
 	private val properties: MyUtilsProperties,
 	private val bot: TelegramBot,
+	private val messenger: TelegramMessenger,
 	private val inboundCoalescer: TelegramInboundCoalescer,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
@@ -88,7 +91,7 @@ class TelegramBotRunner(
 		if (data.isEmpty()) {
 			return
 		}
-		bot.answerCallback(callback.id())
+		messenger.answerCallback(callback.id())
 		log.info("Telegram callback chatId={} userId={} data={}", chatId, userId, data)
 		inboundCoalescer.enqueue(chatId, userId, data)
 	}

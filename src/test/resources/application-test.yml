@@ -17,5 +17,14 @@ spring:
         - dev.myutils.api.temporal
 
 myutils:
+  telegram:
+    enabled: true
+    bot-token: test-token
+    polling-enabled: false
+  openrouter:
+    api-key: test-key
   temporal:
     enabled: true
+
+TELEGRAM_BOT_TOKEN: test-token
+OPENROUTER_API_KEY: test-key

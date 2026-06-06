@@ -1,7 +1,7 @@
 package dev.myutils.api.agent.langchain
 
 import dev.myutils.api.agent.WorkoutToolsService
-import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.langchain4j.agent.tool.Tool
 
 /**

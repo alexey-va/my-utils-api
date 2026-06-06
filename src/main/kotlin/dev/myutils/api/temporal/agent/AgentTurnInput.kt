@@ -4,4 +4,5 @@ data class AgentTurnInput(
 	val chatId: Long,
 	val userId: Long,
 	val text: String,
+	val maxToolIterations: Int = 8,
 )
