@@ -2,16 +2,15 @@ package dev.myutils.api.telegram
 
 import dev.myutils.api.config.ConditionalOnTelegramBot
 import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.http.OutboundHttpClientFactory
 import dev.myutils.api.telegram.TelegramApiSupport.describeError
 import dev.myutils.api.telegram.TelegramApiSupport.timed
 import dev.myutils.api.util.LogPreview
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
-import org.springframework.http.client.JdkClientHttpRequestFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
-import java.net.http.HttpClient
 import java.time.Duration
 
 @Component
@@ -22,18 +21,15 @@ class TelegramClient(
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val config = properties.telegram
 
-	private val client: RestClient = createRestClient()
+	private val client: RestClient = createRestClient(properties)
 
-	private fun createRestClient(): RestClient {
-		val httpClient =
-			HttpClient
-				.newBuilder()
-				.connectTimeout(Duration.ofSeconds(15))
-				.build()
+	private fun createRestClient(properties: MyUtilsProperties): RestClient {
 		val requestFactory =
-			JdkClientHttpRequestFactory(httpClient).apply {
-				setReadTimeout(Duration.ofSeconds(45))
-			}
+			OutboundHttpClientFactory
+				.jdkRequestFactory(properties.openrouter.proxy)
+				.apply {
+					setReadTimeout(Duration.ofSeconds(45))
+				}
 		return RestClient
 			.builder()
 			.baseUrl("https://api.telegram.org/bot${config.botToken}")
