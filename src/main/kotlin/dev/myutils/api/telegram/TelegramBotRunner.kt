@@ -32,9 +32,9 @@ class TelegramBotRunner(
 			allowed.ifEmpty { "any" },
 		)
 
-		val webhookResponse = bot.execute(DeleteWebhook())
+		val webhookResponse = bot.execute(DeleteWebhook().dropPendingUpdates(true))
 		if (webhookResponse.isOk) {
-			log.info("Telegram deleteWebhook ok")
+			log.info("Telegram deleteWebhook ok (pending updates dropped)")
 		} else {
 			log.warn(
 				"Telegram deleteWebhook failed: {} {}",
