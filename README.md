@@ -2,7 +2,7 @@
 
 Kotlin/Spring Boot REST API for [my-utils](https://github.com/alexey-va/my-utils).
 
-**Подробная архитектура:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — стек, БД, авторизация, Telegram-бот, Temporal, деплой.
+**Для агентов / разработки:** [AGENTS.md](AGENTS.md) · **Схема:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (кратко).
 
 ## Stack
 

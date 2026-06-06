@@ -17,4 +17,5 @@ ssh "${HOST}" "grep -q 'docker.sock' ${REMOTE_DIR}/docker-compose.yml || sed -i 
 
 ssh "${HOST}" "cd ${REMOTE_DIR} && docker compose up -d promtail grafana loki"
 
-echo "Done. In Grafana Explore: {app=\"my-utils-api\"}"
+echo "Done. Dashboard: /grafana/d/myutils-api-logs/my-utils-api-logs"
+echo "Explore: {app=\"my-utils-api\"}"
