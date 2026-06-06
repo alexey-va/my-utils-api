@@ -1,0 +1,77 @@
+# Grafana stack on Timeweb (host network). Secrets via .env (not committed).
+services:
+  grafana:
+    image: grafana/grafana:latest
+    user: ${USER_ID}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./config/grafana:/etc/grafana/provisioning
+    environment:
+      - GF_SERVER_HTTP_PORT=3500
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      - GF_SERVER_DOMAIN=utils.alexeyav.ru
+      - GF_SERVER_ROOT_URL=https://utils.alexeyav.ru/grafana/
+      - GF_SERVER_SERVE_FROM_SUB_PATH=true
+      - GF_SECURITY_ALLOW_EMBEDDING=true
+    restart: unless-stopped
+    network_mode: host
+
+  loki:
+    image: grafana/loki:latest
+    volumes:
+      - ./config/loki:/etc/loki
+      - loki_data:/loki
+    command: -config.file=/etc/loki/loki-config.yml
+    restart: unless-stopped
+    network_mode: host
+
+  promtail:
+    image: grafana/promtail:latest
+    volumes:
+      - /var/log:/var/log:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config/promtail:/etc/promtail
+    command: -config.file=/etc/promtail/promtail-config.yml
+    restart: unless-stopped
+    network_mode: host
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes:
+      - ./config/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    restart: unless-stopped
+    network_mode: host
+
+  node-exporter:
+    image: prom/node-exporter:latest
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.sysfs=/host/sys"
+      - "--path.rootfs=/rootfs"
+      - "--collector.filesystem.ignored-mount-points=^/(sys|proc|dev|host|etc)($$|/)"
+    restart: unless-stopped
+    network_mode: host
+
+  blackbox-exporter:
+    image: prom/blackbox-exporter
+    container_name: blackbox_exporter
+    ports:
+      - "127.0.0.1:9115:9115"
+    volumes:
+      - ./blackbox.yml:/etc/blackbox_exporter/config.yml:ro
+    command:
+      - "--config.file=/etc/blackbox_exporter/config.yml"
+    restart: unless-stopped
+
+volumes:
+  grafana_data:
+  loki_data:
+  prometheus_data:
