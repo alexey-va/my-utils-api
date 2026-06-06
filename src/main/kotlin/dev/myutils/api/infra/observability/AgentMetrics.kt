@@ -15,6 +15,17 @@ class AgentMetrics(
 		registry.counter("agent.requests.total", "path", path, "outcome", outcome).increment()
 	}
 
+	/** Один входящий turn: request + turn в одном scrape-окне. */
+	fun recordInbound(
+		path: String,
+		outcome: String,
+		durationMs: Long,
+		llmSteps: Int,
+	) {
+		recordRequest(path, outcome)
+		recordTurn(path, outcome, durationMs, llmSteps)
+	}
+
 	fun recordTurn(
 		path: String,
 		outcome: String,

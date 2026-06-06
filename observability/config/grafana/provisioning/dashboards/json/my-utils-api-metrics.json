@@ -127,9 +127,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (path, outcome) (increase(agent_requests_total{application=\"my-utils-api\"}[1m]))",
+          "expr": "sum by (path) (increase(agent_requests_total{application=\"my-utils-api\"}[1m]))",
           "interval": "30s",
-          "legendFormat": "{{path}} {{outcome}}",
+          "legendFormat": "{{path}}",
           "refId": "A"
         }
       ],
@@ -162,9 +162,9 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (path, outcome) (increase(agent_turns_total{application=\"my-utils-api\"}[1m]))",
+          "expr": "sum by (path) (increase(agent_turns_total{application=\"my-utils-api\"}[1m]))",
           "interval": "30s",
-          "legendFormat": "{{path}} {{outcome}}",
+          "legendFormat": "{{path}}",
           "refId": "A"
         }
       ],
@@ -358,5 +358,5 @@
   "timezone": "browser",
   "title": "My Utils API Metrics",
   "uid": "myutils-api-metrics",
-  "version": 4
+  "version": 5
 }

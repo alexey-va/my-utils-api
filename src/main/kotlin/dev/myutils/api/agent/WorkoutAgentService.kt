@@ -55,12 +55,10 @@ class WorkoutAgentService(
 					maxToolIterations = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get(),
 				),
 			)
-			agentMetrics.recordRequest("temporal", "started")
 			log.info("Telegram chatId={} delegated to Temporal agent workflow", chatId)
 			return
 		}
 
-		agentMetrics.recordRequest("direct", "started")
 		runDirect(chatId, userId, text)
 	}
 
@@ -71,7 +69,7 @@ class WorkoutAgentService(
 	) {
 		if (text == "/start") {
 			log.info("Telegram /start chatId={}", chatId)
-			agentMetrics.recordTurn("direct", "start_command", durationMs = 0, llmSteps = 0)
+			agentMetrics.recordInbound("direct", "start_command", durationMs = 0, llmSteps = 0)
 			telegram.sendHtmlMessage(
 				chatId,
 				"""
@@ -85,7 +83,7 @@ class WorkoutAgentService(
 		val startedAt = System.currentTimeMillis()
 		val reply = langChain4jAgent.run(chatId, text)
 		telegram.sendHtmlMessage(chatId, reply)
-		agentMetrics.recordTurn(
+		agentMetrics.recordInbound(
 			path = "direct",
 			outcome = "reply",
 			durationMs = System.currentTimeMillis() - startedAt,

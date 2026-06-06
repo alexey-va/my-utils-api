@@ -49,7 +49,7 @@ class WorkoutAgentActivitiesImpl(
 	}
 
 	override fun recordTurnMetrics(input: AgentTurnMetricsInput) {
-		agentMetrics.recordTurn(
+		agentMetrics.recordInbound(
 			path = "temporal",
 			outcome = input.outcome,
 			durationMs = input.durationMs,
