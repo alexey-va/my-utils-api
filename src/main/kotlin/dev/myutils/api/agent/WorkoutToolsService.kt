@@ -104,50 +104,52 @@ class WorkoutToolsService(
 		chatId: Long,
 		args: Map<String, String?>,
 	): String {
-		log.info("Tool {} chatId={} args={}", name, chatId, LogPreview.of(args.toString(), max = 240))
+		val toolName = camelToSnake(name)
+		val toolArgs = args.normalizeKeys()
+		log.info("Tool {} chatId={} args={}", toolName, chatId, LogPreview.of(toolArgs.toString(), max = 240))
 		val result =
 			try {
-				when (name) {
+				when (toolName) {
 					"list_exercises" -> listExercises()
 					"create_exercise" ->
 						createExercise(
-							args.require("name"),
-							args.optional("muscle_group"),
+							toolArgs.require("name"),
+							toolArgs.optional("muscle_group"),
 						)
 					"rename_exercise" ->
 						renameExercise(
-							args.require("current_name"),
-							args.require("new_name"),
-							args.optional("muscle_group"),
+							toolArgs.require("current_name"),
+							toolArgs.require("new_name"),
+							toolArgs.optional("muscle_group"),
 						)
 					"log_workout" ->
 						logWorkout(
-							exerciseName = args.require("exercise_name"),
-							performedOn = args.optional("performed_on"),
-							weightKg = args.requireInt("weight_kg"),
-							setCount = args.optionalInt("set_count") ?: 3,
-							repsPerSet = args.requireInt("reps_per_set"),
-							maxReps = args.requireInt("max_reps"),
+							exerciseName = toolArgs.require("exercise_name"),
+							performedOn = toolArgs.optional("performed_on"),
+							weightKg = toolArgs.requireInt("weight_kg"),
+							setCount = toolArgs.optionalInt("set_count") ?: 3,
+							repsPerSet = toolArgs.requireInt("reps_per_set"),
+							maxReps = toolArgs.requireInt("max_reps"),
 						)
 					"delete_workout" ->
 						deleteWorkout(
-							args.require("exercise_name"),
-							args.optional("performed_on"),
+							toolArgs.require("exercise_name"),
+							toolArgs.optional("performed_on"),
 						)
 					"get_exercise_progress" ->
 						getExerciseProgress(
-							args.require("exercise_name"),
-							args.optionalInt("recent_sessions"),
+							toolArgs.require("exercise_name"),
+							toolArgs.optionalInt("recent_sessions"),
 						)
-					"get_day_summary" -> getDaySummary(args.optional("performed_on"))
-					"send_notification" -> sendNotification(chatId, args.require("message"))
+					"get_day_summary" -> getDaySummary(toolArgs.optional("performed_on"))
+					"send_notification" -> sendNotification(chatId, toolArgs.require("message"))
 					"schedule_notification" ->
 						scheduleNotification(
 							chatId,
-							args.require("message"),
-							args.require("deliver_at"),
+							toolArgs.require("message"),
+							toolArgs.require("deliver_at"),
 						)
-					"cancel_notification" -> cancelNotification(args.require("workflow_id"))
+					"cancel_notification" -> cancelNotification(toolArgs.require("workflow_id"))
 					else -> "Неизвестный инструмент: $name"
 				}
 			} catch (ex: ResponseStatusException) {
@@ -157,9 +159,17 @@ class WorkoutToolsService(
 			} catch (ex: Exception) {
 				ex.message ?: "Tool execution failed"
 			}
-		log.info("Tool {} result={}", name, LogPreview.of(result, max = 240))
+		log.info("Tool {} result={}", toolName, LogPreview.of(result, max = 240))
 		return result
 	}
+
+	private fun Map<String, String?>.normalizeKeys(): Map<String, String?> =
+		mapKeys { (key, _) -> camelToSnake(key) }
+
+	private fun camelToSnake(value: String): String =
+		value
+			.replace(Regex("([a-z0-9])([A-Z])")) { "${it.groupValues[1]}_${it.groupValues[2]}" }
+			.lowercase()
 
 	private sealed interface DateResolve {
 		data class Ok(

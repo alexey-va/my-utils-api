@@ -49,6 +49,35 @@ class WorkoutToolsServiceTest {
 	}
 
 	@Test
+	fun `logWorkout accepts LangChain4j camelCase tool name and args`() {
+		whenever(
+			facade.logWorkout(
+				exerciseName = "Жим",
+				performedOn = null,
+				weightKg = 70,
+				setCount = 3,
+				repsPerSet = 10,
+				maxReps = 12,
+			),
+		).thenReturn("Записано: Жим")
+		val service = WorkoutToolsService(facade, notifications)
+		val result =
+			service.runTool(
+				"logWorkout",
+				chatId = 1L,
+				args =
+					mapOf(
+						"exerciseName" to "Жим",
+						"weightKg" to "70",
+						"setCount" to "3",
+						"repsPerSet" to "10",
+						"maxReps" to "12",
+					),
+			)
+		assertTrue(result.contains("Записано"))
+	}
+
+	@Test
 	fun `rename_exercise delegates to facade`() {
 		whenever(
 			facade.renameExercise(
