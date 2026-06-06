@@ -37,14 +37,12 @@ class TelegramLongPollingRunner(
 		)
 		pollingJob =
 			telegramScope.launch {
-				launch {
-					try {
-						telegramClient.ensureLongPollingMode()
-					} catch (ex: CancellationException) {
-						throw ex
-					} catch (ex: Exception) {
-						log.warn("Telegram webhook setup failed: {}", describeError(ex), ex)
-					}
+				try {
+					telegramClient.ensureLongPollingMode()
+				} catch (ex: CancellationException) {
+					throw ex
+				} catch (ex: Exception) {
+					log.warn("Telegram webhook setup failed: {}", describeError(ex), ex)
 				}
 				log.info("Telegram long polling active")
 				pollLoop()
