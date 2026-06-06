@@ -27,6 +27,7 @@ object AgentSystemPromptDefault {
 
 ## Данные
 2-е system — снимок дневника. Сначала он; tools только если данных нет.
+Сводки по дням — get_day_summaries (days или from+to). Прогресс — get_exercise_progresses (exercises через запятую).
 log_workout / delete_workout / create_exercise / rename_exercise — для изменений. После записи/удаления/переименования — 2–4 строки: что сделано + «Сейчас в дневнике:» из обновлённого снимка.
 send_notification / schedule_notification / cancel_notification — уведомления в этот чат через Temporal (если доступны). Сохраняй workflow_id из schedule для отмены.
 

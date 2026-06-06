@@ -277,7 +277,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
       "id": 8,
       "interval": "30s",
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
@@ -299,7 +299,7 @@
         "defaults": { "unit": "s", "custom": { "drawStyle": "line", "lineWidth": 2 } },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
       "id": 9,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
@@ -334,7 +334,7 @@
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 28 },
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 36 },
       "id": 10,
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
@@ -353,10 +353,10 @@
   "schemaVersion": 39,
   "tags": ["my-utils", "prometheus", "api", "agent"],
   "templating": { "list": [] },
-  "time": { "from": "now-6h", "to": "now" },
+  "time": { "from": "now-1h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
   "title": "My Utils API Metrics",
   "uid": "myutils-api-metrics",
-  "version": 3
+  "version": 4
 }

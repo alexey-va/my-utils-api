@@ -56,15 +56,21 @@ class WorkoutLangChainTools(
 			)
 		}
 
-	@Tool("Прогресс по упражнению (если нет в снимке).")
-	fun getExerciseProgress(
-		exerciseName: String,
+	@Tool("Прогресс по упражнениям. exercises — названия через запятую (одно тоже списком). Макс. 15.")
+	fun getExerciseProgresses(
+		exercises: String,
 		recentSessions: Int? = 6,
-	): String = tracked("get_exercise_progress") { toolsService.getExerciseProgress(exerciseName, recentSessions) }
+	): String =
+		tracked("get_exercise_progresses") {
+			toolsService.getExerciseProgresses(exercises, recentSessions)
+		}
 
-	@Tool("Записи за день (если нет в снимке).")
-	fun getDaySummary(performedOn: String? = null): String =
-		tracked("get_day_summary") { toolsService.getDaySummary(performedOn) }
+	@Tool("Записи за дни. days — даты YYYY-MM-DD через запятую, или from+to — интервал включительно. Макс. 31 день.")
+	fun getDaySummaries(
+		from: String? = null,
+		to: String? = null,
+		days: String? = null,
+	): String = tracked("get_day_summaries") { toolsService.getDaySummaries(from, to, days) }
 
 	@Tool("Сразу отправить сообщение пользователю в этот Telegram-чат (через Temporal).")
 	fun sendNotification(message: String): String {

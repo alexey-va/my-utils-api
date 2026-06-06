@@ -5,6 +5,7 @@ import dev.myutils.api.domain.ExerciseRepository
 import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.domain.User
 import dev.myutils.api.domain.UserRepository
+import dev.myutils.api.domain.WorkoutEntry
 import dev.myutils.api.domain.WorkoutEntryRepository
 import dev.myutils.api.web.dto.CreateExerciseRequest
 import dev.myutils.api.web.dto.ExerciseResponse
@@ -103,9 +104,29 @@ class WorkoutBotFacade(
 	}
 
 	@Transactional(readOnly = true)
-	fun getExerciseProgressSummary(
-		exerciseName: String,
+	fun getExerciseProgressSummaries(
+		exerciseNames: List<String>,
 		recentSessions: Int = 6,
+	): String {
+		if (exerciseNames.isEmpty()) {
+			return "Укажи exercises (названия через запятую)."
+		}
+		if (exerciseNames.size > MAX_EXERCISE_PROGRESS) {
+			return "Слишком много упражнений (макс. $MAX_EXERCISE_PROGRESS)."
+		}
+		return exerciseNames
+			.joinToString(separator = "\n\n") { name ->
+				try {
+					formatExerciseProgress(name, recentSessions)
+				} catch (ex: ResponseStatusException) {
+					ex.reason ?: "«$name»: ошибка"
+				}
+			}
+	}
+
+	private fun formatExerciseProgress(
+		exerciseName: String,
+		recentSessions: Int,
 	): String {
 		val exercise = resolveExercise(exerciseName)
 		val progress = workoutService.getProgress(exercise.id)
@@ -168,10 +189,45 @@ class WorkoutBotFacade(
 		val user = localWorkoutUser()
 		val day = date ?: today()
 		val entries = workoutEntryRepository.findByUserIdAndPerformedOnOrderByCreatedAtAsc(user.id, day)
+		val exerciseNames = exerciseRepository.findByUserIdOrderByNameAsc(user.id).associateBy { it.id }
+		return formatDaySummary(day, entries, exerciseNames)
+	}
+
+	/** Сводки за несколько дней одним запросом (макс. 31 день). */
+	@Transactional(readOnly = true)
+	fun getDaySummaries(dates: List<LocalDate>): String {
+		if (dates.isEmpty()) {
+			return "Укажи from+to (YYYY-MM-DD) или days через запятую."
+		}
+		if (dates.size > MAX_DAY_SUMMARIES) {
+			return "Слишком много дней (макс. $MAX_DAY_SUMMARIES). Сузь интервал."
+		}
+		val user = localWorkoutUser()
+		val sorted = dates.distinct().sorted()
+		val from = sorted.first()
+		val to = sorted.last()
+		val entries =
+			workoutEntryRepository.findByUserIdAndPerformedOnBetweenOrderByPerformedOnAscCreatedAtAsc(
+				user.id,
+				from,
+				to,
+			)
+		val exerciseNames = exerciseRepository.findByUserIdOrderByNameAsc(user.id).associateBy { it.id }
+		val byDay = entries.groupBy { it.performedOn }
+		return sorted
+			.joinToString(separator = "\n\n") { day ->
+				formatDaySummary(day, byDay[day].orEmpty(), exerciseNames)
+			}
+	}
+
+	private fun formatDaySummary(
+		day: LocalDate,
+		entries: List<WorkoutEntry>,
+		exerciseNames: Map<java.util.UUID, Exercise>,
+	): String {
 		if (entries.isEmpty()) {
 			return "За ${dateFmt.format(day)} записей нет."
 		}
-		val exerciseNames = exerciseRepository.findByUserIdOrderByNameAsc(user.id).associateBy { it.id }
 		val sb = StringBuilder()
 		sb.appendLine("Тренировка за ${dateFmt.format(day)}:")
 		for (entry in entries) {
@@ -231,4 +287,8 @@ class WorkoutBotFacade(
 				)
 			}
 
+	companion object {
+		const val MAX_DAY_SUMMARIES = 31
+		const val MAX_EXERCISE_PROGRESS = 15
+	}
 }

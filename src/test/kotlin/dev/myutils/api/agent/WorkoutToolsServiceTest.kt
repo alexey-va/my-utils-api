@@ -4,7 +4,9 @@ import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.temporal.TemporalNotificationFacade
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
+import java.time.LocalDate
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.whenever
@@ -103,5 +105,99 @@ class WorkoutToolsServiceTest {
 					),
 			)
 		assertTrue(result.contains("Переименовано"))
+	}
+
+	@Test
+	fun `get_day_summaries interval delegates to facade`() {
+		val dates = listOf(LocalDate.parse("2026-06-01"), LocalDate.parse("2026-06-02"))
+		whenever(facade.getDaySummaries(dates)).thenReturn("день1\n\nдень2")
+		val service = service()
+		val result =
+			service.runTool(
+				"getDaySummaries",
+				chatId = 1L,
+				args = mapOf("from" to "2026-06-01", "to" to "2026-06-02"),
+			)
+		assertEquals("день1\n\nдень2", result)
+	}
+
+	@Test
+	fun `get_day_summaries days list delegates to facade`() {
+		val dates =
+			listOf(
+				LocalDate.parse("2026-06-04"),
+				LocalDate.parse("2026-06-01"),
+			)
+		whenever(facade.getDaySummaries(dates)).thenReturn("сводки")
+		val service = service()
+		val result =
+			service.runTool(
+				"get_day_summaries",
+				chatId = 1L,
+				args = mapOf("days" to "2026-06-04,2026-06-01"),
+			)
+		assertEquals("сводки", result)
+	}
+
+	@Test
+	fun `resolveDayList expands inclusive interval`() {
+		val service = service()
+		val resolved = service.resolveDayList("2026-06-01", "2026-06-03", null)
+		assertTrue(resolved is WorkoutToolsService.DayListResolve.Ok)
+		val ok = resolved as WorkoutToolsService.DayListResolve.Ok
+		assertEquals(
+			listOf(
+				LocalDate.parse("2026-06-01"),
+				LocalDate.parse("2026-06-02"),
+				LocalDate.parse("2026-06-03"),
+			),
+			ok.dates,
+		)
+	}
+
+	@Test
+	fun `resolveDayList rejects interval without both ends`() {
+		val service = service()
+		val resolved = service.resolveDayList("2026-06-01", null, null)
+		assertTrue(resolved is WorkoutToolsService.DayListResolve.Error)
+	}
+
+	@Test
+	fun `resolveDayList accepts single day in days list`() {
+		val service = service()
+		val resolved = service.resolveDayList(null, null, "2026-06-04")
+		assertTrue(resolved is WorkoutToolsService.DayListResolve.Ok)
+		val ok = resolved as WorkoutToolsService.DayListResolve.Ok
+		assertEquals(listOf(LocalDate.parse("2026-06-04")), ok.dates)
+	}
+
+	@Test
+	fun `get_exercise_progresses delegates to facade`() {
+		val names = listOf("Жим", "Присед")
+		whenever(facade.getExerciseProgressSummaries(names, 6)).thenReturn("прогресс")
+		val service = service()
+		val result =
+			service.runTool(
+				"getExerciseProgresses",
+				chatId = 1L,
+				args = mapOf("exercises" to "Жим,Присед"),
+			)
+		assertEquals("прогресс", result)
+	}
+
+	@Test
+	fun `resolveExerciseList parses comma-separated names`() {
+		val service = service()
+		val resolved = service.resolveExerciseList("Жим, Присед")
+		assertTrue(resolved is WorkoutToolsService.ExerciseListResolve.Ok)
+		val ok = resolved as WorkoutToolsService.ExerciseListResolve.Ok
+		assertEquals(listOf("Жим", "Присед"), ok.names)
+	}
+
+	@Test
+	fun `unknown single tools return error`() {
+		val service = service()
+		assertTrue(service.runTool("getDaySummary", 1L, emptyMap()).contains("Неизвестный инструмент"))
+		assertTrue(service.runTool("getExerciseProgress", 1L, emptyMap()).contains("Неизвестный инструмент"))
 	}
 }

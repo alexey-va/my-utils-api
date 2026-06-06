@@ -2,6 +2,8 @@ package dev.myutils.api.agent
 
 import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
+import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_DAY_SUMMARIES
+import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_EXERCISE_PROGRESS
 import dev.myutils.api.temporal.TemporalNotificationFacade
 import dev.myutils.api.infra.util.LogPreview
 import org.slf4j.LoggerFactory
@@ -9,6 +11,7 @@ import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
+import java.time.temporal.ChronoUnit
 
 @Service
 class WorkoutToolsService(
@@ -74,18 +77,29 @@ class WorkoutToolsService(
 		return workoutBotFacade.deleteWorkout(exerciseName, date)
 	}
 
-	fun getExerciseProgress(
-		exerciseName: String,
+	fun getExerciseProgresses(
+		exercises: String?,
 		recentSessions: Int?,
-	): String = workoutBotFacade.getExerciseProgressSummary(exerciseName, recentSessions ?: 6)
-
-	fun getDaySummary(performedOn: String?): String {
-		val date =
-			when (val resolved = resolvePerformedOn(performedOn)) {
-				is DateResolve.Ok -> resolved.date
-				is DateResolve.Invalid -> return performedOnError(performedOn)
+	): String {
+		val names =
+			when (val resolved = resolveExerciseList(exercises)) {
+				is ExerciseListResolve.Ok -> resolved.names
+				is ExerciseListResolve.Error -> return resolved.message
 			}
-		return workoutBotFacade.getDaySummary(date)
+		return workoutBotFacade.getExerciseProgressSummaries(names, recentSessions ?: 6)
+	}
+
+	fun getDaySummaries(
+		from: String?,
+		to: String?,
+		days: String?,
+	): String {
+		val dates =
+			when (val resolved = resolveDayList(from, to, days)) {
+				is DayListResolve.Ok -> resolved.dates
+				is DayListResolve.Error -> return resolved.message
+			}
+		return workoutBotFacade.getDaySummaries(dates)
 	}
 
 	fun sendNotification(
@@ -149,12 +163,17 @@ class WorkoutToolsService(
 							toolArgs.require("exercise_name"),
 							toolArgs.optional("performed_on"),
 						)
-					"get_exercise_progress" ->
-						getExerciseProgress(
-							toolArgs.require("exercise_name"),
+					"get_exercise_progresses" ->
+						getExerciseProgresses(
+							toolArgs.require("exercises"),
 							toolArgs.optionalInt("recent_sessions"),
 						)
-					"get_day_summary" -> getDaySummary(toolArgs.optional("performed_on"))
+					"get_day_summaries" ->
+						getDaySummaries(
+							toolArgs.optional("from"),
+							toolArgs.optional("to"),
+							toolArgs.optional("days"),
+						)
 					"send_notification" -> sendNotification(chatId, toolArgs.require("message"))
 					"schedule_notification" ->
 						scheduleNotification(
@@ -209,6 +228,91 @@ class WorkoutToolsService(
 	}
 
 	private fun performedOnError(raw: String?): String = "Неверная дата performed_on: ${raw ?: "формат YYYY-MM-DD"}"
+
+	internal sealed interface DayListResolve {
+		data class Ok(
+			val dates: List<LocalDate>,
+		) : DayListResolve
+
+		data class Error(
+			val message: String,
+		) : DayListResolve
+	}
+
+	internal fun resolveDayList(
+		from: String?,
+		to: String?,
+		days: String?,
+	): DayListResolve {
+		val daysList = days?.trim()?.takeIf { it.isNotEmpty() }
+		if (daysList != null) {
+			val parsed =
+				daysList.split(",").map { part ->
+					try {
+						LocalDate.parse(part.trim())
+					} catch (_: DateTimeParseException) {
+						return DayListResolve.Error("Неверная дата в days: $part (формат YYYY-MM-DD)")
+					}
+				}
+			if (parsed.distinct().size > MAX_DAY_SUMMARIES) {
+				return DayListResolve.Error("Слишком много дней в days (макс. $MAX_DAY_SUMMARIES).")
+			}
+			return DayListResolve.Ok(parsed)
+		}
+		val fromRaw = from?.trim()?.takeIf { it.isNotEmpty() }
+		val toRaw = to?.trim()?.takeIf { it.isNotEmpty() }
+		if (fromRaw == null && toRaw == null) {
+			return DayListResolve.Error("Укажи from+to (интервал) или days (даты через запятую, YYYY-MM-DD).")
+		}
+		if (fromRaw == null || toRaw == null) {
+			return DayListResolve.Error("Для интервала нужны оба поля from и to (YYYY-MM-DD).")
+		}
+		val fromDate =
+			try {
+				LocalDate.parse(fromRaw)
+			} catch (_: DateTimeParseException) {
+				return DayListResolve.Error("Неверная дата from: $fromRaw")
+			}
+		val toDate =
+			try {
+				LocalDate.parse(toRaw)
+			} catch (_: DateTimeParseException) {
+				return DayListResolve.Error("Неверная дата to: $toRaw")
+			}
+		if (fromDate.isAfter(toDate)) {
+			return DayListResolve.Error("from не может быть позже to.")
+		}
+		val span = ChronoUnit.DAYS.between(fromDate, toDate) + 1
+		if (span > MAX_DAY_SUMMARIES) {
+			return DayListResolve.Error("Интервал слишком большой (макс. $MAX_DAY_SUMMARIES дней).")
+		}
+		val range = generateSequence(fromDate) { d -> if (d.isBefore(toDate)) d.plusDays(1) else null }.toList()
+		return DayListResolve.Ok(range)
+	}
+
+	internal sealed interface ExerciseListResolve {
+		data class Ok(
+			val names: List<String>,
+		) : ExerciseListResolve
+
+		data class Error(
+			val message: String,
+		) : ExerciseListResolve
+	}
+
+	internal fun resolveExerciseList(exercises: String?): ExerciseListResolve {
+		val raw = exercises?.trim()?.takeIf { it.isNotEmpty() }
+			?: return ExerciseListResolve.Error("Укажи exercises (названия упражнений через запятую).")
+		val names =
+			raw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+		if (names.isEmpty()) {
+			return ExerciseListResolve.Error("Укажи exercises (названия упражнений через запятую).")
+		}
+		if (names.size > MAX_EXERCISE_PROGRESS) {
+			return ExerciseListResolve.Error("Слишком много упражнений (макс. $MAX_EXERCISE_PROGRESS).")
+		}
+		return ExerciseListResolve.Ok(names)
+	}
 
 	private fun Map<String, String?>.require(key: String): String =
 		this[key]?.trim()?.takeIf { it.isNotEmpty() }
