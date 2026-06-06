@@ -2,7 +2,11 @@ package dev.myutils.api.openrouter
 
 import dev.myutils.api.config.ConditionalOnTelegramBot
 import dev.myutils.api.config.MyUtilsProperties
+import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.util.LogPreview
+import dev.myutils.api.util.RetryPolicy
+import dev.myutils.api.util.measureMillis
+import dev.myutils.api.util.retryBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 import org.springframework.web.client.RestClient
@@ -13,7 +17,6 @@ class OpenRouterClient(
 	properties: MyUtilsProperties,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
-	private val config = properties.openrouter
 	private val client: RestClient = OpenRouterRestClientFactory.create(properties)
 
 	fun chat(request: ChatCompletionRequest): ChatCompletionResponse {
@@ -26,16 +29,22 @@ class OpenRouterClient(
 			request.tools?.size ?: 0,
 			LogPreview.of(lastUser, max = 80),
 		)
-		val started = System.nanoTime()
-		val response =
-			client
-				.post()
-				.uri("/chat/completions")
-				.body(request)
-				.retrieve()
-				.body(ChatCompletionResponse::class.java)
-				?: ChatCompletionResponse()
-		val ms = (System.nanoTime() - started) / 1_000_000
+		val (response, ms) =
+			measureMillis {
+				retryBlocking(
+					name = "OpenRouter chat",
+					policy = retryPolicy(),
+					log = log,
+				) {
+					client
+						.post()
+						.uri("/chat/completions")
+						.body(request)
+						.retrieve()
+						.body(ChatCompletionResponse::class.java)
+						?: ChatCompletionResponse()
+				}
+			}
 		val assistant = response.choices.firstOrNull()?.message
 		val toolNames = assistant?.toolCalls?.joinToString { it.function.name }.orEmpty()
 		log.info(
@@ -47,4 +56,10 @@ class OpenRouterClient(
 		)
 		return response
 	}
+
+	private fun retryPolicy(): RetryPolicy =
+		RetryPolicy(
+			maxAttempts = AppProperties.OPENROUTER_RETRY_MAX_ATTEMPTS.get(),
+			initialDelayMs = AppProperties.OPENROUTER_RETRY_INITIAL_DELAY_MS.get().toLong(),
+		)
 }

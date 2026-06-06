@@ -157,6 +157,24 @@ object AppProperties {
 			range = 1..32,
 		)
 
+	val OPENROUTER_RETRY_MAX_ATTEMPTS: IntProperty =
+		IntProperty(
+			key = "openrouter.retry.max-attempts",
+			description = "Число попыток запроса к OpenRouter при сетевых/временных ошибках.",
+			tags = listOf("agent"),
+			default = 3,
+			range = 1..10,
+		)
+
+	val OPENROUTER_RETRY_INITIAL_DELAY_MS: IntProperty =
+		IntProperty(
+			key = "openrouter.retry.initial-delay-ms",
+			description = "Начальная пауза перед повтором OpenRouter (мс), далее экспоненциальный backoff.",
+			tags = listOf("agent"),
+			default = 1_000,
+			range = 100..60_000,
+		)
+
 	val TELEGRAM_CONVERSATION_TTL_HOURS: IntProperty =
 		IntProperty(
 			key = "telegram.conversation-ttl-hours",

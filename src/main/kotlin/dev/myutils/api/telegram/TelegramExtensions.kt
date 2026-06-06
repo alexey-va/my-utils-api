@@ -7,7 +7,9 @@ import com.pengrad.telegrambot.model.request.ParseMode
 import com.pengrad.telegrambot.request.AnswerCallbackQuery
 import com.pengrad.telegrambot.request.SendChatAction
 import com.pengrad.telegrambot.request.SendMessage
+import com.pengrad.telegrambot.response.BaseResponse
 import dev.myutils.api.util.LogPreview
+import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 
 private val log = LoggerFactory.getLogger("dev.myutils.api.telegram")
@@ -18,7 +20,7 @@ fun TelegramBot.sendHtmlMessage(
 	replyMarkup: Keyboard? = null,
 ) {
 	val request =
-		SendMessage(chatId, text.take(4096))
+		SendMessage(chatId, text.take(TelegramLimits.MESSAGE_MAX_LENGTH))
 			.parseMode(ParseMode.HTML)
 	if (replyMarkup != null) {
 		request.replyMarkup(replyMarkup)
@@ -27,12 +29,7 @@ fun TelegramBot.sendHtmlMessage(
 	if (response.isOk) {
 		log.info("Telegram send ok chatId={} text={}", chatId, LogPreview.of(text))
 	} else {
-		log.warn(
-			"Telegram send failed chatId={}: {} {}",
-			chatId,
-			response.errorCode(),
-			response.description(),
-		)
+		log.warnTelegramFailed("send", response, " chatId=$chatId")
 	}
 }
 
@@ -47,12 +44,22 @@ fun TelegramBot.answerCallback(
 ) {
 	val request = AnswerCallbackQuery(callbackQueryId)
 	if (!text.isNullOrBlank()) {
-		request.text(text.take(200))
+		request.text(text.take(TelegramLimits.CALLBACK_ANSWER_MAX_LENGTH))
 	}
 	val response = execute(request)
+	log.warnTelegramFailed("answerCallback", response)
+}
+
+private fun Logger.warnTelegramFailed(
+	operation: String,
+	response: BaseResponse,
+	context: String = "",
+) {
 	if (!response.isOk) {
-		log.warn(
-			"Telegram answerCallback failed: {} {}",
+		warn(
+			"Telegram {} failed{}: {} {}",
+			operation,
+			context,
 			response.errorCode(),
 			response.description(),
 		)
