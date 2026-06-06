@@ -20,6 +20,10 @@ repositories {
 }
 
 dependencies {
+	implementation(platform("dev.langchain4j:langchain4j-bom:1.0.0"))
+	implementation("dev.langchain4j:langchain4j")
+	implementation("dev.langchain4j:langchain4j-open-ai")
+
 	implementation("org.springframework.boot:spring-boot-starter-web")
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-security")

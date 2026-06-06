@@ -2,6 +2,8 @@ package dev.myutils.api.temporal
 
 import dev.myutils.api.config.MyUtilsProperties
 import dev.myutils.api.properties.AppProperties
+import dev.myutils.api.temporal.agent.AgentTurnInput
+import dev.myutils.api.temporal.agent.WorkoutAgentWorkflow
 import dev.myutils.api.temporal.notification.NotificationWorkflowInput
 import dev.myutils.api.temporal.notification.TelegramNotificationWorkflow
 import dev.myutils.api.temporal.reminder.EveningWorkoutReminderWorkflow
@@ -94,6 +96,22 @@ class TemporalWorkflowService(
 		}
 	}
 
+	fun startAgentTurn(input: AgentTurnInput) {
+		val workflowId = agentTurnWorkflowId(input.chatId)
+		val stub =
+			workflowClient.newWorkflowStub(
+				WorkoutAgentWorkflow::class.java,
+				workflowOptions(workflowId),
+			)
+		WorkflowClient.start(stub::handleTurn, input)
+		log.info(
+			"Started agent turn workflowId={} chatId={} userId={}",
+			workflowId,
+			input.chatId,
+			input.userId,
+		)
+	}
+
 	fun cancelNotification(workflowId: String): Boolean =
 		try {
 			workflowClient.newUntypedWorkflowStub(workflowId).cancel()
@@ -133,5 +151,7 @@ class TemporalWorkflowService(
 		fun eveningReminderWorkflowId(chatId: Long): String = "evening-reminder-$chatId"
 
 		fun notificationWorkflowId(chatId: Long): String = "tg-notify-$chatId-${UUID.randomUUID()}"
+
+		fun agentTurnWorkflowId(chatId: Long): String = "agent-turn-$chatId-${UUID.randomUUID()}"
 	}
 }
