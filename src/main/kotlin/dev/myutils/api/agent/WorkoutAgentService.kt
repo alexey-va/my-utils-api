@@ -9,11 +9,8 @@ import dev.myutils.api.openrouter.OpenRouterClient
 import dev.myutils.api.openrouter.ToolCall
 import dev.myutils.api.telegram.TelegramChatHistory
 import dev.myutils.api.telegram.TelegramClient
-import dev.myutils.api.telegram.TelegramUpdate
 import dev.myutils.api.util.LogPreview
-import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
-import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Service
 
 @Service
@@ -29,26 +26,6 @@ class WorkoutAgentService(
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val telegram = properties.telegram
-
-	@Async
-	fun handleUpdateAsync(update: TelegramUpdate) {
-		log.info("Telegram update queued updateId={}", update.updateId)
-		try {
-			handleUpdate(update)
-		} catch (ex: Exception) {
-			log.error("Telegram update failed updateId={}", update.updateId, ex)
-		}
-	}
-
-	fun handleUpdate(update: TelegramUpdate) {
-		val message = update.message ?: update.editedMessage ?: return
-		val userId = message.from?.id ?: return
-		val chatId = message.chat.id
-		val text = message.text?.trim() ?: return
-		runBlocking {
-			handleMessage(chatId, userId, text)
-		}
-	}
 
 	suspend fun handleMessage(
 		chatId: Long,

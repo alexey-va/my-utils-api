@@ -1,8 +1,16 @@
 package dev.myutils.api.telegram
 
+import com.pengrad.telegrambot.TelegramBot
+import com.pengrad.telegrambot.model.request.ChatAction
+import com.pengrad.telegrambot.model.request.InlineKeyboardMarkup
+import com.pengrad.telegrambot.model.request.Keyboard
+import com.pengrad.telegrambot.model.request.ParseMode
+import com.pengrad.telegrambot.request.AnswerCallbackQuery
+import com.pengrad.telegrambot.request.DeleteWebhook
+import com.pengrad.telegrambot.request.GetWebhookInfo
+import com.pengrad.telegrambot.request.SendChatAction
+import com.pengrad.telegrambot.request.SendMessage
 import dev.myutils.api.config.ConditionalOnTelegramBot
-import dev.myutils.api.config.MyUtilsProperties
-import dev.myutils.api.http.OutboundHttpClientFactory
 import dev.myutils.api.telegram.TelegramApiSupport.describeError
 import dev.myutils.api.telegram.TelegramApiSupport.timed
 import dev.myutils.api.util.LogPreview
@@ -10,62 +18,49 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
-import org.springframework.web.client.RestClient
-import java.time.Duration
 
 @Component
 @ConditionalOnTelegramBot
 class TelegramClient(
-	properties: MyUtilsProperties,
+	private val bot: TelegramBot,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
-	private val config = properties.telegram
-
-	private val client: RestClient = createRestClient(properties)
-
-	private fun createRestClient(properties: MyUtilsProperties): RestClient {
-		val requestFactory =
-			OutboundHttpClientFactory
-				.jdkRequestFactory(properties.openrouter.proxy)
-				.apply {
-					setReadTimeout(Duration.ofSeconds(45))
-				}
-		return RestClient
-			.builder()
-			.baseUrl("https://api.telegram.org/bot${config.botToken}")
-			.requestFactory(requestFactory)
-			.build()
-	}
 
 	suspend fun sendMessage(
 		chatId: Long,
 		text: String,
+		replyMarkup: Keyboard? = null,
 	) = withContext(Dispatchers.IO) {
 		log.timed("sendMessage chatId=$chatId chars=${text.length}") {
-			val response =
-				client
-					.post()
-					.uri("/sendMessage")
-					.body(
-						SendMessageRequest(
-							chatId = chatId,
-							text = text.take(4096),
-							parseMode = "HTML",
-						),
-					)
-					.retrieve()
-					.body(TelegramApiResponse::class.java)
-			if (response?.ok == true) {
+			val request =
+				SendMessage(chatId, text.take(4096))
+					.parseMode(ParseMode.HTML)
+			if (replyMarkup != null) {
+				request.replyMarkup(replyMarkup)
+			}
+			val response = bot.execute(request)
+			if (response.isOk) {
 				log.info(
 					"Telegram sendMessage ok chatId={} text={}",
 					chatId,
 					LogPreview.of(text),
 				)
 			} else {
-				log.warn("Telegram sendMessage failed chatId={}: {}", chatId, response?.description)
+				log.warn(
+					"Telegram sendMessage failed chatId={}: {} {}",
+					chatId,
+					response.errorCode(),
+					response.description(),
+				)
 			}
 		}
 	}
+
+	suspend fun sendMessage(
+		chatId: Long,
+		text: String,
+		inlineKeyboard: InlineKeyboardMarkup,
+	) = sendMessage(chatId, text, inlineKeyboard as Keyboard)
 
 	suspend fun sendChatAction(
 		chatId: Long,
@@ -73,15 +68,47 @@ class TelegramClient(
 	) = withContext(Dispatchers.IO) {
 		runCatching {
 			log.timed("sendChatAction chatId=$chatId action=$action") {
-				client
-					.post()
-					.uri("/sendChatAction")
-					.body(SendChatActionRequest(chatId = chatId, action = action))
-					.retrieve()
-					.toBodilessEntity()
+				val chatAction = mapChatAction(action)
+				val response = bot.execute(SendChatAction(chatId, chatAction))
+				if (!response.isOk) {
+					log.debug(
+						"Telegram sendChatAction api error chatId={}: {} {}",
+						chatId,
+						response.errorCode(),
+						response.description(),
+					)
+				}
 			}
 		}.onFailure { ex ->
 			log.debug("Telegram sendChatAction failed chatId={}: {}", chatId, describeError(ex), ex)
+		}
+	}
+
+	suspend fun answerCallbackQuery(
+		callbackQueryId: String,
+		text: String? = null,
+		showAlert: Boolean = false,
+	) = withContext(Dispatchers.IO) {
+		runCatching {
+			log.timed("answerCallbackQuery id=$callbackQueryId") {
+				val request = AnswerCallbackQuery(callbackQueryId)
+				if (!text.isNullOrBlank()) {
+					request.text(text.take(200))
+				}
+				if (showAlert) {
+					request.showAlert(true)
+				}
+				val response = bot.execute(request)
+				if (!response.isOk) {
+					log.warn(
+						"Telegram answerCallbackQuery failed: {} {}",
+						response.errorCode(),
+						response.description(),
+					)
+				}
+			}
+		}.onFailure { ex ->
+			log.warn("Telegram answerCallbackQuery failed: {}", describeError(ex), ex)
 		}
 	}
 
@@ -93,26 +120,23 @@ class TelegramClient(
 				log.warn("Telegram getWebhookInfo failed before deleteWebhook — continuing anyway")
 			} else {
 				log.info(
-					"Telegram webhook before delete: url={} pendingUpdates={} customCert={}",
-					before.url?.ifBlank { "<empty>" } ?: "<empty>",
-					before.pendingUpdateCount,
-					before.hasCustomCertificate,
+					"Telegram webhook before delete: url={} pendingUpdates={}",
+					before.url()?.ifBlank { "<empty>" } ?: "<empty>",
+					before.pendingUpdateCount(),
 				)
 			}
 
 			runCatching {
 				log.timed("deleteWebhook") {
-					val response =
-						client
-							.post()
-							.uri("/deleteWebhook")
-							.body(mapOf("drop_pending_updates" to false))
-							.retrieve()
-							.body(TelegramApiResponse::class.java)
-					if (response?.ok == true) {
+					val response = bot.execute(DeleteWebhook())
+					if (response.isOk) {
 						log.info("Telegram deleteWebhook ok")
 					} else {
-						log.warn("Telegram deleteWebhook api error: {}", response?.description)
+						log.warn(
+							"Telegram deleteWebhook api error: {} {}",
+							response.errorCode(),
+							response.description(),
+						)
 					}
 					response
 				}
@@ -126,54 +150,32 @@ class TelegramClient(
 			} else {
 				log.info(
 					"Telegram webhook after delete: url={} pendingUpdates={}",
-					after.url?.ifBlank { "<empty>" } ?: "<empty>",
-					after.pendingUpdateCount,
+					after.url()?.ifBlank { "<empty>" } ?: "<empty>",
+					after.pendingUpdateCount(),
 				)
 			}
 		}
 
-	suspend fun getUpdates(
-		offset: Long,
-		timeoutSeconds: Int = 30,
-	): List<TelegramUpdate> =
-		withContext(Dispatchers.IO) {
-			log.timed("getUpdates offset=$offset timeout=${timeoutSeconds}s") {
-				val response =
-					client
-						.get()
-						.uri { builder ->
-							builder
-								.path("/getUpdates")
-								.queryParam("offset", offset)
-								.queryParam("timeout", timeoutSeconds)
-								.queryParam("allowed_updates", "[\"message\",\"edited_message\"]")
-								.build()
-						}
-						.retrieve()
-						.body(TelegramUpdatesResult::class.java)
-				if (response?.ok != true) {
-					log.warn("Telegram getUpdates api error: {}", response?.description)
-					return@timed emptyList()
-				}
-				if (response.result.isNotEmpty()) {
-					log.info("Telegram getUpdates returned {} update(s)", response.result.size)
-				}
-				response.result
-			}
-		}
-
-	private fun getWebhookInfo(): TelegramWebhookInfo? =
+	private fun getWebhookInfo() =
 		log.timed("getWebhookInfo") {
-			val response =
-				client
-					.get()
-					.uri("/getWebhookInfo")
-					.retrieve()
-					.body(TelegramWebhookInfoResponse::class.java)
-			if (response?.ok != true) {
-				log.warn("Telegram getWebhookInfo api error: {}", response?.description)
+			val response = bot.execute(GetWebhookInfo())
+			if (!response.isOk) {
+				log.warn(
+					"Telegram getWebhookInfo api error: {} {}",
+					response.errorCode(),
+					response.description(),
+				)
 				return@timed null
 			}
-			response.result
+			response.webhookInfo()
+		}
+
+	private fun mapChatAction(action: String): ChatAction =
+		when (action.lowercase()) {
+			"typing" -> ChatAction.typing
+			"upload_photo" -> ChatAction.upload_photo
+			"upload_document" -> ChatAction.upload_document
+			"find_location" -> ChatAction.find_location
+			else -> ChatAction.typing
 		}
 }

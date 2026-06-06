@@ -1,32 +1,29 @@
 package dev.myutils.api.telegram
 
+import com.pengrad.telegrambot.TelegramBot
+import com.pengrad.telegrambot.UpdatesListener
 import dev.myutils.api.config.ConditionalOnTelegramBot
 import dev.myutils.api.config.MyUtilsProperties
 import dev.myutils.api.telegram.TelegramApiSupport.describeError
 import jakarta.annotation.PreDestroy
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import org.slf4j.LoggerFactory
 import org.springframework.boot.context.event.ApplicationReadyEvent
 import org.springframework.context.event.EventListener
 import org.springframework.stereotype.Component
-import java.util.concurrent.atomic.AtomicLong
 
-/** Receives bot messages via Telegram [getUpdates] long polling. */
+/** Receives bot updates via pengrad long-polling listener (messages + inline button callbacks). */
 @Component
 @ConditionalOnTelegramBot
 class TelegramLongPollingRunner(
 	private val properties: MyUtilsProperties,
+	private val bot: TelegramBot,
 	private val telegramClient: TelegramClient,
 	private val inboundCoalescer: TelegramInboundCoalescer,
 	private val telegramScope: TelegramCoroutineScope,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
-	private val nextOffset = AtomicLong(0)
-	private var pollingJob: Job? = null
 
 	@EventListener(ApplicationReadyEvent::class)
 	fun start() {
@@ -35,50 +32,68 @@ class TelegramLongPollingRunner(
 			"Telegram bot starting long polling allowedUsers={}",
 			allowed.ifEmpty { "any" },
 		)
-		pollingJob =
-			telegramScope.launch {
-				try {
-					telegramClient.ensureLongPollingMode()
-				} catch (ex: CancellationException) {
-					throw ex
-				} catch (ex: Exception) {
-					log.warn("Telegram webhook setup failed: {}", describeError(ex), ex)
+		runBlocking {
+			telegramClient.ensureLongPollingMode()
+		}
+		bot.setUpdatesListener(
+			{ updates ->
+				for (update in updates) {
+					dispatchUpdate(update)
 				}
-				log.info("Telegram long polling active")
-				pollLoop()
-			}
+				UpdatesListener.CONFIRMED_UPDATES_ALL
+			},
+			{ error ->
+				if (error.response() != null) {
+					val response = error.response()
+					log.warn(
+						"Telegram polling api error: {} {}",
+						response.errorCode(),
+						response.description(),
+					)
+				} else {
+					log.warn("Telegram polling error: {}", describeError(error), error)
+				}
+			},
+		)
+		log.info("Telegram long polling active")
 	}
 
 	@PreDestroy
 	fun stop() {
-		pollingJob?.cancel()
-	}
-
-	private suspend fun pollLoop() {
-		while (telegramScope.isActive) {
-			try {
-				val updates = telegramClient.getUpdates(nextOffset.get(), timeoutSeconds = 30)
-				for (update in updates) {
-					val updateId = update.updateId
-					if (updateId != null) {
-						nextOffset.set(updateId + 1)
-					}
-					val message = update.message ?: update.editedMessage ?: continue
-					val userId = message.from?.id ?: continue
-					val text = message.text?.trim() ?: continue
-					inboundCoalescer.enqueue(message.chat.id, userId, text)
-				}
-			} catch (ex: CancellationException) {
-				throw ex
-			} catch (ex: Exception) {
-				log.warn("Telegram polling error: {}", describeError(ex), ex)
-				delay(POLL_ERROR_BACKOFF_MS)
-			}
-		}
+		bot.removeGetUpdatesListener()
 		log.info("Telegram long polling stopped")
 	}
 
-	private companion object {
-		const val POLL_ERROR_BACKOFF_MS = 3_000L
+	private fun dispatchUpdate(update: com.pengrad.telegrambot.model.Update) {
+		val callbackQuery = update.callbackQuery()
+		if (callbackQuery != null) {
+			val userId = callbackQuery.from()?.id() ?: return
+			val chatId = callbackQuery.message()?.chat()?.id() ?: return
+			val data = callbackQuery.data()?.trim().orEmpty()
+			if (data.isEmpty()) {
+				return
+			}
+			telegramScope.launch {
+				telegramClient.answerCallbackQuery(callbackQuery.id())
+				log.info(
+					"Telegram callback chatId={} userId={} data={}",
+					chatId,
+					userId,
+					data,
+				)
+				inboundCoalescer.enqueue(chatId, userId, data)
+			}
+			return
+		}
+
+		val message = update.message() ?: update.editedMessage() ?: return
+		val userId = message.from()?.id() ?: return
+		val text = message.text()?.trim().orEmpty()
+		if (text.isEmpty()) {
+			return
+		}
+		telegramScope.launch {
+			inboundCoalescer.enqueue(message.chat().id(), userId, text)
+		}
 	}
 }

@@ -1,7 +1,6 @@
 package dev.myutils.api.telegram
 
 import org.slf4j.Logger
-import org.springframework.web.client.ResourceAccessException
 import java.io.IOException
 
 internal object TelegramApiSupport {
@@ -13,9 +12,6 @@ internal object TelegramApiSupport {
 			if (root !== ex && root.message?.isNotBlank() == true) {
 				parts.add("cause=${root.javaClass.simpleName}: ${root.message}")
 			}
-		}
-		if (ex is ResourceAccessException && ex.cause != null) {
-			parts.add("rootCause=${ex.cause!!.javaClass.simpleName}: ${ex.cause!!.message}")
 		}
 		return parts.joinToString(" | ")
 	}
