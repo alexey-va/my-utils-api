@@ -1,0 +1,12 @@
+apiVersion: 1
+
+providers:
+  - name: my-utils
+    orgId: 1
+    folder: My Utils
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/json
