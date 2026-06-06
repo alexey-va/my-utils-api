@@ -3,7 +3,13 @@ package dev.myutils.api.telegram
 import dev.myutils.api.agent.WorkoutAgentService
 import dev.myutils.api.config.ConditionalOnTelegramBot
 import dev.myutils.api.util.LogPreview
+import jakarta.annotation.PreDestroy
+import kotlinx.coroutines.CoroutineName
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -20,9 +26,12 @@ import java.util.concurrent.ConcurrentHashMap
 @ConditionalOnTelegramBot
 class TelegramInboundCoalescer(
 	private val workoutAgentService: WorkoutAgentService,
-	private val telegramScope: TelegramCoroutineScope,
-) {
+) : CoroutineScope {
 	private val log = LoggerFactory.getLogger(javaClass)
+	private val job = SupervisorJob()
+	override val coroutineContext =
+		job + Dispatchers.Default + CoroutineName("telegram-agent")
+
 	private val chats = ConcurrentHashMap<Long, ChatBuffer>()
 
 	fun enqueue(
@@ -30,7 +39,7 @@ class TelegramInboundCoalescer(
 		userId: Long,
 		text: String,
 	) {
-		telegramScope.launch {
+		launch {
 			val buffer = chats.computeIfAbsent(chatId) { ChatBuffer() }
 			buffer.mutex.withLock {
 				buffer.userId = userId
@@ -45,12 +54,17 @@ class TelegramInboundCoalescer(
 				}
 				buffer.debounceJob?.cancel()
 				buffer.debounceJob =
-					telegramScope.launch {
+					launch {
 						delay(DEBOUNCE_MS)
 						processChat(chatId)
 					}
 			}
 		}
+	}
+
+	@PreDestroy
+	fun shutdown() {
+		job.cancel()
 	}
 
 	private suspend fun processChat(chatId: Long) {

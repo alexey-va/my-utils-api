@@ -7,8 +7,10 @@ import dev.myutils.api.openrouter.ChatCompletionRequest
 import dev.myutils.api.openrouter.ChatMessage
 import dev.myutils.api.openrouter.OpenRouterClient
 import dev.myutils.api.openrouter.ToolCall
+import com.pengrad.telegrambot.TelegramBot
 import dev.myutils.api.telegram.TelegramChatHistory
-import dev.myutils.api.telegram.TelegramClient
+import dev.myutils.api.telegram.sendHtmlMessage
+import dev.myutils.api.telegram.sendTyping
 import dev.myutils.api.util.LogPreview
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -21,7 +23,7 @@ class WorkoutAgentService(
 	private val workoutAgentTools: WorkoutAgentTools,
 	private val toolExecutor: WorkoutToolExecutor,
 	private val chatHistory: TelegramChatHistory,
-	private val telegramClient: TelegramClient,
+	private val bot: TelegramBot,
 	private val contextBuilder: WorkoutAgentContextBuilder,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
@@ -34,7 +36,7 @@ class WorkoutAgentService(
 	) {
 		if (telegram.allowedUserIdSet().isNotEmpty() && userId !in telegram.allowedUserIdSet()) {
 			log.warn("Rejected Telegram user {}", userId)
-			telegramClient.sendMessage(chatId, "У вас нет доступа к этому боту.")
+			bot.sendHtmlMessage(chatId, "У вас нет доступа к этому боту.")
 			return
 		}
 
@@ -47,7 +49,7 @@ class WorkoutAgentService(
 
 		if (text == "/start") {
 			log.info("Telegram /start chatId={}", chatId)
-			telegramClient.sendMessage(
+			bot.sendHtmlMessage(
 				chatId,
 				"""
 				Тренер по дневнику. Напиши «что на сегодня» — скажу что уже было на этой неделе, что осталось по списку упражнений, и один план с весами. Или сразу запиши подход: «жим 70 3*10/12».
@@ -56,7 +58,7 @@ class WorkoutAgentService(
 			return
 		}
 
-		telegramClient.sendChatAction(chatId, "typing")
+		bot.sendTyping(chatId)
 
 		val history = chatHistory.load(chatId).toMutableList()
 		log.info("Telegram chatId={} historyMessages={}", chatId, history.size)
@@ -67,7 +69,7 @@ class WorkoutAgentService(
 		chatHistory.save(chatId, history)
 		log.info("Telegram chatId={} savedHistoryMessages={}", chatId, history.size)
 
-		telegramClient.sendMessage(chatId, reply)
+		bot.sendHtmlMessage(chatId, reply)
 		log.info("Telegram handled chatId={} reply={}", chatId, LogPreview.of(reply))
 	}
 
