@@ -21,12 +21,12 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(agent_requests_total[1h]))",
-          "legendFormat": "requests",
+          "expr": "sum(agent_requests_total{application=\"my-utils-api\"})",
+          "legendFormat": "total",
           "refId": "A"
         }
       ],
-      "title": "Agent requests (1h)",
+      "title": "Agent requests (total)",
       "type": "stat"
     },
     {
@@ -45,12 +45,12 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(agent_turns_total[1h]))",
-          "legendFormat": "turns",
+          "expr": "sum(agent_turns_total{application=\"my-utils-api\"})",
+          "legendFormat": "total",
           "refId": "A"
         }
       ],
-      "title": "Completed turns (1h)",
+      "title": "Completed turns (total)",
       "type": "stat"
     },
     {
@@ -69,12 +69,12 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(agent_turn_duration_seconds_sum[1h])) / sum(increase(agent_turn_duration_seconds_count[1h]))",
+          "expr": "sum(agent_turn_duration_seconds_sum{application=\"my-utils-api\"}) / sum(agent_turn_duration_seconds_count{application=\"my-utils-api\"})",
           "legendFormat": "avg",
           "refId": "A"
         }
       ],
-      "title": "Avg turn duration (1h)",
+      "title": "Avg turn duration",
       "type": "stat"
     },
     {
@@ -93,12 +93,12 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum(increase(agent_llm_steps_total[1h]))",
-          "legendFormat": "steps",
+          "expr": "sum(agent_llm_steps_total{application=\"my-utils-api\"})",
+          "legendFormat": "total",
           "refId": "A"
         }
       ],
-      "title": "LLM steps (1h)",
+      "title": "LLM steps (total)",
       "type": "stat"
     },
     {
@@ -108,12 +108,12 @@
           "decimals": 0,
           "unit": "none",
           "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 80,
-            "lineWidth": 0,
-            "pointSize": 5,
-            "showPoints": "never",
-            "stacking": { "mode": "normal", "group": "A" }
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "always",
+            "pointSize": 5
           }
         },
         "overrides": []
@@ -124,12 +124,12 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (path, outcome) (increase(agent_requests_total[$__rate_interval]))",
+          "expr": "sum by (path, outcome) (agent_requests_total{application=\"my-utils-api\"})",
           "legendFormat": "{{path}} {{outcome}}",
           "refId": "A"
         }
       ],
-      "title": "Agent requests (events)",
+      "title": "Agent requests",
       "type": "timeseries"
     },
     {
@@ -139,12 +139,12 @@
           "decimals": 0,
           "unit": "none",
           "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 80,
-            "lineWidth": 0,
-            "pointSize": 5,
-            "showPoints": "never",
-            "stacking": { "mode": "normal", "group": "A" }
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "always",
+            "pointSize": 5
           }
         },
         "overrides": []
@@ -155,12 +155,12 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (path, outcome) (increase(agent_turns_total[$__rate_interval]))",
+          "expr": "sum by (path, outcome) (agent_turns_total{application=\"my-utils-api\"})",
           "legendFormat": "{{path}} {{outcome}}",
           "refId": "A"
         }
       ],
-      "title": "Completed turns (events)",
+      "title": "Completed turns",
       "type": "timeseries"
     },
     {
@@ -175,13 +175,13 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (path) (increase(agent_turn_duration_seconds_sum[$__rate_interval])) / sum by (path) (increase(agent_turn_duration_seconds_count[$__rate_interval]))",
+          "expr": "sum by (path) (increase(agent_turn_duration_seconds_sum{application=\"my-utils-api\"}[$__rate_interval])) / sum by (path) (increase(agent_turn_duration_seconds_count{application=\"my-utils-api\"}[$__rate_interval]))",
           "legendFormat": "avg {{path}}",
           "refId": "A"
         },
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "max by (path) (agent_turn_duration_seconds_max)",
+          "expr": "max by (path) (agent_turn_duration_seconds_max{application=\"my-utils-api\"})",
           "legendFormat": "max {{path}}",
           "refId": "B"
         }
@@ -201,9 +201,15 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (path) (increase(agent_llm_step_duration_seconds_sum[$__rate_interval])) / sum by (path) (increase(agent_llm_step_duration_seconds_count[$__rate_interval]))",
+          "expr": "sum by (path) (increase(agent_llm_step_duration_seconds_sum{application=\"my-utils-api\"}[$__rate_interval])) / sum by (path) (increase(agent_llm_step_duration_seconds_count{application=\"my-utils-api\"}[$__rate_interval]))",
           "legendFormat": "avg {{path}}",
           "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (path) (agent_llm_step_duration_seconds_max{application=\"my-utils-api\"})",
+          "legendFormat": "max {{path}}",
+          "refId": "B"
         }
       ],
       "title": "LLM step duration",
@@ -216,11 +222,12 @@
           "decimals": 0,
           "unit": "none",
           "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 80,
-            "lineWidth": 0,
-            "showPoints": "never",
-            "stacking": { "mode": "normal", "group": "A" }
+            "drawStyle": "line",
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "fillOpacity": 12,
+            "showPoints": "always",
+            "pointSize": 5
           }
         },
         "overrides": []
@@ -231,8 +238,8 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (tool) (increase(agent_tool_calls_total[$__rate_interval]))",
-          "legendFormat": "{{tool}}",
+          "expr": "sum by (tool, status) (agent_tool_calls_total{application=\"my-utils-api\"})",
+          "legendFormat": "{{tool}} {{status}}",
           "refId": "A"
         }
       ],
@@ -251,9 +258,15 @@
       "targets": [
         {
           "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "sum by (tool) (increase(agent_tool_duration_seconds_sum[$__rate_interval])) / sum by (tool) (increase(agent_tool_duration_seconds_count[$__rate_interval]))",
+          "expr": "sum by (tool) (increase(agent_tool_duration_seconds_sum{application=\"my-utils-api\"}[$__rate_interval])) / sum by (tool) (increase(agent_tool_duration_seconds_count{application=\"my-utils-api\"}[$__rate_interval]))",
           "legendFormat": "avg {{tool}}",
           "refId": "A"
+        },
+        {
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "expr": "max by (tool) (agent_tool_duration_seconds_max{application=\"my-utils-api\"})",
+          "legendFormat": "max {{tool}}",
+          "refId": "B"
         }
       ],
       "title": "Tool duration",
@@ -293,10 +306,10 @@
   "schemaVersion": 39,
   "tags": ["my-utils", "prometheus", "api", "agent"],
   "templating": { "list": [] },
-  "time": { "from": "now-1h", "to": "now" },
+  "time": { "from": "now-6h", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
   "title": "My Utils API Metrics",
   "uid": "myutils-api-metrics",
-  "version": 2
+  "version": 3
 }
