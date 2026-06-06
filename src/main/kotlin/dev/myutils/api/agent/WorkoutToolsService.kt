@@ -1,5 +1,6 @@
 package dev.myutils.api.agent
 
+import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.temporal.TemporalNotificationFacade
 import dev.myutils.api.infra.util.LogPreview
@@ -13,6 +14,7 @@ import java.time.format.DateTimeParseException
 class WorkoutToolsService(
 	private val workoutBotFacade: WorkoutBotFacade,
 	private val temporalNotificationFacade: TemporalNotificationFacade,
+	private val agentMetrics: AgentMetrics,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -107,6 +109,17 @@ class WorkoutToolsService(
 		val toolName = camelToSnake(name)
 		val toolArgs = args.normalizeKeys()
 		log.info("Tool {} chatId={} args={}", toolName, chatId, LogPreview.of(toolArgs.toString(), max = 240))
+		return agentMetrics.timeTool(toolName, "temporal") {
+			runToolBody(toolName, chatId, toolArgs, rawName = name)
+		}
+	}
+
+	private fun runToolBody(
+		toolName: String,
+		chatId: Long,
+		toolArgs: Map<String, String?>,
+		rawName: String,
+	): String {
 		val result =
 			try {
 				when (toolName) {
@@ -150,7 +163,7 @@ class WorkoutToolsService(
 							toolArgs.require("deliver_at"),
 						)
 					"cancel_notification" -> cancelNotification(toolArgs.require("workflow_id"))
-					else -> "Неизвестный инструмент: $name"
+					else -> "Неизвестный инструмент: $rawName"
 				}
 			} catch (ex: ResponseStatusException) {
 				ex.reason ?: ex.message ?: "Request failed"
@@ -162,6 +175,11 @@ class WorkoutToolsService(
 		log.info("Tool {} result={}", toolName, LogPreview.of(result, max = 240))
 		return result
 	}
+
+	fun trackedDirectTool(
+		toolName: String,
+		block: () -> String,
+	): String = agentMetrics.timeTool(toolName, "direct", block)
 
 	private fun Map<String, String?>.normalizeKeys(): Map<String, String?> =
 		mapKeys { (key, _) -> camelToSnake(key) }

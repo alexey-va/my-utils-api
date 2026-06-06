@@ -1,7 +1,9 @@
 package dev.myutils.api.agent
 
+import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.temporal.TemporalNotificationFacade
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.mock
@@ -11,10 +13,13 @@ class WorkoutToolsServiceTest {
 	private val facade: WorkoutBotFacade = mock()
 	private val notifications: TemporalNotificationFacade = mock()
 
+	private fun service(): WorkoutToolsService =
+		WorkoutToolsService(facade, notifications, AgentMetrics(SimpleMeterRegistry()))
+
 	@Test
 	fun `list_exercises delegates to facade`() {
 		whenever(facade.listExercises()).thenReturn(emptyList())
-		val service = WorkoutToolsService(facade, notifications)
+		val service = service()
 		val result = service.runTool("list_exercises", chatId = 1L, args = emptyMap())
 		assertTrue(result.contains("Упражнений пока нет"))
 	}
@@ -31,7 +36,7 @@ class WorkoutToolsServiceTest {
 				maxReps = 5,
 			),
 		).thenReturn("Записано: Bench press")
-		val service = WorkoutToolsService(facade, notifications)
+		val service = service()
 		val result =
 			service.runTool(
 				"log_workout",
@@ -60,7 +65,7 @@ class WorkoutToolsServiceTest {
 				maxReps = 12,
 			),
 		).thenReturn("Записано: Жим")
-		val service = WorkoutToolsService(facade, notifications)
+		val service = service()
 		val result =
 			service.runTool(
 				"logWorkout",
@@ -86,7 +91,7 @@ class WorkoutToolsServiceTest {
 				muscleGroup = null,
 			),
 		).thenReturn("Переименовано: «Жим» → «Жим грудь» (chest).")
-		val service = WorkoutToolsService(facade, notifications)
+		val service = service()
 		val result =
 			service.runTool(
 				"rename_exercise",

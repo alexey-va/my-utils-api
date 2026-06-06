@@ -13,4 +13,7 @@ interface WorkoutAgentActivities {
 
 	@ActivityMethod
 	fun recordToolResults(input: RecordToolResultsInput)
+
+	@ActivityMethod
+	fun recordTurnMetrics(input: AgentTurnMetricsInput)
 }

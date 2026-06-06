@@ -13,26 +13,26 @@ class WorkoutLangChainTools(
 	private val temporalEnabled: Boolean,
 ) {
 	@Tool("Список всех упражнений в дневнике (id, название, группа мышц).")
-	fun listExercises(): String = toolsService.listExercises()
+	fun listExercises(): String = tracked("list_exercises") { toolsService.listExercises() }
 
 	@Tool("Переименовать упражнение в дневнике (записи сохраняются). Можно сменить группу мышц.")
 	fun renameExercise(
 		currentName: String,
 		newName: String,
 		muscleGroup: String? = null,
-	): String = toolsService.renameExercise(currentName, newName, muscleGroup)
+	): String = tracked("rename_exercise") { toolsService.renameExercise(currentName, newName, muscleGroup) }
 
 	@Tool("Создать новое упражнение, если его ещё нет. Для гантелей укажи «гантели» в названии.")
 	fun createExercise(
 		name: String,
 		muscleGroup: String? = null,
-	): String = toolsService.createExercise(name, muscleGroup)
+	): String = tracked("create_exercise") { toolsService.createExercise(name, muscleGroup) }
 
 	@Tool("Удалить запись за день (упражнение + дата).")
 	fun deleteWorkout(
 		exerciseName: String,
 		performedOn: String? = null,
-	): String = toolsService.deleteWorkout(exerciseName, performedOn)
+	): String = tracked("delete_workout") { toolsService.deleteWorkout(exerciseName, performedOn) }
 
 	@Tool(
 		"Записать/обновить за день: вес 3*X/МАХ → set_count=3, reps_per_set=X, max_reps=МАХ, weight_kg полный.",
@@ -45,28 +45,31 @@ class WorkoutLangChainTools(
 		performedOn: String? = null,
 		setCount: Int = 3,
 	): String =
-		toolsService.logWorkout(
-			exerciseName = exerciseName,
-			performedOn = performedOn,
-			weightKg = weightKg,
-			setCount = setCount,
-			repsPerSet = repsPerSet,
-			maxReps = maxReps,
-		)
+		tracked("log_workout") {
+			toolsService.logWorkout(
+				exerciseName = exerciseName,
+				performedOn = performedOn,
+				weightKg = weightKg,
+				setCount = setCount,
+				repsPerSet = repsPerSet,
+				maxReps = maxReps,
+			)
+		}
 
 	@Tool("Прогресс по упражнению (если нет в снимке).")
 	fun getExerciseProgress(
 		exerciseName: String,
 		recentSessions: Int? = 6,
-	): String = toolsService.getExerciseProgress(exerciseName, recentSessions)
+	): String = tracked("get_exercise_progress") { toolsService.getExerciseProgress(exerciseName, recentSessions) }
 
 	@Tool("Записи за день (если нет в снимке).")
-	fun getDaySummary(performedOn: String? = null): String = toolsService.getDaySummary(performedOn)
+	fun getDaySummary(performedOn: String? = null): String =
+		tracked("get_day_summary") { toolsService.getDaySummary(performedOn) }
 
 	@Tool("Сразу отправить сообщение пользователю в этот Telegram-чат (через Temporal).")
 	fun sendNotification(message: String): String {
 		requireTemporal()
-		return toolsService.sendNotification(chatId, message)
+		return tracked("send_notification") { toolsService.sendNotification(chatId, message) }
 	}
 
 	@Tool("Запланировать напоминание в Telegram на время deliver_at (Temporal workflow).")
@@ -75,14 +78,21 @@ class WorkoutLangChainTools(
 		deliverAt: String,
 	): String {
 		requireTemporal()
-		return toolsService.scheduleNotification(chatId, message, deliverAt)
+		return tracked("schedule_notification") {
+			toolsService.scheduleNotification(chatId, message, deliverAt)
+		}
 	}
 
 	@Tool("Отменить запланированное уведомление по workflow_id из ответа schedule_notification.")
 	fun cancelNotification(workflowId: String): String {
 		requireTemporal()
-		return toolsService.cancelNotification(workflowId)
+		return tracked("cancel_notification") { toolsService.cancelNotification(workflowId) }
 	}
+
+	private fun tracked(
+		toolName: String,
+		block: () -> String,
+	): String = toolsService.trackedDirectTool(toolName, block)
 
 	private fun requireTemporal() {
 		check(temporalEnabled) { "Temporal выключен — уведомления недоступны." }

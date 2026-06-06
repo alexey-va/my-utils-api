@@ -4,6 +4,7 @@ import dev.myutils.api.temporal.agent.AgentLlmStepInput
 import dev.myutils.api.temporal.agent.AgentLlmStepResult
 import dev.myutils.api.temporal.agent.AgentPreludeResult
 import dev.myutils.api.temporal.agent.AgentTurnInput
+import dev.myutils.api.temporal.agent.AgentTurnMetricsInput
 import dev.myutils.api.temporal.agent.RecordToolResultsInput
 import dev.myutils.api.temporal.agent.ToolCallDto
 import dev.myutils.api.temporal.agent.ToolCallInput
@@ -83,6 +84,8 @@ class TemporalWorkflowTests {
 			}
 
 			override fun recordToolResults(input: RecordToolResultsInput) = Unit
+
+			override fun recordTurnMetrics(input: AgentTurnMetricsInput) = Unit
 		}
 
 	private fun stubToolActivities(): WorkoutToolActivities =

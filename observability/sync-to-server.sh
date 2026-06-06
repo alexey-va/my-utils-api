@@ -15,7 +15,8 @@ rsync -avz \
 # Ensure Promtail can read Docker logs (do not overwrite server compose secrets).
 ssh "${HOST}" "grep -q 'docker.sock' ${REMOTE_DIR}/docker-compose.yml || sed -i '/\\/var\\/log:\\/var\\/log/a\\      - /var/run/docker.sock:/var/run/docker.sock:ro' ${REMOTE_DIR}/docker-compose.yml"
 
-ssh "${HOST}" "cd ${REMOTE_DIR} && docker compose up -d promtail grafana loki"
+ssh "${HOST}" "cd ${REMOTE_DIR} && docker compose up -d promtail grafana loki prometheus"
 
-echo "Done. Dashboard: /grafana/d/myutils-api-logs/my-utils-api-logs"
+echo "Done. Logs: /grafana/d/myutils-api-logs/my-utils-api-logs"
+echo "Metrics: /grafana/d/myutils-api-metrics/my-utils-api-metrics"
 echo "Explore: {app=\"my-utils-api\"}"

@@ -7,6 +7,7 @@ import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.temporal.TemporalWorkflowService
 import dev.myutils.api.temporal.agent.AgentTurnInput
 import dev.myutils.api.telegram.TelegramMessenger
+import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.infra.util.LogPreview
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -19,6 +20,7 @@ class WorkoutAgentService(
 	private val langChain4jAgent: WorkoutLangChain4jAgent,
 	private val temporalWorkflow: ObjectProvider<TemporalWorkflowService>,
 	private val telegram: TelegramMessenger,
+	private val agentMetrics: AgentMetrics,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	suspend fun handleMessage(
@@ -28,6 +30,7 @@ class WorkoutAgentService(
 	) {
 		if (properties.telegram.allowedUserIdSet().isNotEmpty() && userId !in properties.telegram.allowedUserIdSet()) {
 			log.warn("Rejected Telegram user {}", userId)
+			agentMetrics.recordRequest("none", "rejected")
 			telegram.sendHtmlMessage(chatId, "У вас нет доступа к этому боту.")
 			return
 		}
@@ -52,10 +55,12 @@ class WorkoutAgentService(
 					maxToolIterations = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get(),
 				),
 			)
+			agentMetrics.recordRequest("temporal", "started")
 			log.info("Telegram chatId={} delegated to Temporal agent workflow", chatId)
 			return
 		}
 
+		agentMetrics.recordRequest("direct", "started")
 		runDirect(chatId, userId, text)
 	}
 
@@ -66,6 +71,7 @@ class WorkoutAgentService(
 	) {
 		if (text == "/start") {
 			log.info("Telegram /start chatId={}", chatId)
+			agentMetrics.recordTurn("direct", "start_command", durationMs = 0, llmSteps = 0)
 			telegram.sendHtmlMessage(
 				chatId,
 				"""
@@ -76,8 +82,15 @@ class WorkoutAgentService(
 		}
 
 		telegram.sendTyping(chatId)
+		val startedAt = System.currentTimeMillis()
 		val reply = langChain4jAgent.run(chatId, text)
 		telegram.sendHtmlMessage(chatId, reply)
+		agentMetrics.recordTurn(
+			path = "direct",
+			outcome = "reply",
+			durationMs = System.currentTimeMillis() - startedAt,
+			llmSteps = 0,
+		)
 		log.info("Telegram handled chatId={} reply={}", chatId, LogPreview.of(reply))
 	}
 }

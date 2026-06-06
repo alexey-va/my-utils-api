@@ -27,6 +27,8 @@ class SecurityConfig(
 			.authorizeHttpRequests { auth ->
 				auth
 					.requestMatchers(HttpMethod.GET, "/api/health").permitAll()
+					.requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
+					.requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
 					.requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
 					.requestMatchers("/api/workouts/**").permitAll()
 					.requestMatchers(

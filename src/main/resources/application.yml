@@ -1,6 +1,23 @@
 server:
   port: 8080
 
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  endpoint:
+    health:
+      show-details: never
+  metrics:
+    tags:
+      application: my-utils-api
+    distribution:
+      percentiles-histogram:
+        agent.turn.duration: true
+        agent.llm.step.duration: true
+        agent.tool.duration: true
+
 logging:
   level:
     dev.myutils.api: INFO

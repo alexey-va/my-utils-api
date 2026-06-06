@@ -2,6 +2,7 @@ package dev.myutils.api.temporal.agent
 
 import dev.myutils.api.agent.langchain.WorkoutLangChain4jAgent
 import dev.myutils.api.infra.config.MyUtilsProperties
+import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.temporal.TemporalConstants
 import io.temporal.spring.boot.ActivityImpl
 import org.slf4j.LoggerFactory
@@ -15,6 +16,7 @@ import org.springframework.stereotype.Component
 class WorkoutAgentActivitiesImpl(
 	private val agent: ObjectProvider<WorkoutLangChain4jAgent>,
 	private val properties: MyUtilsProperties,
+	private val agentMetrics: AgentMetrics,
 ) : WorkoutAgentActivities {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -39,7 +41,20 @@ class WorkoutAgentActivitiesImpl(
 		val langChainAgent =
 			agent.getIfAvailable()
 				?: return AgentLlmStepResult(reply = "Агент не настроен (нет TELEGRAM_BOT_TOKEN?).")
-		return langChainAgent.llmStep(input)
+		return agentMetrics.timeLlmStep("temporal") {
+			langChainAgent.llmStep(input).also { result ->
+				agentMetrics.recordLlmToolRequests("temporal", result.toolCalls.size)
+			}
+		}
+	}
+
+	override fun recordTurnMetrics(input: AgentTurnMetricsInput) {
+		agentMetrics.recordTurn(
+			path = "temporal",
+			outcome = input.outcome,
+			durationMs = input.durationMs,
+			llmSteps = input.llmSteps,
+		)
 	}
 
 	override fun recordToolResults(input: RecordToolResultsInput) {
