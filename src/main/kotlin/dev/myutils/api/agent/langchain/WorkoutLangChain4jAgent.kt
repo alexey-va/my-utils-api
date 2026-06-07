@@ -9,7 +9,9 @@ import dev.myutils.api.temporal.agent.AgentLlmStepInput
 import dev.myutils.api.temporal.agent.AgentLlmStepResult
 import dev.myutils.api.temporal.agent.RecordToolResultsInput
 import dev.myutils.api.temporal.agent.ToolCallDto
+import dev.myutils.api.infra.util.LlmRequestLog
 import dev.myutils.api.infra.util.LogPreview
+import dev.myutils.api.temporal.logging.TemporalActivityLog
 import dev.langchain4j.agent.tool.ToolSpecifications
 import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.ChatMessage as LcChatMessage
@@ -73,6 +75,18 @@ class WorkoutLangChain4jAgent(
 		val toolSpecs = ToolSpecifications.toolSpecificationsFrom(tools)
 
 		val requestMessages = buildLlmMessages(chatId, input.userMessage)
+		TemporalActivityLog
+			.enrich(
+				log
+					.atInfo()
+					.setMessage("LLM request")
+					.addKeyValue("chatId", chatId)
+					.addKeyValue("messageCount", requestMessages.size)
+					.addKeyValue("toolSpecCount", toolSpecs.size)
+					.addKeyValue("userMessage", LogPreview.of(input.userMessage))
+					.addKeyValue("messages", LlmRequestLog.summarize(requestMessages)),
+			).log()
+
 		val response =
 			chatModelFactory.create().chat(
 				ChatRequest
@@ -85,12 +99,21 @@ class WorkoutLangChain4jAgent(
 
 		appendToMemory(chatId, buildMemoryAppend(input.userMessage, aiMessage))
 
-		log.info(
-			"LangChain4j llmStep chatId={} tools={} reply={}",
-			chatId,
-			aiMessage.toolExecutionRequests().size,
-			LogPreview.of(aiMessage.text().orEmpty()),
-		)
+		TemporalActivityLog
+			.enrich(
+				log
+					.atInfo()
+					.setMessage("LLM response")
+					.addKeyValue("chatId", chatId)
+					.addKeyValue("toolCallCount", aiMessage.toolExecutionRequests().size)
+					.addKeyValue("reply", LogPreview.of(aiMessage.text().orEmpty()))
+					.addKeyValue(
+						"toolCalls",
+						aiMessage.toolExecutionRequests().map { req ->
+							"${req.name()}(${req.id()} args=${LogPreview.of(req.arguments(), 120)})"
+						},
+					),
+			).log()
 
 		return AgentLlmStepResult(
 			reply = aiMessage.text().orEmpty(),
@@ -114,7 +137,29 @@ class WorkoutLangChain4jAgent(
 					result.result,
 				)
 			}
+		TemporalActivityLog
+			.enrich(
+				log
+					.atInfo()
+					.setMessage("Tool results to memory")
+					.addKeyValue("chatId", input.chatId)
+					.addKeyValue(
+						"results",
+						input.results.map { result ->
+							"${result.toolName}(${result.toolCallId}): ${LogPreview.of(result.result, 200)}"
+						},
+					),
+			).log()
 		appendToMemory(input.chatId, append)
+		TemporalActivityLog
+			.enrich(
+				log
+					.atInfo()
+					.setMessage("Memory after tool results")
+					.addKeyValue("chatId", input.chatId)
+					.addKeyValue("messageCount", memoryStore.getMessages(input.chatId).size)
+					.addKeyValue("messages", LlmRequestLog.summarize(memoryStore.getMessages(input.chatId))),
+			).log()
 	}
 
 	private fun buildLlmMessages(

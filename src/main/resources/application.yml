@@ -21,6 +21,7 @@ management:
 logging:
   level:
     dev.myutils.api: INFO
+    dev.myutils.api.temporal: INFO
     org.flywaydb: WARN
     org.hibernate: WARN
     org.springframework: WARN
