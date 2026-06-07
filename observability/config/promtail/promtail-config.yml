@@ -28,10 +28,30 @@ scrape_configs:
       - source_labels: ["__meta_docker_container_label_com_docker_compose_project"]
         target_label: compose_project
     pipeline_stages:
-      - regex:
-          expression: '^\S+\s+(?P<level>INFO|WARN|ERROR|DEBUG|TRACE)\s+'
-      - labels:
-          level:
+      - match:
+          selector: '{app="my-utils-api"}'
+          stages:
+            - json:
+                expressions:
+                  level: level
+                  message: message
+                  logger: logger_name
+                  timestamp: "@timestamp"
+            - timestamp:
+                source: timestamp
+                format: RFC3339Nano
+            - labels:
+                level:
+                logger:
+            - output:
+                source: message
+      - match:
+          selector: '{app!="my-utils-api"}'
+          stages:
+            - regex:
+                expression: '^\S+\s+(?P<level>INFO|WARN|ERROR|DEBUG|TRACE)\s+'
+            - labels:
+                level:
 
   # Host syslog (legacy)
   - job_name: timeweb_logs

@@ -21,6 +21,22 @@ management:
 logging:
   level:
     dev.myutils.api: INFO
+    org.flywaydb: WARN
+    org.hibernate: WARN
+    org.springframework: WARN
+    org.springframework.web.servlet: WARN
+    io.temporal.internal: WARN
+    com.zaxxer.hikari: WARN
+    org.apache.catalina: WARN
+    org.apache.tomcat: WARN
+  structured:
+    format:
+      console: logstash
+    json:
+      exclude:
+        - "@version"
+        - thread_name
+        - level_value
 
 spring:
   config:

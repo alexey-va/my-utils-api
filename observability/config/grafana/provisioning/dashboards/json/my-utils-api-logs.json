@@ -70,7 +70,7 @@
         "enableLogDetails": true,
         "prettifyLogMessage": false,
         "showCommonLabels": false,
-        "showLabels": false,
+        "showLabels": true,
         "showTime": true,
         "sortOrder": "Descending",
         "wrapLogMessage": true,
@@ -79,7 +79,7 @@
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "bedlw839mzuo0d" },
-          "expr": "{app=\"my-utils-api\"} | regexp `(?P<level>INFO|WARN|ERROR|DEBUG|TRACE)`",
+          "expr": "{app=\"my-utils-api\"}",
           "refId": "A"
         }
       ],
@@ -119,5 +119,5 @@
   "timezone": "browser",
   "title": "My Utils API Logs",
   "uid": "myutils-api-logs",
-  "version": 2
+  "version": 3
 }
