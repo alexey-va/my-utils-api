@@ -22,9 +22,9 @@ class TelegramBotConfiguration {
 		val httpClient =
 			OkHttpClient
 				.Builder()
-				.connectTimeout(30, TimeUnit.SECONDS)
-				.readTimeout(75, TimeUnit.SECONDS)
-				.writeTimeout(75, TimeUnit.SECONDS)
+				.connectTimeout(45, TimeUnit.SECONDS)
+				.readTimeout(90, TimeUnit.SECONDS)
+				.writeTimeout(90, TimeUnit.SECONDS)
 				.apply {
 					if (proxy.enabled && proxy.host.isNotBlank()) {
 						proxy(Proxy(Proxy.Type.HTTP, InetSocketAddress(proxy.host.trim(), proxy.port)))

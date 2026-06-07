@@ -73,12 +73,13 @@
         "showLabels": false,
         "showTime": true,
         "sortOrder": "Descending",
-        "wrapLogMessage": true
+        "wrapLogMessage": true,
+        "logLevelField": "level"
       },
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "bedlw839mzuo0d" },
-          "expr": "{app=\"my-utils-api\"}",
+          "expr": "{app=\"my-utils-api\"} | regexp `(?P<level>INFO|WARN|ERROR|DEBUG|TRACE)`",
           "refId": "A"
         }
       ],
@@ -95,12 +96,13 @@
         "showLabels": false,
         "showTime": true,
         "sortOrder": "Descending",
-        "wrapLogMessage": true
+        "wrapLogMessage": true,
+        "logLevelField": "level"
       },
       "targets": [
         {
           "datasource": { "type": "loki", "uid": "bedlw839mzuo0d" },
-          "expr": "{app=\"my-utils-api\"} |= \"ERROR\"",
+          "expr": "{app=\"my-utils-api\", level=\"ERROR\"}",
           "refId": "A"
         }
       ],
@@ -108,7 +110,7 @@
       "type": "logs"
     }
   ],
-  "refresh": "10s",
+  "refresh": "",
   "schemaVersion": 39,
   "tags": ["my-utils", "loki", "api"],
   "templating": { "list": [] },
@@ -117,5 +119,5 @@
   "timezone": "browser",
   "title": "My Utils API Logs",
   "uid": "myutils-api-logs",
-  "version": 1
+  "version": 2
 }

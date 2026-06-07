@@ -35,16 +35,7 @@ class TelegramBotRunner(
 			allowed.ifEmpty { "any" },
 		)
 
-		val webhookResponse = bot.execute(DeleteWebhook().dropPendingUpdates(true))
-		if (webhookResponse.isOk) {
-			log.info("Telegram deleteWebhook ok (pending updates dropped)")
-		} else {
-			log.warn(
-				"Telegram deleteWebhook failed: {} {}",
-				webhookResponse.errorCode(),
-				webhookResponse.description(),
-			)
-		}
+		dropWebhookSafely()
 
 		bot.setUpdatesListener(
 			{ updates ->
@@ -73,6 +64,33 @@ class TelegramBotRunner(
 	fun stop() {
 		bot.removeGetUpdatesListener()
 		log.info("Telegram long polling stopped")
+	}
+
+	private fun dropWebhookSafely() {
+		repeat(3) { attempt ->
+			try {
+				val response = bot.execute(DeleteWebhook().dropPendingUpdates(attempt == 0))
+				if (response.isOk) {
+					log.info("Telegram deleteWebhook ok (pending updates dropped={})", attempt == 0)
+					return
+				}
+				log.warn(
+					"Telegram deleteWebhook failed: {} {}",
+					response.errorCode(),
+					response.description(),
+				)
+				return
+			} catch (ex: Exception) {
+				log.warn(
+					"Telegram deleteWebhook attempt {} failed: {}",
+					attempt + 1,
+					ex.message,
+				)
+				if (attempt == 2) {
+					log.warn("Telegram deleteWebhook skipped — starting long polling anyway")
+				}
+			}
+		}
 	}
 
 	private fun routeUpdate(update: Update) {

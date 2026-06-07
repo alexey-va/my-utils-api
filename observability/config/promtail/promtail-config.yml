@@ -27,6 +27,11 @@ scrape_configs:
         target_label: stream
       - source_labels: ["__meta_docker_container_label_com_docker_compose_project"]
         target_label: compose_project
+    pipeline_stages:
+      - regex:
+          expression: '^\S+\s+(?P<level>INFO|WARN|ERROR|DEBUG|TRACE)\s+'
+      - labels:
+          level:
 
   # Host syslog (legacy)
   - job_name: timeweb_logs
