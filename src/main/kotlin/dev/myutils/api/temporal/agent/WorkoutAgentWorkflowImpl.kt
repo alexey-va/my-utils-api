@@ -1,5 +1,6 @@
 package dev.myutils.api.temporal.agent
 
+import dev.myutils.api.agent.AgentToolCatalog
 import dev.myutils.api.infra.util.LogPreview
 import dev.myutils.api.temporal.TemporalConstants
 import dev.myutils.api.temporal.logging.TemporalWorkflowLog
@@ -7,6 +8,8 @@ import dev.myutils.api.temporal.telegram.TelegramActivities
 import io.temporal.activity.ActivityOptions
 import io.temporal.common.RetryOptions
 import io.temporal.spring.boot.WorkflowImpl
+import io.temporal.workflow.Async
+import io.temporal.workflow.Promise
 import io.temporal.workflow.Workflow
 import java.time.Duration
 
@@ -112,27 +115,15 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 				mapOf(
 					"step" to llmSteps,
 					"chatId" to input.chatId,
+					"parallel" to (step.toolCalls.size > 1),
+					"toolCallCount" to step.toolCalls.size,
 					"toolCalls" to
 						step.toolCalls.joinToString {
 							"${it.name}(${it.id} args=${LogPreview.of(it.argumentsJson, 120)})"
 						},
 				),
 			)
-			val toolResults =
-				step.toolCalls.map { tool ->
-					ToolCallResultDto(
-						toolCallId = tool.id,
-						toolName = tool.name,
-						result =
-							toolActivities.executeTool(
-								ToolCallInput(
-									chatId = input.chatId,
-									toolName = tool.name,
-									argumentsJson = tool.argumentsJson,
-								),
-							),
-					)
-				}
+			val toolResults = executeToolCallsParallel(input.chatId, step.toolCalls)
 			log.info(
 				"Agent LLM step tool results",
 				mapOf(
@@ -150,6 +141,18 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					results = toolResults,
 				),
 			)
+			if (isImmediateReturnStep(step.toolCalls)) {
+				log.info(
+					"Agent immediate tool step finished",
+					mapOf(
+						"step" to llmSteps,
+						"chatId" to input.chatId,
+						"tools" to step.toolCalls.joinToString { it.name },
+					),
+				)
+				recordTurnMetrics(startedAt, llmSteps, "immediate_tool")
+				return
+			}
 		}
 
 		log.info(
@@ -163,6 +166,62 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		recordTurnMetrics(startedAt, llmSteps, "tool_limit")
 		telegramActivities.sendMessage(input.chatId, "Слишком много шагов с инструментами, попробуй короче.")
 	}
+
+	private fun executeToolCallsParallel(
+		chatId: Long,
+		toolCalls: List<ToolCallDto>,
+	): List<ToolCallResultDto> {
+		if (toolCalls.isEmpty()) {
+			return emptyList()
+		}
+		if (toolCalls.size == 1) {
+			val tool = toolCalls.first()
+			return listOf(executeToolCall(chatId, tool))
+		}
+
+		val promises = ArrayList<Promise<String>>(toolCalls.size)
+		for (tool in toolCalls) {
+			promises.add(
+				Async.function(
+					toolActivities::executeTool,
+					ToolCallInput(
+						chatId = chatId,
+						toolName = tool.name,
+						argumentsJson = tool.argumentsJson,
+					),
+				),
+			)
+		}
+		Promise.allOf(promises).get()
+		return toolCalls.indices.map { index ->
+			val tool = toolCalls[index]
+			ToolCallResultDto(
+				toolCallId = tool.id,
+				toolName = tool.name,
+				result = promises[index].get(),
+			)
+		}
+	}
+
+	private fun isImmediateReturnStep(toolCalls: List<ToolCallDto>): Boolean =
+		toolCalls.isNotEmpty() && toolCalls.all { AgentToolCatalog.isImmediateReturn(it.name) }
+
+	private fun executeToolCall(
+		chatId: Long,
+		tool: ToolCallDto,
+	): ToolCallResultDto =
+		ToolCallResultDto(
+			toolCallId = tool.id,
+			toolName = tool.name,
+			result =
+				toolActivities.executeTool(
+					ToolCallInput(
+						chatId = chatId,
+						toolName = tool.name,
+						argumentsJson = tool.argumentsJson,
+					),
+				),
+		)
 
 	private fun recordTurnMetrics(
 		startedAt: Long,

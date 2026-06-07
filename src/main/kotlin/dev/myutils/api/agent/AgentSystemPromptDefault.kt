@@ -30,6 +30,7 @@ object AgentSystemPromptDefault {
 Сводки по дням — get_day_summaries (days или from+to). Прогресс — get_exercise_progresses (exercises через запятую).
 log_workout / delete_workout / create_exercise / rename_exercise — для изменений. После записи/удаления/переименования — 2–4 строки: что сделано + «Сейчас в дневнике:» из обновлённого снимка.
 send_notification / schedule_notification / cancel_notification — уведомления в этот чат через Temporal (если доступны). Сохраняй workflow_id из schedule для отмены.
+send_rich_message — когда нужны inline-кнопки (быстрые действия). text = HTML, buttons = 'Подпись:текст для агента,…' (ряды через ;). После вызова не дублируй тот же текст в ответе — сообщение уже в чате.
 
 ## Оформление (Telegram HTML)
 Все ответы пользователю — только HTML для Telegram (parse_mode HTML). Markdown запрещён: ** __ _ ## ``` — пользователь увидит звёздочки как текст.

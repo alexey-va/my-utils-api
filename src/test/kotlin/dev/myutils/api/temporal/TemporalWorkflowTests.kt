@@ -221,7 +221,7 @@ class TemporalWorkflowTests {
 	}
 }
 
-private object TemporalTestSupport {
+internal object TemporalTestSupport {
 	fun create(): TestWorkflowEnvironment {
 		val dataConverter = TemporalDataConverterConfiguration().temporalDataConverter()
 		val options =

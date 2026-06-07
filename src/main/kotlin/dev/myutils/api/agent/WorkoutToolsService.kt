@@ -4,9 +4,12 @@ import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_DAY_SUMMARIES
 import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_EXERCISE_PROGRESS
+import dev.myutils.api.telegram.TelegramButtonParser
+import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.temporal.TemporalNotificationFacade
 import dev.myutils.api.infra.util.LogPreview
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
 import java.time.LocalDate
@@ -18,6 +21,7 @@ class WorkoutToolsService(
 	private val workoutBotFacade: WorkoutBotFacade,
 	private val temporalNotificationFacade: TemporalNotificationFacade,
 	private val agentMetrics: AgentMetrics,
+	private val telegramMessenger: ObjectProvider<TelegramMessenger>,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -115,6 +119,28 @@ class WorkoutToolsService(
 
 	fun cancelNotification(workflowId: String): String = temporalNotificationFacade.cancel(workflowId)
 
+	fun sendRichMessage(
+		chatId: Long,
+		text: String,
+		buttons: String?,
+	): String {
+		val messenger =
+			telegramMessenger.getIfAvailable()
+				?: return "Telegram недоступен."
+		val markup =
+			try {
+				TelegramButtonParser.parse(buttons)
+			} catch (ex: IllegalArgumentException) {
+				return ex.message ?: "Неверный формат buttons"
+			}
+		messenger.sendHtmlMessage(chatId, text, markup)
+		return if (markup == null) {
+			"Сообщение отправлено."
+		} else {
+			"Сообщение с кнопками отправлено."
+		}
+	}
+
 	fun runTool(
 		name: String,
 		chatId: Long,
@@ -182,6 +208,12 @@ class WorkoutToolsService(
 							toolArgs.require("deliver_at"),
 						)
 					"cancel_notification" -> cancelNotification(toolArgs.require("workflow_id"))
+					"send_rich_message" ->
+						sendRichMessage(
+							chatId = chatId,
+							text = toolArgs.require("text"),
+							buttons = toolArgs.optional("buttons"),
+						)
 					else -> "Неизвестный инструмент: $rawName"
 				}
 			} catch (ex: ResponseStatusException) {

@@ -72,6 +72,16 @@ class WorkoutLangChainTools(
 		days: String? = null,
 	): String = tracked("get_day_summaries") { toolsService.getDaySummaries(from, to, days) }
 
+	@Tool(
+		"Отправить HTML в Telegram с inline-кнопками (returnDirect: сообщение уже в чате, не дублируй текст). " +
+			"buttons: ряды через ';', кнопки через ',', формат подпись:callback. " +
+			"Пример: Сегодня:что на сегодня,Неделя:план;Отмена:отмена",
+	)
+	fun sendRichMessage(
+		text: String,
+		buttons: String? = null,
+	): String = tracked("send_rich_message") { toolsService.sendRichMessage(chatId, text, buttons) }
+
 	@Tool("Сразу отправить сообщение пользователю в этот Telegram-чат (через Temporal).")
 	fun sendNotification(message: String): String {
 		requireTemporal()

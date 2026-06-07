@@ -2,21 +2,28 @@ package dev.myutils.api.agent
 
 import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
+import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.temporal.TemporalNotificationFacade
+import org.springframework.beans.factory.ObjectProvider
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import java.time.LocalDate
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
 
 class WorkoutToolsServiceTest {
 	private val facade: WorkoutBotFacade = mock()
 	private val notifications: TemporalNotificationFacade = mock()
 
-	private fun service(): WorkoutToolsService =
-		WorkoutToolsService(facade, notifications, AgentMetrics(SimpleMeterRegistry()))
+	private fun service(messenger: TelegramMessenger? = null): WorkoutToolsService {
+		val messengerProvider = mock<ObjectProvider<TelegramMessenger>>()
+		whenever(messengerProvider.getIfAvailable()).thenReturn(messenger)
+		return WorkoutToolsService(facade, notifications, AgentMetrics(SimpleMeterRegistry()), messengerProvider)
+	}
 
 	@Test
 	fun `list_exercises delegates to facade`() {
@@ -192,6 +199,36 @@ class WorkoutToolsServiceTest {
 		assertTrue(resolved is WorkoutToolsService.ExerciseListResolve.Ok)
 		val ok = resolved as WorkoutToolsService.ExerciseListResolve.Ok
 		assertEquals(listOf("Жим", "Присед"), ok.names)
+	}
+
+	@Test
+	fun `send_rich_message sends html with buttons`() {
+		val messenger: TelegramMessenger = mock()
+		val service = service(messenger)
+		val result =
+			service.runTool(
+				"send_rich_message",
+				chatId = 42L,
+				args =
+					mapOf(
+						"text" to "<b>План</b>",
+						"buttons" to "Сегодня:что на сегодня",
+					),
+			)
+		assertTrue(result.contains("кнопками"))
+		verify(messenger).sendHtmlMessage(eq(42L), eq("<b>План</b>"), org.mockito.kotlin.any())
+	}
+
+	@Test
+	fun `send_rich_message without telegram returns fallback`() {
+		val service = service(messenger = null)
+		val result =
+			service.runTool(
+				"send_rich_message",
+				chatId = 1L,
+				args = mapOf("text" to "hi"),
+			)
+		assertEquals("Telegram недоступен.", result)
 	}
 
 	@Test
