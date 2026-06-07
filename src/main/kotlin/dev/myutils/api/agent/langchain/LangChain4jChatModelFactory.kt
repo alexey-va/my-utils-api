@@ -51,8 +51,8 @@ class LangChain4jChatModelFactory(
 			)
 			.timeout(Duration.ofMinutes(3))
 			.httpClientBuilder(httpClientBuilder)
-			.logRequests(true)
-			.logResponses(true)
+			.logRequests(false)
+			.logResponses(false)
 			.build()
 	}
 }

@@ -22,6 +22,7 @@ logging:
   level:
     dev.myutils.api: INFO
     dev.myutils.api.temporal: INFO
+    dev.langchain4j.http.client.log: WARN
     org.flywaydb: WARN
     org.hibernate: WARN
     org.springframework: WARN

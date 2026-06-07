@@ -31,14 +31,21 @@ scrape_configs:
       - match:
           selector: '{app="my-utils-api"}'
           stages:
+            - drop:
+                expression: '^\s*$'
+            - drop:
+                expression: '^\{"id":"gen-'
+            - match:
+                selector: '{app="my-utils-api"} !~ "^\\{"'
+                action: drop
             - json:
                 expressions:
                   level: level
                   message: message
                   logger: logger_name
-                  timestamp: "@timestamp"
+                  ts: '"@timestamp"'
             - timestamp:
-                source: timestamp
+                source: ts
                 format: RFC3339Nano
             - labels:
                 level:
