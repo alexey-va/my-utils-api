@@ -1,6 +1,7 @@
 package dev.myutils.api.infra.observability
 
 import io.micrometer.core.instrument.MeterRegistry
+import jakarta.annotation.PostConstruct
 import org.springframework.stereotype.Component
 import java.time.Duration
 
@@ -8,6 +9,26 @@ import java.time.Duration
 class AgentMetrics(
 	private val registry: MeterRegistry,
 ) {
+	@PostConstruct
+	fun registerMeters() {
+		// Eager registration — counters видны в /actuator/prometheus сразу после старта (даже 0).
+		listOf("temporal", "direct", "none").forEach { path ->
+			registry.counter("agent.requests.total", "path", path, "outcome", "received")
+			registry.counter("agent.requests.total", "path", path, "outcome", "rejected")
+		}
+		listOf("temporal", "direct").forEach { path ->
+			listOf("reply", "tool_limit", "start_command", "prelude_reply", "rejected").forEach { outcome ->
+				registry.counter("agent.turns.total", "path", path, "outcome", outcome)
+			}
+			registry.counter("agent.llm.steps.total", "path", path)
+		}
+	}
+
+	/** Входящее сообщение пользователя (до завершения workflow). */
+	fun recordReceived(path: String) {
+		registry.counter("agent.requests.total", "path", path, "outcome", "received").increment()
+	}
+
 	fun recordRequest(
 		path: String,
 		outcome: String,
@@ -15,14 +36,13 @@ class AgentMetrics(
 		registry.counter("agent.requests.total", "path", path, "outcome", outcome).increment()
 	}
 
-	/** Один входящий turn: request + turn в одном scrape-окне. */
+	/** Завершённый turn агента (Temporal workflow / direct path). */
 	fun recordInbound(
 		path: String,
 		outcome: String,
 		durationMs: Long,
 		llmSteps: Int,
 	) {
-		recordRequest(path, outcome)
 		recordTurn(path, outcome, durationMs, llmSteps)
 	}
 

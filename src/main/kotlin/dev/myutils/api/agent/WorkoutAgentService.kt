@@ -44,6 +44,7 @@ class WorkoutAgentService(
 
 		val temporal = temporalWorkflow.getIfAvailable()
 		if (temporal != null && properties.temporal.enabled) {
+			agentMetrics.recordReceived("temporal")
 			if (text != "/start") {
 				telegram.sendTyping(chatId)
 			}
@@ -69,6 +70,7 @@ class WorkoutAgentService(
 	) {
 		if (text == "/start") {
 			log.info("Telegram /start chatId={}", chatId)
+			agentMetrics.recordReceived("direct")
 			agentMetrics.recordInbound("direct", "start_command", durationMs = 0, llmSteps = 0)
 			telegram.sendHtmlMessage(
 				chatId,
@@ -79,6 +81,7 @@ class WorkoutAgentService(
 			return
 		}
 
+		agentMetrics.recordReceived("direct")
 		telegram.sendTyping(chatId)
 		val startedAt = System.currentTimeMillis()
 		val reply = langChain4jAgent.run(chatId, text)
