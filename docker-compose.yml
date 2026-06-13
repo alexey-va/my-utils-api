@@ -59,7 +59,8 @@ services:
       - temporal
     environment:
       TEMPORAL_ADDRESS: temporal:7233
-      TEMPORAL_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      TEMPORAL_UI_PUBLIC_PATH: /temporal
+      TEMPORAL_CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173,http://localhost:13082
     ports:
       - "8233:8080"
 
