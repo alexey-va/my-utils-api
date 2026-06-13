@@ -16,3 +16,27 @@ datasources:
     access: proxy
     url: http://127.0.0.1:9090
     isDefault: false
+
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://127.0.0.1:3200
+    isDefault: false
+    jsonData:
+      tracesToLogsV2:
+        datasourceUid: bedlw839mzuo0d
+        spanStartTimeShift: -5m
+        spanEndTimeShift: 5m
+        filterByTraceID: true
+        filterBySpanID: false
+      tracesToMetrics:
+        datasourceUid: prometheus
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+      search:
+        hide: false
+      lokiSearch:
+        datasourceUid: bedlw839mzuo0d

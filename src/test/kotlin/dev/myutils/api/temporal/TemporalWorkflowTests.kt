@@ -120,7 +120,7 @@ class TemporalWorkflowTests {
 		assertEquals(2, llmSteps.size)
 		assertEquals("что на сегодня", llmSteps.first().userMessage)
 		assertEquals(null, llmSteps[1].userMessage)
-		assertEquals(listOf(ToolCallInput(42L, "list_exercises", "{}")), toolCalls)
+		assertEquals(listOf(ToolCallInput(42L, "list_exercises", "{}", toolCallId = "tc-1")), toolCalls)
 		assertEquals(listOf(42L to "stub reply"), sentMessages)
 	}
 

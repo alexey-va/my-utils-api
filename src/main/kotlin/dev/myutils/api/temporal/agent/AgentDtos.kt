@@ -16,6 +16,7 @@ data class AgentPreludeResult(
 data class AgentLlmStepInput(
 	val chatId: Long,
 	val userMessage: String? = null,
+	val traceParent: String? = null,
 )
 
 data class ToolCallDto(
@@ -48,4 +49,6 @@ data class ToolCallInput(
 	val chatId: Long,
 	val toolName: String,
 	val argumentsJson: String,
+	val traceParent: String? = null,
+	val toolCallId: String? = null,
 )

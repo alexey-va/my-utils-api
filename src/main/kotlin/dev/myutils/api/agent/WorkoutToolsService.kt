@@ -88,7 +88,7 @@ class WorkoutToolsService(
 		val names =
 			when (val resolved = resolveExerciseList(exercises)) {
 				is ExerciseListResolve.Ok -> resolved.names
-				is ExerciseListResolve.Error -> return resolved.message
+				is ExerciseListResolve.Error -> return ToolExecutionFeedback.failure(resolved.message)
 			}
 		return workoutBotFacade.getExerciseProgressSummaries(names, recentSessions ?: 6)
 	}
@@ -101,7 +101,11 @@ class WorkoutToolsService(
 		val dates =
 			when (val resolved = resolveDayList(from, to, days)) {
 				is DayListResolve.Ok -> resolved.dates
-				is DayListResolve.Error -> return resolved.message
+				is DayListResolve.Error ->
+					return ToolExecutionFeedback.failure(
+						error = resolved.message,
+						hint = "Исправь даты и вызови инструмент снова. Формат YYYY-MM-DD, значения в кавычках в arguments JSON.",
+					)
 			}
 		return workoutBotFacade.getDaySummaries(dates)
 	}
@@ -126,12 +130,12 @@ class WorkoutToolsService(
 	): String {
 		val messenger =
 			telegramMessenger.getIfAvailable()
-				?: return "Telegram недоступен."
+				?: return ToolExecutionFeedback.failure("Telegram недоступен.")
 		val markup =
 			try {
 				TelegramButtonParser.parse(buttons)
 			} catch (ex: IllegalArgumentException) {
-				return ex.message ?: "Неверный формат buttons"
+				return ToolExecutionFeedback.failure(ex.message ?: "Неверный формат buttons")
 			}
 		messenger.sendHtmlMessage(chatId, text, markup)
 		return if (markup == null) {
@@ -214,14 +218,15 @@ class WorkoutToolsService(
 							text = toolArgs.require("text"),
 							buttons = toolArgs.optional("buttons"),
 						)
-					else -> "Неизвестный инструмент: $rawName"
+					else ->
+						ToolExecutionFeedback.failure("Неизвестный инструмент: $rawName")
 				}
 			} catch (ex: ResponseStatusException) {
-				ex.reason ?: ex.message ?: "Request failed"
+				ToolExecutionFeedback.failure(ex.reason ?: ex.message ?: "Request failed")
 			} catch (ex: IllegalArgumentException) {
-				ex.message ?: "Invalid tool arguments"
+				ToolExecutionFeedback.failure(ex.message ?: "Invalid tool arguments")
 			} catch (ex: Exception) {
-				ex.message ?: "Tool execution failed"
+				ToolExecutionFeedback.failure(ex.message ?: "Tool execution failed")
 			}
 		log.info("Tool {} result={}", toolName, LogPreview.of(result, max = 240))
 		return result
@@ -259,7 +264,8 @@ class WorkoutToolsService(
 		}
 	}
 
-	private fun performedOnError(raw: String?): String = "Неверная дата performed_on: ${raw ?: "формат YYYY-MM-DD"}"
+	private fun performedOnError(raw: String?): String =
+		ToolExecutionFeedback.failure("Неверная дата performed_on: ${raw ?: "формат YYYY-MM-DD"}")
 
 	internal sealed interface DayListResolve {
 		data class Ok(

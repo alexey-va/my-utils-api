@@ -17,6 +17,17 @@ management:
         agent.turn.duration: true
         agent.llm.step.duration: true
         agent.tool.duration: true
+  tracing:
+    enabled: true
+    sampling:
+      probability: 1.0
+  opentelemetry:
+    resource-attributes:
+      service.name: my-utils-api
+      service.namespace: my-utils
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://127.0.0.1:4318/v1/traces}
 
 logging:
   level:

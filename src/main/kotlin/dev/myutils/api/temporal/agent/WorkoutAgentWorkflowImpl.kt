@@ -7,6 +7,7 @@ import dev.myutils.api.temporal.logging.TemporalWorkflowLog
 import dev.myutils.api.temporal.telegram.TelegramActivities
 import io.temporal.activity.ActivityOptions
 import io.temporal.common.RetryOptions
+import io.temporal.failure.ActivityFailure
 import io.temporal.spring.boot.WorkflowImpl
 import io.temporal.workflow.Async
 import io.temporal.workflow.Promise
@@ -61,6 +62,28 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 	override fun handleTurn(input: AgentTurnInput) {
 		val startedAt = Workflow.currentTimeMillis()
 		var llmSteps = 0
+		try {
+			llmSteps = handleTurnBody(input, startedAt)
+		} catch (error: Exception) {
+			log.warn(
+				"Agent turn failed",
+				mapOf(
+					"chatId" to input.chatId,
+					"userId" to input.userId,
+					"llmSteps" to llmSteps,
+					"error" to (error.message ?: error.javaClass.simpleName),
+				),
+			)
+			recordTurnMetrics(startedAt, llmSteps, "error")
+			notifyAgentFailure(input.chatId, error)
+		}
+	}
+
+	private fun handleTurnBody(
+		input: AgentTurnInput,
+		startedAt: Long,
+	): Int {
+		var llmSteps = 0
 
 		log.info(
 			"Agent turn started",
@@ -76,7 +99,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		if (prelude.kind == AgentPreludeResult.Kind.REPLY) {
 			recordTurnMetrics(startedAt, llmSteps, preludeOutcome(input, prelude.message))
 			telegramActivities.sendMessage(input.chatId, prelude.message.orEmpty())
-			return
+			return llmSteps
 		}
 
 		var userMessage: String? = input.text
@@ -91,7 +114,13 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					"userMessage" to (userMessage?.let { LogPreview.of(it) } ?: "(none)"),
 				),
 			)
-			val step = agentActivities.llmStep(AgentLlmStepInput(input.chatId, userMessage))
+			val step = agentActivities.llmStep(
+				AgentLlmStepInput(
+					chatId = input.chatId,
+					userMessage = userMessage,
+					traceParent = input.traceParent,
+				),
+			)
 			userMessage = null
 
 			if (!step.hasToolCalls) {
@@ -107,7 +136,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 				val reply = step.reply.trim().ifEmpty { "Готово." }
 				recordTurnMetrics(startedAt, llmSteps, "reply")
 				telegramActivities.sendMessage(input.chatId, reply)
-				return
+				return llmSteps
 			}
 
 			log.info(
@@ -123,7 +152,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 						},
 				),
 			)
-			val toolResults = executeToolCallsParallel(input.chatId, step.toolCalls)
+			val toolResults = executeToolCallsParallel(input.chatId, input.traceParent, step.toolCalls)
 			log.info(
 				"Agent LLM step tool results",
 				mapOf(
@@ -151,7 +180,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					),
 				)
 				recordTurnMetrics(startedAt, llmSteps, "immediate_tool")
-				return
+				return llmSteps
 			}
 		}
 
@@ -165,10 +194,12 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		)
 		recordTurnMetrics(startedAt, llmSteps, "tool_limit")
 		telegramActivities.sendMessage(input.chatId, "Слишком много шагов с инструментами, попробуй короче.")
+		return llmSteps
 	}
 
 	private fun executeToolCallsParallel(
 		chatId: Long,
+		traceParent: String?,
 		toolCalls: List<ToolCallDto>,
 	): List<ToolCallResultDto> {
 		if (toolCalls.isEmpty()) {
@@ -176,7 +207,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		}
 		if (toolCalls.size == 1) {
 			val tool = toolCalls.first()
-			return listOf(executeToolCall(chatId, tool))
+			return listOf(executeToolCall(chatId, traceParent, tool))
 		}
 
 		val promises = ArrayList<Promise<String>>(toolCalls.size)
@@ -188,6 +219,8 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 						chatId = chatId,
 						toolName = tool.name,
 						argumentsJson = tool.argumentsJson,
+						traceParent = traceParent,
+						toolCallId = tool.id,
 					),
 				),
 			)
@@ -208,6 +241,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 
 	private fun executeToolCall(
 		chatId: Long,
+		traceParent: String?,
 		tool: ToolCallDto,
 	): ToolCallResultDto =
 		ToolCallResultDto(
@@ -219,6 +253,8 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 						chatId = chatId,
 						toolName = tool.name,
 						argumentsJson = tool.argumentsJson,
+						traceParent = traceParent,
+						toolCallId = tool.id,
 					),
 				),
 		)
@@ -246,4 +282,36 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 			message?.contains("нет доступа") == true -> "rejected"
 			else -> "prelude_reply"
 		}
+
+	private fun notifyAgentFailure(
+		chatId: Long,
+		error: Exception,
+	) {
+		try {
+			telegramActivities.sendMessage(chatId, agentFailureReply(error))
+		} catch (notifyError: Exception) {
+			log.warn(
+				"Failed to notify user about agent failure",
+				mapOf(
+					"chatId" to chatId,
+					"error" to (notifyError.message ?: notifyError.javaClass.simpleName),
+				),
+			)
+		}
+	}
+
+	private fun agentFailureReply(error: Exception): String {
+		val detail =
+			when (error) {
+				is ActivityFailure -> error.cause?.message ?: error.message
+				else -> error.message
+			}
+		val suffix =
+			detail
+				?.trim()
+				?.takeIf { it.isNotEmpty() }
+				?.let { "\n\nТехнически: ${LogPreview.of(it, max = 240)}" }
+				.orEmpty()
+		return "Не удалось обработать запрос. Попробуй ещё раз или переформулируй.$suffix"
+	}
 }

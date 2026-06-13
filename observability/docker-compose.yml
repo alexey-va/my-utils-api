@@ -71,7 +71,18 @@ services:
       - "--config.file=/etc/blackbox_exporter/config.yml"
     restart: unless-stopped
 
+  tempo:
+    image: grafana/tempo:2.7.2
+    user: ${USER_ID}
+    command: ["-config.file=/etc/tempo/tempo-config.yml"]
+    volumes:
+      - ./config/tempo:/etc/tempo
+      - tempo_data:/var/tempo
+    restart: unless-stopped
+    network_mode: host
+
 volumes:
   grafana_data:
   loki_data:
   prometheus_data:
+  tempo_data:

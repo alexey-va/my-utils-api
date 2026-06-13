@@ -228,13 +228,31 @@ class WorkoutToolsServiceTest {
 				chatId = 1L,
 				args = mapOf("text" to "hi"),
 			)
-		assertEquals("Telegram недоступен.", result)
+		assertTrue(ToolExecutionFeedback.isFailure(result))
+		assertTrue(result.contains("Telegram недоступен"))
+	}
+
+	@Test
+	fun `get_day_summaries rejects invalid date without guessing`() {
+		val service = service()
+		val result =
+			service.runTool(
+				"getDaySummaries",
+				chatId = 1L,
+				args = mapOf("from" to "20226-06-09", "to" to "2026-06-09"),
+			)
+		assertTrue(ToolExecutionFeedback.isFailure(result))
+		assertTrue(result.contains("Неверная дата from"))
+		assertTrue(result.contains("20226-06-09"))
 	}
 
 	@Test
 	fun `unknown single tools return error`() {
 		val service = service()
-		assertTrue(service.runTool("getDaySummary", 1L, emptyMap()).contains("Неизвестный инструмент"))
-		assertTrue(service.runTool("getExerciseProgress", 1L, emptyMap()).contains("Неизвестный инструмент"))
+		assertTrue(ToolExecutionFeedback.isFailure(service.runTool("getDaySummary", 1L, emptyMap())))
+		assertTrue(
+			service.runTool("getDaySummary", 1L, emptyMap()).contains("Неизвестный инструмент"),
+		)
+		assertTrue(ToolExecutionFeedback.isFailure(service.runTool("getExerciseProgress", 1L, emptyMap())))
 	}
 }

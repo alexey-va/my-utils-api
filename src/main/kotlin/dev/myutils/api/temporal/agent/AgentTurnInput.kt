@@ -5,4 +5,5 @@ data class AgentTurnInput(
 	val userId: Long,
 	val text: String,
 	val maxToolIterations: Int = 8,
+	val traceParent: String? = null,
 )

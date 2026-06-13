@@ -8,6 +8,7 @@ import dev.myutils.api.temporal.TemporalWorkflowService
 import dev.myutils.api.temporal.agent.AgentTurnInput
 import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.infra.observability.AgentMetrics
+import dev.myutils.api.infra.observability.GenAiTracing
 import dev.myutils.api.infra.util.LogPreview
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
@@ -48,14 +49,18 @@ class WorkoutAgentService(
 			if (text != "/start") {
 				telegram.sendTyping(chatId)
 			}
-			temporal.startAgentTurn(
-				AgentTurnInput(
-					chatId = chatId,
-					userId = userId,
-					text = text,
-					maxToolIterations = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get(),
-				),
-			)
+			GenAiTracing.invokeAgent(chatId, userId, text) {
+				val traceParent = GenAiTracing.currentTraceParent()
+				temporal.startAgentTurn(
+					AgentTurnInput(
+						chatId = chatId,
+						userId = userId,
+						text = text,
+						maxToolIterations = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get(),
+						traceParent = traceParent,
+					),
+				)
+			}
 			log.info("Telegram chatId={} delegated to Temporal agent workflow", chatId)
 			return
 		}
@@ -84,14 +89,31 @@ class WorkoutAgentService(
 		agentMetrics.recordReceived("direct")
 		telegram.sendTyping(chatId)
 		val startedAt = System.currentTimeMillis()
-		val reply = langChain4jAgent.run(chatId, text)
-		telegram.sendHtmlMessage(chatId, reply)
-		agentMetrics.recordInbound(
-			path = "direct",
-			outcome = "reply",
-			durationMs = System.currentTimeMillis() - startedAt,
-			llmSteps = 0,
-		)
-		log.info("Telegram handled chatId={} reply={}", chatId, LogPreview.of(reply))
+		try {
+			val reply =
+				GenAiTracing.invokeAgent(chatId, userId, text) {
+					langChain4jAgent.run(chatId, text)
+				}
+			telegram.sendHtmlMessage(chatId, reply)
+			agentMetrics.recordInbound(
+				path = "direct",
+				outcome = "reply",
+				durationMs = System.currentTimeMillis() - startedAt,
+				llmSteps = 0,
+			)
+			log.info("Telegram handled chatId={} reply={}", chatId, LogPreview.of(reply))
+		} catch (ex: Exception) {
+			log.error("Direct agent failed chatId={}: {}", chatId, ex.message, ex)
+			telegram.sendHtmlMessage(
+				chatId,
+				"Не удалось обработать запрос. Попробуй ещё раз или переформулируй.",
+			)
+			agentMetrics.recordInbound(
+				path = "direct",
+				outcome = "error",
+				durationMs = System.currentTimeMillis() - startedAt,
+				llmSteps = 0,
+			)
+		}
 	}
 }

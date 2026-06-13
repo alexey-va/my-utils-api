@@ -1,7 +1,10 @@
 package dev.myutils.api.temporal.agent
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.myutils.api.agent.ToolArgumentsJsonParser
+import dev.myutils.api.agent.ToolExecutionFeedback
 import dev.myutils.api.agent.WorkoutToolsService
+import dev.myutils.api.infra.observability.GenAiTracing
 import dev.myutils.api.infra.util.LogPreview
 import dev.myutils.api.temporal.TemporalConstants
 import io.temporal.spring.boot.ActivityImpl
@@ -25,27 +28,35 @@ class WorkoutToolActivitiesImpl(
 			input.chatId,
 			LogPreview.of(input.argumentsJson, max = 240),
 		)
-		val args = parseArguments(input.argumentsJson)
-		return toolsService.runTool(input.toolName, input.chatId, args)
-	}
-
-	private fun parseArguments(argumentsJson: String): Map<String, String?> {
-		if (argumentsJson.isBlank()) {
-			return emptyMap()
-		}
-		val node = objectMapper.readTree(argumentsJson)
-		if (!node.isObject) {
-			return emptyMap()
-		}
-		return node
-			.properties()
-			.associate { (key, value) ->
-				key to
-					when {
-						value.isNull -> null
-						value.isTextual -> value.asText()
-						else -> value.toString()
-					}
+		return GenAiTracing.executeTool(
+			traceParent = input.traceParent,
+			chatId = input.chatId,
+			toolName = input.toolName,
+			toolCallId = input.toolCallId,
+			argumentsJson = input.argumentsJson,
+		) {
+			try {
+				when (val parsed = ToolArgumentsJsonParser.parse(objectMapper, input.argumentsJson)) {
+					is ToolArgumentsJsonParser.ParseResult.Ok ->
+						toolsService.runTool(input.toolName, input.chatId, parsed.args)
+					is ToolArgumentsJsonParser.ParseResult.Error ->
+						ToolExecutionFeedback.failure(
+							error = parsed.message,
+							hint = "Исправь arguments JSON и вызови инструмент снова. Даты — строки YYYY-MM-DD в кавычках.",
+						)
+				}
+			} catch (ex: Exception) {
+				log.warn(
+					"Temporal tool {} failed chatId={}: {}",
+					input.toolName,
+					input.chatId,
+					ex.message,
+					ex,
+				)
+				ToolExecutionFeedback.failure(
+					error = "Ошибка инструмента ${input.toolName}: ${ex.message ?: "неизвестная ошибка"}",
+				)
 			}
+		}
 	}
 }
