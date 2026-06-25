@@ -31,6 +31,16 @@ interface AgentConversationMessageRepository : JpaRepository<AgentConversationMe
 		"""
 		UPDATE AgentConversationMessage m
 		SET m.compactedIntoSummaryId = NULL
+		WHERE m.compactedIntoSummaryId = :summaryId
+		""",
+	)
+	fun clearCompactionMarksForSummary(summaryId: java.util.UUID)
+
+	@Modifying
+	@Query(
+		"""
+		UPDATE AgentConversationMessage m
+		SET m.compactedIntoSummaryId = NULL
 		WHERE m.chatId = :chatId AND m.compactedIntoSummaryId IS NOT NULL
 		""",
 	)

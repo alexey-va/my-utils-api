@@ -113,6 +113,14 @@ class AgentMemoryAdminService(
 	}
 
 	@Transactional
+	fun deleteSummary(id: UUID) {
+		val summary =
+			summaryRepository.findById(id).orElseThrow { IllegalArgumentException("Summary не найден.") }
+		messageRepository.clearCompactionMarksForSummary(id)
+		summaryRepository.delete(summary)
+	}
+
+	@Transactional
 	fun updateMessageExcluded(
 		messageId: Long,
 		excluded: Boolean,

@@ -62,6 +62,13 @@ class AdminAgentMemoryController(
 		service.deleteFact(id)
 	}
 
+	@DeleteMapping("/summaries/{id}")
+	fun deleteSummary(
+		@PathVariable id: UUID,
+	) {
+		service.deleteSummary(id)
+	}
+
 	@PatchMapping("/messages/{id}")
 	fun updateMessageExcluded(
 		@PathVariable id: Long,
