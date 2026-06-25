@@ -12,8 +12,10 @@ import dev.myutils.api.infra.openrouter.ChatMessage
 import dev.myutils.api.properties.AppProperties
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.domain.PageRequest
+import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import org.springframework.web.server.ResponseStatusException
 import java.time.Instant
 import java.util.UUID
 
@@ -46,6 +48,7 @@ class AgentMemoryAdminService(
 			summaries = summaries.map { it.toDto() },
 			facts = facts.map { it.toDto() },
 			recentContextMessageCount = recentContext,
+			compaction = compactionPreview(chatId),
 		)
 	}
 
@@ -118,14 +121,34 @@ class AgentMemoryAdminService(
 		chatId: Long,
 		force: Boolean,
 	): AgentMemoryCompactResult {
-		val compaction =
-			compactionService.getIfAvailable()
-				?: throw IllegalStateException("Compaction недоступен (Telegram/OpenRouter не настроен).")
-		val result = compaction.compact(chatId, force)
+		if (compactionService.getIfAvailable() == null) {
+			throw ResponseStatusException(
+				HttpStatus.SERVICE_UNAVAILABLE,
+				"Compaction недоступен (Telegram-бот / OpenRouter не настроен).",
+			)
+		}
+		val result = compactionService.getObject().compact(chatId, force)
+		if (result.compacted) {
+			return AgentMemoryCompactResult(
+				compacted = true,
+				messageCount = result.messageCount,
+				summaryId = result.summaryId,
+				reason = null,
+			)
+		}
+		val preview = compactionPreview(chatId)
+		val reason =
+			when {
+				!preview.compactionAvailable -> "unavailable"
+				force && preview.manualCompactCount <= 0 -> "too_few_messages"
+				!force && preview.manualCompactCount > 0 -> "below_threshold"
+				else -> "too_few_messages"
+			}
 		return AgentMemoryCompactResult(
-			compacted = result.compacted,
-			messageCount = result.messageCount,
-			summaryId = result.summaryId,
+			compacted = false,
+			messageCount = 0,
+			summaryId = null,
+			reason = reason,
 		)
 	}
 
@@ -145,6 +168,38 @@ class AgentMemoryAdminService(
 	fun clearDialog(chatId: Long) {
 		summaryRepository.deleteByChatId(chatId)
 		messageRepository.deleteByChatId(chatId)
+	}
+
+	private fun compactionPreview(chatId: Long): AgentMemoryCompactionPreview {
+		val compactionAvailable = compactionService.getIfAvailable() != null
+		val compactableCount =
+			messageRepository
+				.countByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNull(chatId)
+				.toInt()
+		val tailKeep = AppProperties.AGENT_MEMORY_RECENT_MESSAGES.get()
+		val threshold = AppProperties.AGENT_MEMORY_COMPACT_THRESHOLD_MESSAGES.get()
+		val autoCompactCount =
+			CompactionSelection.countForCompaction(
+				compactableCount = compactableCount,
+				tailKeep = tailKeep,
+				threshold = threshold,
+				force = false,
+			)
+		val manualCompactCount =
+			CompactionSelection.countForCompaction(
+				compactableCount = compactableCount,
+				tailKeep = tailKeep,
+				threshold = threshold,
+				force = true,
+			)
+		return AgentMemoryCompactionPreview(
+			compactionAvailable = compactionAvailable,
+			compactableCount = compactableCount,
+			tailKeep = tailKeep,
+			threshold = threshold,
+			autoCompactCount = autoCompactCount,
+			manualCompactCount = manualCompactCount,
+		)
 	}
 
 	private fun chatSummary(chatId: Long): AgentMemoryChatSummary {
@@ -219,6 +274,16 @@ data class AgentMemoryChatDetail(
 	val summaries: List<AgentMemorySummaryDto>,
 	val facts: List<AgentMemoryFactDto>,
 	val recentContextMessageCount: Int,
+	val compaction: AgentMemoryCompactionPreview,
+)
+
+data class AgentMemoryCompactionPreview(
+	val compactionAvailable: Boolean,
+	val compactableCount: Int,
+	val tailKeep: Int,
+	val threshold: Int,
+	val autoCompactCount: Int,
+	val manualCompactCount: Int,
 )
 
 data class AgentMemoryMessagePage(
@@ -264,4 +329,5 @@ data class AgentMemoryCompactResult(
 	val compacted: Boolean,
 	val messageCount: Int,
 	val summaryId: UUID?,
+	val reason: String? = null,
 )

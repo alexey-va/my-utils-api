@@ -15,6 +15,12 @@ class ApiExceptionHandler {
 			.status(ex.statusCode)
 			.body(mapOf("message" to (ex.reason ?: ex.message ?: "Error")))
 
+	@ExceptionHandler(IllegalStateException::class)
+	fun handleIllegalState(ex: IllegalStateException): ResponseEntity<Map<String, String>> =
+		ResponseEntity
+			.status(HttpStatus.BAD_REQUEST)
+			.body(mapOf("message" to (ex.message ?: "Invalid state")))
+
 	@ExceptionHandler(MethodArgumentNotValidException::class)
 	fun handleValidation(ex: MethodArgumentNotValidException): ResponseEntity<Map<String, String>> {
 		val message = ex.bindingResult.fieldErrors.firstOrNull()?.defaultMessage ?: "Validation failed"

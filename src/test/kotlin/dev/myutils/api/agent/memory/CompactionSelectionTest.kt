@@ -35,8 +35,8 @@ class CompactionSelectionTest {
 	}
 
 	@Test
-	fun `force compacts below threshold`() {
-		val messages = (1L..20L).map { id -> message(id) }
+	fun `force compacts short history keeping recent tail`() {
+		val messages = (1L..4L).map { id -> message(id) }
 		val selected =
 			CompactionSelection.selectForCompaction(
 				compactableOrdered = messages,
@@ -44,7 +44,20 @@ class CompactionSelectionTest {
 				threshold = 40,
 				force = true,
 			)
-		assertEquals(10, selected.size)
+		assertEquals(1, selected.size)
+		assertEquals(1L, selected.first().id)
+	}
+
+	@Test
+	fun `skips single compactable message`() {
+		val selected =
+			CompactionSelection.selectForCompaction(
+				compactableOrdered = listOf(message(1)),
+				tailKeep = 10,
+				threshold = 40,
+				force = true,
+			)
+		assertTrue(selected.isEmpty())
 	}
 
 	private fun message(id: Long): AgentConversationMessage =
