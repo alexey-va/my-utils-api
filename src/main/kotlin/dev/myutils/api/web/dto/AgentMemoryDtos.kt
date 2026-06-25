@@ -20,3 +20,7 @@ data class CreateAgentMessageRequest(
 	@field:NotBlank val role: String,
 	@field:NotBlank val content: String,
 )
+
+data class AgentChatTurnRequest(
+	@field:NotBlank val content: String,
+)

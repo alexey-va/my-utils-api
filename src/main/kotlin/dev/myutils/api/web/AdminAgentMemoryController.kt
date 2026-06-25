@@ -1,12 +1,14 @@
 package dev.myutils.api.web
 
 import dev.myutils.api.agent.memory.AgentMemoryAdminService
+import dev.myutils.api.agent.memory.AgentMemoryChatTurnResult
 import dev.myutils.api.agent.memory.AgentMemoryCompactResult
 import dev.myutils.api.agent.memory.AgentMemoryChatDetail
 import dev.myutils.api.agent.memory.AgentMemoryChatSummary
 import dev.myutils.api.agent.memory.AgentMemoryFactDto
 import dev.myutils.api.agent.memory.AgentMemoryMessageDto
 import dev.myutils.api.agent.memory.AgentMemoryMessagePage
+import dev.myutils.api.web.dto.AgentChatTurnRequest
 import dev.myutils.api.web.dto.CreateAgentFactRequest
 import dev.myutils.api.web.dto.CreateAgentMessageRequest
 import dev.myutils.api.web.dto.UpdateAgentFactRequest
@@ -49,6 +51,12 @@ class AdminAgentMemoryController(
 		@PathVariable chatId: Long,
 		@Valid @RequestBody body: CreateAgentMessageRequest,
 	): AgentMemoryMessageDto = service.appendMessage(chatId, body.role, body.content)
+
+	@PostMapping("/chats/{chatId}/chat")
+	fun simulateChatTurn(
+		@PathVariable chatId: Long,
+		@Valid @RequestBody body: AgentChatTurnRequest,
+	): AgentMemoryChatTurnResult = service.simulateChatTurn(chatId, body.content)
 
 	@PostMapping("/chats/{chatId}/facts")
 	fun createFact(

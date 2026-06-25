@@ -24,6 +24,14 @@ interface AgentConversationMessageRepository : JpaRepository<AgentConversationMe
 
 	fun countByChatIdAndExcludedFromContextFalseAndIsCompactedFalse(chatId: Long): Long
 
+	@Query("SELECT COALESCE(MAX(m.id), 0) FROM AgentConversationMessage m WHERE m.chatId = :chatId")
+	fun maxIdByChatId(chatId: Long): Long
+
+	fun findByChatIdAndIdGreaterThanOrderByCreatedAtAsc(
+		chatId: Long,
+		id: Long,
+	): List<AgentConversationMessage>
+
 	fun deleteByChatId(chatId: Long)
 
 	@Modifying
