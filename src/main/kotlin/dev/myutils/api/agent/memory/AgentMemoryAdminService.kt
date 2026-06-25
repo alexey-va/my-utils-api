@@ -114,10 +114,11 @@ class AgentMemoryAdminService(
 
 	@Transactional
 	fun deleteSummary(id: UUID) {
-		val summary =
-			summaryRepository.findById(id).orElseThrow { IllegalArgumentException("Summary не найден.") }
-		messageRepository.clearCompactionMarksForSummary(id)
-		summaryRepository.delete(summary)
+		if (!summaryRepository.existsById(id)) {
+			throw IllegalArgumentException("Summary не найден.")
+		}
+		messageRepository.detachFromSummary(id)
+		summaryRepository.deleteById(id)
 	}
 
 	@Transactional
@@ -181,7 +182,7 @@ class AgentMemoryAdminService(
 		val compactionAvailable = compactionService.getIfAvailable() != null
 		val compactableCount =
 			messageRepository
-				.countByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNull(chatId)
+				.countByChatIdAndExcludedFromContextFalseAndIsCompactedFalse(chatId)
 				.toInt()
 		return AgentMemoryCompactionPreview(
 			compactionAvailable = compactionAvailable,
@@ -218,6 +219,7 @@ class AgentMemoryAdminService(
 			toolName = parsed?.name,
 			excludedFromContext = excludedFromContext,
 			compactedIntoSummaryId = compactedIntoSummaryId,
+			isCompacted = isCompacted,
 			createdAt = createdAt,
 			rawJson = messageJson,
 		)
@@ -284,6 +286,7 @@ data class AgentMemoryMessageDto(
 	val toolName: String?,
 	val excludedFromContext: Boolean,
 	val compactedIntoSummaryId: UUID?,
+	val isCompacted: Boolean,
 	val createdAt: Instant,
 	val rawJson: String,
 )

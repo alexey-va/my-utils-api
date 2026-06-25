@@ -43,7 +43,7 @@ class AgentMemoryAssembler(
 		limit: Int = AppProperties.AGENT_MEMORY_RECENT_MESSAGES.get(),
 	): List<LcChatMessage> =
 		messageRepository
-			.findByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNullOrderByCreatedAtDesc(
+			.findByChatIdAndExcludedFromContextFalseAndIsCompactedFalseOrderByCreatedAtDesc(
 				chatId,
 				PageRequest.of(0, limit.coerceAtLeast(1)),
 			).asReversed()

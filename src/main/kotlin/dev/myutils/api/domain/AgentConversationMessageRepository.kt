@@ -11,18 +11,18 @@ interface AgentConversationMessageRepository : JpaRepository<AgentConversationMe
 		pageable: Pageable,
 	): List<AgentConversationMessage>
 
-	fun findByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNullOrderByCreatedAtAsc(
+	fun findByChatIdAndExcludedFromContextFalseAndIsCompactedFalseOrderByCreatedAtAsc(
 		chatId: Long,
 	): List<AgentConversationMessage>
 
-	fun findByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNullOrderByCreatedAtDesc(
+	fun findByChatIdAndExcludedFromContextFalseAndIsCompactedFalseOrderByCreatedAtDesc(
 		chatId: Long,
 		pageable: Pageable,
 	): List<AgentConversationMessage>
 
 	fun countByChatId(chatId: Long): Long
 
-	fun countByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNull(chatId: Long): Long
+	fun countByChatIdAndExcludedFromContextFalseAndIsCompactedFalse(chatId: Long): Long
 
 	fun deleteByChatId(chatId: Long)
 
@@ -34,14 +34,14 @@ interface AgentConversationMessageRepository : JpaRepository<AgentConversationMe
 		WHERE m.compactedIntoSummaryId = :summaryId
 		""",
 	)
-	fun clearCompactionMarksForSummary(summaryId: java.util.UUID)
+	fun detachFromSummary(summaryId: java.util.UUID)
 
 	@Modifying
 	@Query(
 		"""
 		UPDATE AgentConversationMessage m
-		SET m.compactedIntoSummaryId = NULL
-		WHERE m.chatId = :chatId AND m.compactedIntoSummaryId IS NOT NULL
+		SET m.compactedIntoSummaryId = NULL, m.isCompacted = false
+		WHERE m.chatId = :chatId AND m.isCompacted = true
 		""",
 	)
 	fun clearCompactionMarks(chatId: Long)

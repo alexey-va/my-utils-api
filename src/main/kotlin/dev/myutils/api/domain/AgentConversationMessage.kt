@@ -23,6 +23,8 @@ class AgentConversationMessage(
 	var excludedFromContext: Boolean = false,
 	@Column(name = "compacted_into_summary_id")
 	var compactedIntoSummaryId: UUID? = null,
+	@Column(name = "is_compacted", nullable = false)
+	var isCompacted: Boolean = false,
 	@Column(name = "created_at", nullable = false)
 	val createdAt: Instant = Instant.now(),
 )

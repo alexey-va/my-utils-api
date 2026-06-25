@@ -61,7 +61,7 @@ class AgentContextCompactionService(
 	}
 
 	private fun loadCompactableMessages(chatId: Long): List<AgentConversationMessage> =
-		messageRepository.findByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNullOrderByCreatedAtAsc(chatId)
+		messageRepository.findByChatIdAndExcludedFromContextFalseAndIsCompactedFalseOrderByCreatedAtAsc(chatId)
 
 	private fun runCompaction(
 		chatId: Long,
@@ -109,6 +109,7 @@ class AgentContextCompactionService(
 			)
 		toCompact.forEach { message ->
 			message.compactedIntoSummaryId = summary.id
+			message.isCompacted = true
 			messageRepository.save(message)
 		}
 		log.info(

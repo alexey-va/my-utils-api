@@ -89,7 +89,7 @@ class AgentConversationStore(
 		limit: Int,
 	): List<ChatMessage> =
 		repository
-			.findByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNullOrderByCreatedAtDesc(
+			.findByChatIdAndExcludedFromContextFalseAndIsCompactedFalseOrderByCreatedAtDesc(
 				chatId,
 				PageRequest.of(0, limit.coerceAtLeast(1)),
 			).asReversed()
