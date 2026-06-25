@@ -3,19 +3,16 @@ package dev.myutils.api.agent.memory
 import dev.myutils.api.domain.AgentConversationMessage
 
 internal object CompactionSelection {
-	fun selectForCompaction(
+	fun selectForAutoCompaction(
 		compactableOrdered: List<AgentConversationMessage>,
 		tailKeep: Int,
 		threshold: Int,
-		force: Boolean,
 	): List<AgentConversationMessage> {
-		val count = compactableOrdered.size
 		val toCompactCount =
-			countForCompaction(
-				compactableCount = count,
+			countForAutoCompaction(
+				compactableCount = compactableOrdered.size,
 				tailKeep = tailKeep,
 				threshold = threshold,
-				force = force,
 			)
 		if (toCompactCount <= 0) {
 			return emptyList()
@@ -23,35 +20,45 @@ internal object CompactionSelection {
 		return compactableOrdered.take(toCompactCount)
 	}
 
-	fun countForCompaction(
+	fun countForAutoCompaction(
 		compactableCount: Int,
 		tailKeep: Int,
 		threshold: Int,
-		force: Boolean,
 	): Int {
-		if (compactableCount <= 1) {
+		if (compactableCount <= tailKeep) {
 			return 0
 		}
-		val effectiveTail = effectiveTailKeep(compactableCount, tailKeep, force)
-		if (compactableCount <= effectiveTail) {
-			return 0
-		}
-		val toCompactCount = compactableCount - effectiveTail
-		if (!force && toCompactCount <= threshold) {
+		val toCompactCount = compactableCount - tailKeep
+		if (toCompactCount <= threshold) {
 			return 0
 		}
 		return toCompactCount
 	}
 
-	private fun effectiveTailKeep(
-		compactableCount: Int,
-		tailKeep: Int,
-		force: Boolean,
-	): Int {
-		if (!force) {
-			return tailKeep
+	/** Admin manual compact: no threshold; keepRecent=0 compresses entire history. */
+	fun selectForAdminCompaction(
+		compactableOrdered: List<AgentConversationMessage>,
+		keepRecent: Int,
+	): List<AgentConversationMessage> {
+		val toCompactCount =
+			countForAdminCompaction(
+				compactableCount = compactableOrdered.size,
+				keepRecent = keepRecent,
+			)
+		if (toCompactCount <= 0) {
+			return emptyList()
 		}
-		// Manual compact: keep at least one recent raw message, fewer than auto tail when history is short.
-		return minOf(tailKeep, compactableCount - 1).coerceAtLeast(1)
+		return compactableOrdered.take(toCompactCount)
+	}
+
+	fun countForAdminCompaction(
+		compactableCount: Int,
+		keepRecent: Int,
+	): Int {
+		val keep = keepRecent.coerceAtLeast(0)
+		if (compactableCount <= keep) {
+			return 0
+		}
+		return compactableCount - keep
 	}
 }

@@ -9,7 +9,6 @@ import dev.myutils.api.domain.AgentConversationMessageRepository
 import dev.myutils.api.domain.AgentUserFact
 import dev.myutils.api.domain.AgentUserFactRepository
 import dev.myutils.api.infra.openrouter.ChatMessage
-import dev.myutils.api.properties.AppProperties
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.domain.PageRequest
 import org.springframework.http.HttpStatus
@@ -131,7 +130,7 @@ class AgentMemoryAdminService(
 
 	fun compact(
 		chatId: Long,
-		force: Boolean,
+		keepRecent: Int,
 	): AgentMemoryCompactResult {
 		if (compactionService.getIfAvailable() == null) {
 			throw ResponseStatusException(
@@ -139,7 +138,8 @@ class AgentMemoryAdminService(
 				"Compaction недоступен (Telegram-бот / OpenRouter не настроен).",
 			)
 		}
-		val result = compactionService.getObject().compact(chatId, force)
+		val normalizedKeepRecent = keepRecent.coerceAtLeast(0)
+		val result = compactionService.getObject().compactManual(chatId, normalizedKeepRecent)
 		if (result.compacted) {
 			return AgentMemoryCompactResult(
 				compacted = true,
@@ -152,9 +152,8 @@ class AgentMemoryAdminService(
 		val reason =
 			when {
 				!preview.compactionAvailable -> "unavailable"
-				force && preview.manualCompactCount <= 0 -> "too_few_messages"
-				!force && preview.manualCompactCount > 0 -> "below_threshold"
-				else -> "too_few_messages"
+				preview.compactableCount <= normalizedKeepRecent -> "nothing_to_compact"
+				else -> "nothing_to_compact"
 			}
 		return AgentMemoryCompactResult(
 			compacted = false,
@@ -188,29 +187,9 @@ class AgentMemoryAdminService(
 			messageRepository
 				.countByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNull(chatId)
 				.toInt()
-		val tailKeep = AppProperties.AGENT_MEMORY_RECENT_MESSAGES.get()
-		val threshold = AppProperties.AGENT_MEMORY_COMPACT_THRESHOLD_MESSAGES.get()
-		val autoCompactCount =
-			CompactionSelection.countForCompaction(
-				compactableCount = compactableCount,
-				tailKeep = tailKeep,
-				threshold = threshold,
-				force = false,
-			)
-		val manualCompactCount =
-			CompactionSelection.countForCompaction(
-				compactableCount = compactableCount,
-				tailKeep = tailKeep,
-				threshold = threshold,
-				force = true,
-			)
 		return AgentMemoryCompactionPreview(
 			compactionAvailable = compactionAvailable,
 			compactableCount = compactableCount,
-			tailKeep = tailKeep,
-			threshold = threshold,
-			autoCompactCount = autoCompactCount,
-			manualCompactCount = manualCompactCount,
 		)
 	}
 
@@ -293,10 +272,6 @@ data class AgentMemoryChatDetail(
 data class AgentMemoryCompactionPreview(
 	val compactionAvailable: Boolean,
 	val compactableCount: Int,
-	val tailKeep: Int,
-	val threshold: Int,
-	val autoCompactCount: Int,
-	val manualCompactCount: Int,
 )
 
 data class AgentMemoryMessagePage(

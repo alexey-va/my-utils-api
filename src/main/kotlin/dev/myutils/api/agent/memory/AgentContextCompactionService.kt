@@ -26,27 +26,47 @@ class AgentContextCompactionService(
 	@Async
 	fun maybeCompactAfterAppend(chatId: Long) {
 		try {
-			compact(chatId, force = false)
+			compactAuto(chatId)
 		} catch (error: Exception) {
 			log.warn("Auto compact failed chatId={}: {}", chatId, error.message)
 		}
 	}
 
 	@Transactional
-	fun compact(
-		chatId: Long,
-		force: Boolean,
-	): CompactResult {
+	fun compactAuto(chatId: Long): CompactResult {
 		val tailKeep = AppProperties.AGENT_MEMORY_RECENT_MESSAGES.get()
 		val threshold = AppProperties.AGENT_MEMORY_COMPACT_THRESHOLD_MESSAGES.get()
-		val compactable = messageRepository.findByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNullOrderByCreatedAtAsc(chatId)
+		val compactable = loadCompactableMessages(chatId)
 		val toCompact =
-			CompactionSelection.selectForCompaction(
+			CompactionSelection.selectForAutoCompaction(
 				compactableOrdered = compactable,
 				tailKeep = tailKeep,
 				threshold = threshold,
-				force = force,
 			)
+		return runCompaction(chatId, toCompact)
+	}
+
+	@Transactional
+	fun compactManual(
+		chatId: Long,
+		keepRecent: Int,
+	): CompactResult {
+		val compactable = loadCompactableMessages(chatId)
+		val toCompact =
+			CompactionSelection.selectForAdminCompaction(
+				compactableOrdered = compactable,
+				keepRecent = keepRecent,
+			)
+		return runCompaction(chatId, toCompact)
+	}
+
+	private fun loadCompactableMessages(chatId: Long): List<AgentConversationMessage> =
+		messageRepository.findByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNullOrderByCreatedAtAsc(chatId)
+
+	private fun runCompaction(
+		chatId: Long,
+		toCompact: List<AgentConversationMessage>,
+	): CompactResult {
 		if (toCompact.isEmpty()) {
 			return CompactResult(compacted = false, messageCount = 0, summaryId = null)
 		}

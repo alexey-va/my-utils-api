@@ -7,14 +7,13 @@ import dev.myutils.api.domain.AgentConversationMessage
 
 class CompactionSelectionTest {
 	@Test
-	fun `keeps tail and respects threshold`() {
+	fun `auto keeps tail and respects threshold`() {
 		val messages = (1L..51L).map { id -> message(id) }
 		val selected =
-			CompactionSelection.selectForCompaction(
+			CompactionSelection.selectForAutoCompaction(
 				compactableOrdered = messages,
 				tailKeep = 10,
 				threshold = 40,
-				force = false,
 			)
 		assertEquals(41, selected.size)
 		assertEquals(1L, selected.first().id)
@@ -22,40 +21,61 @@ class CompactionSelectionTest {
 	}
 
 	@Test
-	fun `skips when below threshold`() {
+	fun `auto skips when below threshold`() {
 		val messages = (1L..20L).map { id -> message(id) }
 		val selected =
-			CompactionSelection.selectForCompaction(
+			CompactionSelection.selectForAutoCompaction(
 				compactableOrdered = messages,
 				tailKeep = 10,
 				threshold = 40,
-				force = false,
 			)
 		assertTrue(selected.isEmpty())
 	}
 
 	@Test
-	fun `force compacts short history keeping recent tail`() {
+	fun `admin compacts all when keepRecent is zero`() {
 		val messages = (1L..4L).map { id -> message(id) }
 		val selected =
-			CompactionSelection.selectForCompaction(
+			CompactionSelection.selectForAdminCompaction(
 				compactableOrdered = messages,
-				tailKeep = 10,
-				threshold = 40,
-				force = true,
+				keepRecent = 0,
+			)
+		assertEquals(4, selected.size)
+		assertEquals(1L, selected.first().id)
+		assertEquals(4L, selected.last().id)
+	}
+
+	@Test
+	fun `admin compacts single message when keepRecent is zero`() {
+		val selected =
+			CompactionSelection.selectForAdminCompaction(
+				compactableOrdered = listOf(message(1)),
+				keepRecent = 0,
 			)
 		assertEquals(1, selected.size)
 		assertEquals(1L, selected.first().id)
 	}
 
 	@Test
-	fun `skips single compactable message`() {
+	fun `admin keeps recent tail`() {
+		val messages = (1L..10L).map { id -> message(id) }
 		val selected =
-			CompactionSelection.selectForCompaction(
-				compactableOrdered = listOf(message(1)),
-				tailKeep = 10,
-				threshold = 40,
-				force = true,
+			CompactionSelection.selectForAdminCompaction(
+				compactableOrdered = messages,
+				keepRecent = 3,
+			)
+		assertEquals(7, selected.size)
+		assertEquals(1L, selected.first().id)
+		assertEquals(7L, selected.last().id)
+	}
+
+	@Test
+	fun `admin skips when nothing exceeds keepRecent`() {
+		val messages = (1L..3L).map { id -> message(id) }
+		val selected =
+			CompactionSelection.selectForAdminCompaction(
+				compactableOrdered = messages,
+				keepRecent = 3,
 			)
 		assertTrue(selected.isEmpty())
 	}

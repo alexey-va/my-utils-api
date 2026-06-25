@@ -79,8 +79,8 @@ class AdminAgentMemoryController(
 	@PostMapping("/chats/{chatId}/compact")
 	fun compact(
 		@PathVariable chatId: Long,
-		@RequestParam(defaultValue = "false") force: Boolean,
-	): AgentMemoryCompactResult = service.compact(chatId, force)
+		@RequestParam(defaultValue = "0") keepRecent: Int,
+	): AgentMemoryCompactResult = service.compact(chatId, keepRecent)
 
 	@PostMapping("/chats/{chatId}/reset-compaction")
 	fun resetCompaction(
