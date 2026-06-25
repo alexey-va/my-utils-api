@@ -164,18 +164,6 @@ class AgentMemoryAdminService(
 	}
 
 	@Transactional
-	fun resetCompaction(chatId: Long): Int {
-		val compaction = compactionService.getIfAvailable()
-		return compaction?.resetCompaction(chatId)
-			?: run {
-				val count = summaryRepository.findByChatIdOrderBySequenceAsc(chatId).size
-				summaryRepository.deleteByChatId(chatId)
-				messageRepository.clearCompactionMarks(chatId)
-				count
-			}
-	}
-
-	@Transactional
 	fun clearDialog(chatId: Long) {
 		summaryRepository.deleteByChatId(chatId)
 		messageRepository.deleteByChatId(chatId)

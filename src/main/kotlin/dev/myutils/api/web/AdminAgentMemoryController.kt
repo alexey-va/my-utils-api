@@ -8,7 +8,6 @@ import dev.myutils.api.agent.memory.AgentMemoryFactDto
 import dev.myutils.api.agent.memory.AgentMemoryMessageDto
 import dev.myutils.api.agent.memory.AgentMemoryMessagePage
 import dev.myutils.api.web.dto.CreateAgentFactRequest
-import dev.myutils.api.web.dto.ResetCompactionResponse
 import dev.myutils.api.web.dto.UpdateAgentFactRequest
 import dev.myutils.api.web.dto.UpdateMessageExcludedRequest
 import jakarta.validation.Valid
@@ -81,11 +80,6 @@ class AdminAgentMemoryController(
 		@PathVariable chatId: Long,
 		@RequestParam(defaultValue = "0") keepRecent: Int,
 	): AgentMemoryCompactResult = service.compact(chatId, keepRecent)
-
-	@PostMapping("/chats/{chatId}/reset-compaction")
-	fun resetCompaction(
-		@PathVariable chatId: Long,
-	): ResetCompactionResponse = ResetCompactionResponse(service.resetCompaction(chatId))
 
 	@DeleteMapping("/chats/{chatId}/dialog")
 	fun clearDialog(

@@ -121,14 +121,6 @@ class AgentContextCompactionService(
 		return CompactResult(compacted = true, messageCount = toCompact.size, summaryId = summary.id)
 	}
 
-	@Transactional
-	fun resetCompaction(chatId: Long): Int {
-		val summaries = summaryRepository.findByChatIdOrderBySequenceAsc(chatId).size
-		summaryRepository.deleteByChatId(chatId)
-		messageRepository.clearCompactionMarks(chatId)
-		return summaries
-	}
-
 	private fun compactionModel(): String {
 		val configured = AppProperties.AGENT_MEMORY_COMPACT_MODEL.get().trim()
 		return configured.ifEmpty { AppProperties.OPENROUTER_MODEL.get() }

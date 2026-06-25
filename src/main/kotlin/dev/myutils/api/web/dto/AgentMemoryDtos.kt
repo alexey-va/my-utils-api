@@ -15,7 +15,3 @@ data class UpdateAgentFactRequest(
 data class UpdateMessageExcludedRequest(
 	val excludedFromContext: Boolean,
 )
-
-data class ResetCompactionResponse(
-	val removedSummaries: Int,
-)
