@@ -77,12 +77,12 @@
   "templating": {
     "list": [
       {
-        "current": { "selected": false, "text": "", "value": "" },
+        "current": { "selected": true, "text": "303179278", "value": "303179278" },
         "description": "Telegram chatId (gen_ai.conversation.id)",
         "hide": 0,
         "label": "Conversation ID",
         "name": "conversation_id",
-        "options": [{ "selected": true, "text": "", "value": "" }],
+        "options": [{ "selected": true, "text": "303179278", "value": "303179278" }],
         "query": "",
         "skipUrlSync": false,
         "type": "textbox"
@@ -94,5 +94,5 @@
   "timezone": "browser",
   "title": "myutils-agent-traces",
   "uid": "myutils-agent-traces",
-  "version": 2
+  "version": 3
 }

@@ -34,6 +34,8 @@ class SecurityConfig(
 					.requestMatchers(
 						AntPathRequestMatcher("/api/admin/settings"),
 						AntPathRequestMatcher("/api/admin/settings/**"),
+						AntPathRequestMatcher("/api/admin/agent-memory"),
+						AntPathRequestMatcher("/api/admin/agent-memory/**"),
 					).permitAll()
 					.requestMatchers("/api/admin/**").authenticated()
 					.requestMatchers("/api/auth/**").authenticated()
