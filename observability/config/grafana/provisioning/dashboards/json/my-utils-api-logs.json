@@ -114,10 +114,10 @@
   "schemaVersion": 39,
   "tags": ["my-utils", "loki", "api"],
   "templating": { "list": [] },
-  "time": { "from": "now-1h", "to": "now" },
+  "time": { "from": "now-7d", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
   "title": "My Utils API Logs",
   "uid": "myutils-api-logs",
-  "version": 3
+  "version": 4
 }
