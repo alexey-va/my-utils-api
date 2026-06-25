@@ -93,14 +93,20 @@ class AgentConversationStore(
 				chatId,
 				PageRequest.of(0, limit.coerceAtLeast(1)),
 			).asReversed()
-			.mapNotNull { row -> decode(row.messageJson) }
+			.mapNotNull { row ->
+				decode(row.messageJson)?.takeUnless { StoredMessageFilter.isSystemRole(it.role) }
+			}
 
 	private fun persist(
 		chatId: Long,
 		messages: List<ChatMessage>,
 	) {
+		val dialogMessages = messages.filter { StoredMessageFilter.isDialogRole(it.role) }
+		if (dialogMessages.isEmpty()) {
+			return
+		}
 		repository.saveAll(
-			messages.map { dto ->
+			dialogMessages.map { dto ->
 				AgentConversationMessage(
 					chatId = chatId,
 					messageJson = objectMapper.writeValueAsString(dto),

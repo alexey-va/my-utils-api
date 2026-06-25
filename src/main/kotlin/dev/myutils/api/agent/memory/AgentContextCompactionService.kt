@@ -1,6 +1,7 @@
 package dev.myutils.api.agent.memory
 
 import dev.myutils.api.agent.langchain.ChatModelFactory
+import com.fasterxml.jackson.databind.ObjectMapper
 import dev.myutils.api.domain.AgentContextSummary
 import dev.myutils.api.domain.AgentContextSummaryRepository
 import dev.myutils.api.domain.AgentConversationMessage
@@ -20,6 +21,7 @@ class AgentContextCompactionService(
 	private val messageRepository: AgentConversationMessageRepository,
 	private val summaryRepository: AgentContextSummaryRepository,
 	private val chatModelFactory: ChatModelFactory,
+	private val objectMapper: ObjectMapper,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -61,7 +63,9 @@ class AgentContextCompactionService(
 	}
 
 	private fun loadCompactableMessages(chatId: Long): List<AgentConversationMessage> =
-		messageRepository.findByChatIdAndExcludedFromContextFalseAndIsCompactedFalseOrderByCreatedAtAsc(chatId)
+		messageRepository
+			.findByChatIdAndExcludedFromContextFalseAndIsCompactedFalseOrderByCreatedAtAsc(chatId)
+			.filterNot { StoredMessageFilter.isSystemStored(it, objectMapper) }
 
 	private fun runCompaction(
 		chatId: Long,

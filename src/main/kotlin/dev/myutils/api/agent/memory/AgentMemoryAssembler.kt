@@ -47,7 +47,11 @@ class AgentMemoryAssembler(
 				chatId,
 				PageRequest.of(0, limit.coerceAtLeast(1)),
 			).asReversed()
-			.mapNotNull { row -> decode(row.messageJson)?.let { ChatMemoryMessageMapper.toLangChain(it) } }
+			.mapNotNull { row ->
+				decode(row.messageJson)
+					?.takeUnless { StoredMessageFilter.isSystemRole(it.role) }
+					?.let { ChatMemoryMessageMapper.toLangChain(it) }
+			}
 
 	private fun decode(raw: String): ChatMessage? =
 		runCatching { objectMapper.readValue<ChatMessage>(raw) }.getOrNull()

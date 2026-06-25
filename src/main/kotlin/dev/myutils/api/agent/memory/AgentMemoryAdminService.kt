@@ -230,8 +230,8 @@ class AgentMemoryAdminService(
 		val compactionAvailable = compactionService.getIfAvailable() != null
 		val compactableCount =
 			messageRepository
-				.countByChatIdAndExcludedFromContextFalseAndIsCompactedFalse(chatId)
-				.toInt()
+				.findByChatIdAndExcludedFromContextFalseAndIsCompactedFalseOrderByCreatedAtAsc(chatId)
+				.count { !StoredMessageFilter.isSystemStored(it, objectMapper) }
 		return AgentMemoryCompactionPreview(
 			compactionAvailable = compactionAvailable,
 			compactableCount = compactableCount,
