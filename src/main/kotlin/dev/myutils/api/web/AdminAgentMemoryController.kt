@@ -8,6 +8,7 @@ import dev.myutils.api.agent.memory.AgentMemoryFactDto
 import dev.myutils.api.agent.memory.AgentMemoryMessageDto
 import dev.myutils.api.agent.memory.AgentMemoryMessagePage
 import dev.myutils.api.web.dto.CreateAgentFactRequest
+import dev.myutils.api.web.dto.CreateAgentMessageRequest
 import dev.myutils.api.web.dto.UpdateAgentFactRequest
 import dev.myutils.api.web.dto.UpdateMessageExcludedRequest
 import jakarta.validation.Valid
@@ -42,6 +43,12 @@ class AdminAgentMemoryController(
 		@RequestParam(required = false) beforeId: Long?,
 		@RequestParam(defaultValue = "50") limit: Int,
 	): AgentMemoryMessagePage = service.listMessages(chatId, beforeId, limit)
+
+	@PostMapping("/chats/{chatId}/messages")
+	fun appendMessage(
+		@PathVariable chatId: Long,
+		@Valid @RequestBody body: CreateAgentMessageRequest,
+	): AgentMemoryMessageDto = service.appendMessage(chatId, body.role, body.content)
 
 	@PostMapping("/chats/{chatId}/facts")
 	fun createFact(

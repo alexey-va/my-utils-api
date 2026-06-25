@@ -15,3 +15,8 @@ data class UpdateAgentFactRequest(
 data class UpdateMessageExcludedRequest(
 	val excludedFromContext: Boolean,
 )
+
+data class CreateAgentMessageRequest(
+	@field:NotBlank val role: String,
+	@field:NotBlank val content: String,
+)

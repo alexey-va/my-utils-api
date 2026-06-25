@@ -137,6 +137,30 @@ class AgentMemoryAdminService(
 		messageRepository.deleteById(messageId)
 	}
 
+	@Transactional
+	fun appendMessage(
+		chatId: Long,
+		role: String,
+		content: String,
+	): AgentMemoryMessageDto {
+		val trimmed = content.trim()
+		require(trimmed.isNotEmpty()) { "Текст сообщения не может быть пустым." }
+		val normalizedRole = role.trim().lowercase()
+		require(normalizedRole in ALLOWED_APPEND_ROLES) {
+			"role должен быть user, assistant или system."
+		}
+		val dto = ChatMessage(role = normalizedRole, content = trimmed)
+		val saved =
+			messageRepository.save(
+				AgentConversationMessage(
+					chatId = chatId,
+					messageJson = objectMapper.writeValueAsString(dto),
+				),
+			)
+		compactionService.getIfAvailable()?.maybeCompactAfterAppend(chatId)
+		return saved.toDto()
+	}
+
 	fun compact(
 		chatId: Long,
 		keepRecent: Int,
@@ -248,6 +272,10 @@ class AgentMemoryAdminService(
 			createdAt = createdAt,
 			updatedAt = updatedAt,
 		)
+
+	private companion object {
+		val ALLOWED_APPEND_ROLES = setOf("user", "assistant", "system")
+	}
 }
 
 data class AgentMemoryChatSummary(
