@@ -130,6 +130,7 @@ class WorkoutToolsService(
 		action: String,
 		content: String?,
 		factId: String?,
+		confidence: Double? = null,
 	): String {
 		val facts = requireUserFacts()
 		return when (action.trim().lowercase()) {
@@ -137,7 +138,7 @@ class WorkoutToolsService(
 				val text =
 					content?.trim()?.takeIf { it.isNotEmpty() }
 						?: throw IllegalArgumentException("Для action=remember нужно поле content")
-				facts.remember(chatId, text)
+				facts.remember(chatId, text, confidence)
 			}
 			"update" -> {
 				val id =
@@ -146,7 +147,7 @@ class WorkoutToolsService(
 				val text =
 					content?.trim()?.takeIf { it.isNotEmpty() }
 						?: throw IllegalArgumentException("Для action=update нужно поле content")
-				facts.update(chatId, id, text)
+				facts.update(chatId, id, text, confidence)
 			}
 			"forget" -> {
 				val id =
@@ -262,6 +263,7 @@ class WorkoutToolsService(
 							toolArgs.require("action"),
 							toolArgs.optional("content"),
 							toolArgs.optional("fact_id"),
+							parseConfidence(toolArgs.optional("confidence")),
 						)
 					else ->
 						ToolExecutionFeedback.failure("Неизвестный инструмент: $rawName")
@@ -409,6 +411,13 @@ class WorkoutToolsService(
 			?: throw IllegalArgumentException("Нужно поле $key")
 
 	private fun Map<String, String?>.optionalInt(key: String): Int? = optional(key)?.toIntOrNull()
+
+	private fun parseConfidence(raw: String?): Double? {
+		val trimmed = raw?.trim()
+		if (trimmed.isNullOrEmpty()) return null
+		return trimmed.toDoubleOrNull()
+			?: throw IllegalArgumentException("Некорректная confidence: $raw (ожидается число 0..1)")
+	}
 
 	private fun requireUserFacts(): AgentUserFactsService =
 		userFacts.getIfAvailable()

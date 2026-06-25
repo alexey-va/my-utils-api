@@ -75,10 +75,18 @@ class AgentMemoryAdminService(
 	fun createFact(
 		chatId: Long,
 		content: String,
+		confidence: Double? = null,
 	): AgentMemoryFactDto {
 		val trimmed = content.trim()
 		require(trimmed.isNotEmpty()) { "Факт не может быть пустым." }
-		val fact = factRepository.save(AgentUserFact(chatId = chatId, content = trimmed))
+		val fact =
+			factRepository.save(
+				AgentUserFact(
+					chatId = chatId,
+					content = trimmed,
+					confidence = FactConfidence.normalizeOrDefault(confidence, FactConfidence.ADMIN_DEFAULT),
+				),
+			)
 		return fact.toDto()
 	}
 
@@ -86,12 +94,16 @@ class AgentMemoryAdminService(
 	fun updateFact(
 		id: UUID,
 		content: String,
+		confidence: Double? = null,
 	): AgentMemoryFactDto {
 		val trimmed = content.trim()
 		require(trimmed.isNotEmpty()) { "Факт не может быть пустым." }
 		val fact =
 			factRepository.findById(id).orElseThrow { IllegalArgumentException("Факт не найден.") }
 		fact.content = trimmed
+		if (confidence != null) {
+			fact.confidence = FactConfidence.normalize(confidence)
+		}
 		fact.updatedAt = Instant.now()
 		return factRepository.save(fact).toDto()
 	}
@@ -255,6 +267,7 @@ class AgentMemoryAdminService(
 			id = id,
 			chatId = chatId,
 			content = content,
+			confidence = confidence,
 			createdAt = createdAt,
 			updatedAt = updatedAt,
 		)
@@ -321,6 +334,7 @@ data class AgentMemoryFactDto(
 	val id: UUID,
 	val chatId: Long,
 	val content: String,
+	val confidence: Double,
 	val createdAt: Instant,
 	val updatedAt: Instant,
 )

@@ -91,6 +91,7 @@ class WorkoutLangChainTools(
 	@Tool(
 		"Память о пользователе (цели, травмы, предпочтения). action: remember — новый факт (content); " +
 			"update — правка по fact_id (content); forget — удалить по fact_id. " +
+			"confidence — уверенность 0..1 (например 0.9 явное, 0.6 гипотеза). " +
 			"fact_id бери из блока «Известные факты» в system-контексте. " +
 			"Не запоминай разовые тренировки — они уже в дневнике.",
 	)
@@ -98,9 +99,10 @@ class WorkoutLangChainTools(
 		action: String,
 		content: String? = null,
 		factId: String? = null,
+		confidence: Double? = null,
 	): String =
 		tracked("manage_user_fact") {
-			toolsService.manageUserFact(chatId, action, content, factId)
+			toolsService.manageUserFact(chatId, action, content, factId, confidence)
 		}
 
 	@Tool("Запланировать напоминание в Telegram на время deliver_at (Temporal workflow).")

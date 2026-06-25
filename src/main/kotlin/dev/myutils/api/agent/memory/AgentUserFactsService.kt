@@ -23,7 +23,9 @@ class AgentUserFactsService(
 		return buildString {
 			appendLine("Известные факты о пользователе (память агента):")
 			facts.forEach { fact ->
-				appendLine("• [${fact.id}] ${fact.content.trim()}")
+				val conf = formatConfidence(fact.confidence)
+				val added = formatFactDate(fact.createdAt)
+				appendLine("• [${fact.id}] ($conf, $added) ${fact.content.trim()}")
 			}
 		}.trimEnd()
 	}
@@ -32,12 +34,20 @@ class AgentUserFactsService(
 	fun remember(
 		chatId: Long,
 		content: String,
+		confidence: Double? = null,
 	): String {
 		val trimmed = content.trim()
 		require(trimmed.isNotEmpty()) { "Факт не может быть пустым." }
 		require(trimmed.length <= MAX_FACT_LENGTH) { "Факт слишком длинный (макс. $MAX_FACT_LENGTH символов)." }
-		val fact = repository.save(AgentUserFact(chatId = chatId, content = trimmed))
-		return "Запомнил факт [${fact.id}]: ${fact.content}"
+		val fact =
+			repository.save(
+				AgentUserFact(
+					chatId = chatId,
+					content = trimmed,
+					confidence = FactConfidence.normalize(confidence),
+				),
+			)
+		return "Запомнил факт [${fact.id}] (${formatConfidence(fact.confidence)}): ${fact.content}"
 	}
 
 	@Transactional
@@ -45,6 +55,7 @@ class AgentUserFactsService(
 		chatId: Long,
 		factId: String,
 		content: String,
+		confidence: Double? = null,
 	): String {
 		val id = parseFactId(factId)
 		val trimmed = content.trim()
@@ -54,6 +65,9 @@ class AgentUserFactsService(
 			repository.findByIdAndChatId(id, chatId).orElse(null)
 				?: return "Факт $factId не найден для этого чата."
 		fact.content = trimmed
+		if (confidence != null) {
+			fact.confidence = FactConfidence.normalize(confidence)
+		}
 		fact.updatedAt = Instant.now()
 		repository.save(fact)
 		return "Обновил факт [${fact.id}]: ${fact.content}"
@@ -79,5 +93,11 @@ class AgentUserFactsService(
 
 	private companion object {
 		const val MAX_FACT_LENGTH = 2_000
+
+		private fun formatConfidence(value: Double): String =
+			"conf ${String.format("%.2f", value.coerceIn(0.0, 1.0))}"
+
+		private fun formatFactDate(instant: Instant): String =
+			instant.atZone(java.time.ZoneId.systemDefault()).toLocalDate().toString()
 	}
 }

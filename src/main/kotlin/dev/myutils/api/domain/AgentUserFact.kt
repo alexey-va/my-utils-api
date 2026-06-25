@@ -20,4 +20,6 @@ class AgentUserFact(
 	val createdAt: Instant = Instant.now(),
 	@Column(name = "updated_at", nullable = false)
 	var updatedAt: Instant = Instant.now(),
+	@Column(nullable = false)
+	var confidence: Double = 1.0,
 )

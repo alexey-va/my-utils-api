@@ -48,13 +48,13 @@ class AdminAgentMemoryController(
 	fun createFact(
 		@PathVariable chatId: Long,
 		@Valid @RequestBody body: CreateAgentFactRequest,
-	): AgentMemoryFactDto = service.createFact(chatId, body.content)
+	): AgentMemoryFactDto = service.createFact(chatId, body.content, body.confidence)
 
 	@PutMapping("/facts/{id}")
 	fun updateFact(
 		@PathVariable id: UUID,
 		@Valid @RequestBody body: UpdateAgentFactRequest,
-	): AgentMemoryFactDto = service.updateFact(id, body.content)
+	): AgentMemoryFactDto = service.updateFact(id, body.content, body.confidence)
 
 	@DeleteMapping("/facts/{id}")
 	fun deleteFact(
