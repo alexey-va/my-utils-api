@@ -111,6 +111,8 @@ class StubChatModelFactory(
 	val model: RecordingChatModel = RecordingChatModel(),
 ) : ChatModelFactory {
 	override fun create() = model
+
+	override fun create(modelName: String) = model
 }
 
 // --- Spring wiring (imported only for Environment.TESTING) ---

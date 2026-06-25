@@ -11,6 +11,7 @@ import dev.myutils.api.properties.AppProperties
 import dev.langchain4j.data.message.ChatMessage as LcChatMessage
 import dev.langchain4j.store.memory.chat.ChatMemoryStore
 import org.slf4j.LoggerFactory
+import org.springframework.beans.factory.ObjectProvider
 import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -20,10 +21,12 @@ import org.springframework.transaction.annotation.Transactional
 class AgentConversationStore(
 	private val repository: AgentConversationMessageRepository,
 	private val objectMapper: ObjectMapper,
+	private val memoryAssembler: AgentMemoryAssembler,
+	private val compactionService: ObjectProvider<AgentContextCompactionService>,
 ) : ChatMemoryStore {
 	private val log = LoggerFactory.getLogger(javaClass)
 
-	override fun getMessages(memoryId: Any): List<LcChatMessage> = loadRecent(memoryId as Long)
+	override fun getMessages(memoryId: Any): List<LcChatMessage> = memoryAssembler.loadContextForLlm(memoryId as Long)
 
 	override fun updateMessages(
 		memoryId: Any,
@@ -39,8 +42,7 @@ class AgentConversationStore(
 	fun loadRecent(
 		chatId: Long,
 		limit: Int = AppProperties.AGENT_MEMORY_RECENT_MESSAGES.get(),
-	): List<LcChatMessage> =
-		loadRecentDtos(chatId, limit).mapNotNull { ChatMemoryMessageMapper.toLangChain(it) }
+	): List<LcChatMessage> = memoryAssembler.loadRecentRaw(chatId, limit)
 
 	@Transactional
 	fun append(
@@ -53,6 +55,7 @@ class AgentConversationStore(
 		}
 		persist(chatId, dtos)
 		log.debug("Agent memory append chatId={} count={}", chatId, dtos.size)
+		triggerAutoCompact(chatId)
 	}
 
 	@Transactional
@@ -73,7 +76,12 @@ class AgentConversationStore(
 		if (toAppend.isNotEmpty()) {
 			persist(chatId, toAppend)
 			log.debug("Agent memory delta chatId={} appended={}", chatId, toAppend.size)
+			triggerAutoCompact(chatId)
 		}
+	}
+
+	private fun triggerAutoCompact(chatId: Long) {
+		compactionService.getIfAvailable()?.maybeCompactAfterAppend(chatId)
 	}
 
 	private fun loadRecentDtos(
@@ -81,8 +89,10 @@ class AgentConversationStore(
 		limit: Int,
 	): List<ChatMessage> =
 		repository
-			.findByChatIdOrderByCreatedAtDesc(chatId, PageRequest.of(0, limit.coerceAtLeast(1)))
-			.asReversed()
+			.findByChatIdAndExcludedFromContextFalseAndCompactedIntoSummaryIdIsNullOrderByCreatedAtDesc(
+				chatId,
+				PageRequest.of(0, limit.coerceAtLeast(1)),
+			).asReversed()
 			.mapNotNull { row -> decode(row.messageJson) }
 
 	private fun persist(

@@ -13,8 +13,10 @@ import java.net.ProxySelector
 import java.net.http.HttpClient
 import java.time.Duration
 
-fun interface ChatModelFactory {
+interface ChatModelFactory {
 	fun create(): ChatModel
+
+	fun create(modelName: String): ChatModel
 }
 
 @Component
@@ -24,7 +26,11 @@ class LangChain4jChatModelFactory(
 ) : ChatModelFactory {
 	private val log = LoggerFactory.getLogger(javaClass)
 
-	override fun create(): ChatModel {
+	override fun create(): ChatModel = buildModel(AppProperties.OPENROUTER_MODEL.get())
+
+	override fun create(modelName: String): ChatModel = buildModel(modelName)
+
+	private fun buildModel(modelName: String): ChatModel {
 		val config = properties.openrouter
 		val jdkBuilder =
 			HttpClient
@@ -42,7 +48,7 @@ class LangChain4jChatModelFactory(
 			.builder()
 			.baseUrl(config.baseUrl.trimEnd('/'))
 			.apiKey(config.apiKey)
-			.modelName(AppProperties.OPENROUTER_MODEL.get())
+			.modelName(modelName)
 			.customHeaders(
 				mapOf(
 					"HTTP-Referer" to config.httpReferer,

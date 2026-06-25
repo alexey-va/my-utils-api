@@ -3,6 +3,7 @@ package dev.myutils.api.agent.langchain
 import dev.myutils.api.agent.WorkoutAgentContextBuilder
 import dev.myutils.api.agent.WorkoutToolsService
 import dev.myutils.api.agent.memory.AgentConversationStore
+import dev.myutils.api.agent.memory.AgentMemoryAssembler
 import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.config.ConditionalOnTelegramBot
 import dev.myutils.api.infra.config.MyUtilsProperties
@@ -32,6 +33,7 @@ class WorkoutLangChain4jAgent(
 	private val properties: MyUtilsProperties,
 	private val chatModelFactory: ChatModelFactory,
 	private val conversationStore: AgentConversationStore,
+	private val memoryAssembler: AgentMemoryAssembler,
 	private val userFacts: AgentUserFactsService,
 	private val contextBuilder: WorkoutAgentContextBuilder,
 	private val toolsService: WorkoutToolsService,
@@ -172,7 +174,7 @@ class WorkoutLangChain4jAgent(
 	): List<LcChatMessage> {
 		val messages = mutableListOf<LcChatMessage>()
 		messages.add(SystemMessage.from(systemContext(chatId)))
-		messages.addAll(conversationStore.loadRecent(chatId))
+		messages.addAll(memoryAssembler.loadContextForLlm(chatId))
 		if (!userMessage.isNullOrBlank()) {
 			messages.add(UserMessage.from(userMessage))
 		}

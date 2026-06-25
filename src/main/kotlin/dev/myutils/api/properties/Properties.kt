@@ -166,6 +166,24 @@ object AppProperties {
 			range = 1..50,
 		)
 
+	val AGENT_MEMORY_COMPACT_THRESHOLD_MESSAGES: IntProperty =
+		IntProperty(
+			key = "agent.memory.compact-threshold-messages",
+			description = "После скольких compactable сообщений (минус recent tail) запускать авто-сжатие.",
+			tags = listOf("agent"),
+			default = 40,
+			range = 5..500,
+		)
+
+	val AGENT_MEMORY_COMPACT_MODEL: StringProperty =
+		StringProperty(
+			key = "agent.memory.compact-model",
+			description = "Модель OpenRouter для сжатия диалога (пусто → openrouter.model).",
+			tags = listOf("agent"),
+			default = "",
+			validate = { model -> model.length <= 200 },
+		)
+
 	val OPENROUTER_RETRY_MAX_ATTEMPTS: IntProperty =
 		IntProperty(
 			key = "openrouter.retry.max-attempts",

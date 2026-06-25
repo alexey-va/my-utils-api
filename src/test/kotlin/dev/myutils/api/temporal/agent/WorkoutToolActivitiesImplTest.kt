@@ -19,7 +19,11 @@ import org.springframework.beans.factory.ObjectProvider
 
 class WorkoutToolActivitiesImplTest {
 	private val toolsService = mock<WorkoutToolsService>()
-	private val genAiTracing = GenAiTracing(OpenTelemetry.noop())
+	private val openTelemetryProvider = mock<ObjectProvider<OpenTelemetry>>()
+	private val genAiTracing =
+		GenAiTracing(openTelemetryProvider).also {
+			whenever(openTelemetryProvider.getIfAvailable()).thenReturn(OpenTelemetry.noop())
+		}
 	private val activities =
 		WorkoutToolActivitiesImpl(
 			toolsService = toolsService,
