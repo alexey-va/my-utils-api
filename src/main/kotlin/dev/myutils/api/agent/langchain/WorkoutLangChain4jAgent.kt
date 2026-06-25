@@ -2,6 +2,8 @@ package dev.myutils.api.agent.langchain
 
 import dev.myutils.api.agent.WorkoutAgentContextBuilder
 import dev.myutils.api.agent.WorkoutToolsService
+import dev.myutils.api.agent.memory.AgentConversationStore
+import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.config.ConditionalOnTelegramBot
 import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.properties.AppProperties
@@ -21,7 +23,6 @@ import dev.langchain4j.data.message.UserMessage
 import dev.langchain4j.memory.chat.MessageWindowChatMemory
 import dev.langchain4j.model.chat.request.ChatRequest
 import dev.langchain4j.service.AiServices
-import dev.langchain4j.store.memory.chat.ChatMemoryStore
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
@@ -30,7 +31,8 @@ import org.springframework.stereotype.Component
 class WorkoutLangChain4jAgent(
 	private val properties: MyUtilsProperties,
 	private val chatModelFactory: ChatModelFactory,
-	private val memoryStore: ChatMemoryStore,
+	private val conversationStore: AgentConversationStore,
+	private val userFacts: AgentUserFactsService,
 	private val contextBuilder: WorkoutAgentContextBuilder,
 	private val toolsService: WorkoutToolsService,
 ) {
@@ -42,6 +44,7 @@ class WorkoutLangChain4jAgent(
 		userMessage: String,
 	): String {
 		val tools = WorkoutLangChainTools.create(chatId, toolsService, properties)
+		val memoryLimit = AppProperties.AGENT_MEMORY_RECENT_MESSAGES.get()
 		val assistant =
 			AiServices
 				.builder(WorkoutAgentAssistant::class.java)
@@ -51,8 +54,8 @@ class WorkoutLangChain4jAgent(
 					MessageWindowChatMemory
 						.builder()
 						.id(id)
-						.maxMessages(MEMORY_WINDOW)
-						.chatMemoryStore(memoryStore)
+						.maxMessages(memoryLimit)
+						.chatMemoryStore(conversationStore)
 						.build()
 				}.maxSequentialToolsInvocations(AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get())
 				.build()
@@ -63,6 +66,7 @@ class WorkoutLangChain4jAgent(
 				userMessage,
 				AppProperties.AGENT_SYSTEM_PROMPT.get(),
 				contextBuilder.buildSnapshot(),
+				userFacts.formatForPrompt(chatId),
 			)
 		log.info("LangChain4j agent chatId={} reply={}", chatId, LogPreview.of(reply))
 		return reply.trim().ifEmpty { "Готово." }
@@ -97,7 +101,7 @@ class WorkoutLangChain4jAgent(
 			)
 		val aiMessage = response.aiMessage()
 
-		appendToMemory(chatId, buildMemoryAppend(input.userMessage, aiMessage))
+		conversationStore.append(chatId, buildMemoryAppend(input.userMessage, aiMessage))
 
 		TemporalActivityLog
 			.enrich(
@@ -150,15 +154,15 @@ class WorkoutLangChain4jAgent(
 						},
 					),
 			).log()
-		appendToMemory(input.chatId, append)
+		conversationStore.append(input.chatId, append)
 		TemporalActivityLog
 			.enrich(
 				log
 					.atInfo()
 					.setMessage("Memory after tool results")
 					.addKeyValue("chatId", input.chatId)
-					.addKeyValue("messageCount", memoryStore.getMessages(input.chatId).size)
-					.addKeyValue("messages", LlmRequestLog.summarize(memoryStore.getMessages(input.chatId))),
+					.addKeyValue("messageCount", conversationStore.loadRecent(input.chatId).size)
+					.addKeyValue("messages", LlmRequestLog.summarize(conversationStore.loadRecent(input.chatId))),
 			).log()
 	}
 
@@ -167,8 +171,8 @@ class WorkoutLangChain4jAgent(
 		userMessage: String?,
 	): List<LcChatMessage> {
 		val messages = mutableListOf<LcChatMessage>()
-		messages.add(SystemMessage.from(systemContext()))
-		messages.addAll(memoryStore.getMessages(chatId))
+		messages.add(SystemMessage.from(systemContext(chatId)))
+		messages.addAll(conversationStore.loadRecent(chatId))
 		if (!userMessage.isNullOrBlank()) {
 			messages.add(UserMessage.from(userMessage))
 		}
@@ -187,33 +191,12 @@ class WorkoutLangChain4jAgent(
 		return append
 	}
 
-	private fun appendToMemory(
-		chatId: Long,
-		append: List<LcChatMessage>,
-	) {
-		if (append.isEmpty()) {
-			return
-		}
-		val stored = memoryStore.getMessages(chatId).toMutableList()
-		stored.addAll(append)
-		memoryStore.updateMessages(chatId, trimMemory(stored))
-	}
-
-	private fun systemContext(): String =
+	private fun systemContext(chatId: Long): String =
 		"""
 		${AppProperties.AGENT_SYSTEM_PROMPT.get()}
 
 		${contextBuilder.buildSnapshot()}
+
+		${userFacts.formatForPrompt(chatId)}
 		""".trimIndent()
-
-	private fun trimMemory(messages: List<LcChatMessage>): List<LcChatMessage> =
-		if (messages.size <= MEMORY_WINDOW) {
-			messages
-		} else {
-			messages.takeLast(MEMORY_WINDOW)
-		}
-
-	private companion object {
-		const val MEMORY_WINDOW = 24
-	}
 }

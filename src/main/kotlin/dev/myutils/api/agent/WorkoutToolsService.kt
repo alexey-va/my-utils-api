@@ -1,5 +1,6 @@
 package dev.myutils.api.agent
 
+import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_DAY_SUMMARIES
@@ -22,6 +23,7 @@ class WorkoutToolsService(
 	private val temporalNotificationFacade: TemporalNotificationFacade,
 	private val agentMetrics: AgentMetrics,
 	private val telegramMessenger: ObjectProvider<TelegramMessenger>,
+	private val userFacts: ObjectProvider<AgentUserFactsService>,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -123,6 +125,42 @@ class WorkoutToolsService(
 
 	fun cancelNotification(workflowId: String): String = temporalNotificationFacade.cancel(workflowId)
 
+	fun manageUserFact(
+		chatId: Long,
+		action: String,
+		content: String?,
+		factId: String?,
+	): String {
+		val facts = requireUserFacts()
+		return when (action.trim().lowercase()) {
+			"remember" -> {
+				val text =
+					content?.trim()?.takeIf { it.isNotEmpty() }
+						?: throw IllegalArgumentException("Для action=remember нужно поле content")
+				facts.remember(chatId, text)
+			}
+			"update" -> {
+				val id =
+					factId?.trim()?.takeIf { it.isNotEmpty() }
+						?: throw IllegalArgumentException("Для action=update нужно поле fact_id")
+				val text =
+					content?.trim()?.takeIf { it.isNotEmpty() }
+						?: throw IllegalArgumentException("Для action=update нужно поле content")
+				facts.update(chatId, id, text)
+			}
+			"forget" -> {
+				val id =
+					factId?.trim()?.takeIf { it.isNotEmpty() }
+						?: throw IllegalArgumentException("Для action=forget нужно поле fact_id")
+				facts.forget(chatId, id)
+			}
+			else ->
+				throw IllegalArgumentException(
+					"Неизвестный action: $action (допустимо: remember, update, forget)",
+				)
+		}
+	}
+
 	fun sendRichMessage(
 		chatId: Long,
 		text: String,
@@ -217,6 +255,13 @@ class WorkoutToolsService(
 							chatId = chatId,
 							text = toolArgs.require("text"),
 							buttons = toolArgs.optional("buttons"),
+						)
+					"manage_user_fact" ->
+						manageUserFact(
+							chatId,
+							toolArgs.require("action"),
+							toolArgs.optional("content"),
+							toolArgs.optional("fact_id"),
 						)
 					else ->
 						ToolExecutionFeedback.failure("Неизвестный инструмент: $rawName")
@@ -364,4 +409,8 @@ class WorkoutToolsService(
 			?: throw IllegalArgumentException("Нужно поле $key")
 
 	private fun Map<String, String?>.optionalInt(key: String): Int? = optional(key)?.toIntOrNull()
+
+	private fun requireUserFacts(): AgentUserFactsService =
+		userFacts.getIfAvailable()
+			?: throw IllegalStateException("Память фактов недоступна (Telegram-бот выключен).")
 }

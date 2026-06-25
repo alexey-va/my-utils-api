@@ -19,6 +19,7 @@ class WorkoutAgentActivitiesImpl(
 	private val agent: ObjectProvider<WorkoutLangChain4jAgent>,
 	private val properties: MyUtilsProperties,
 	private val agentMetrics: AgentMetrics,
+	private val genAiTracing: GenAiTracing,
 ) : WorkoutAgentActivities {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -43,7 +44,7 @@ class WorkoutAgentActivitiesImpl(
 		val langChainAgent =
 			agent.getIfAvailable()
 				?: return AgentLlmStepResult(reply = "Агент не настроен (нет TELEGRAM_BOT_TOKEN?).")
-		return GenAiTracing.chat(
+		return genAiTracing.chat(
 			traceParent = input.traceParent,
 			chatId = input.chatId,
 			model = AppProperties.OPENROUTER_MODEL.get(),

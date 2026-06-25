@@ -5,7 +5,7 @@ import org.slf4j.LoggerFactory
 import dev.myutils.api.infra.config.ConditionalOnTelegramBot
 import org.springframework.stereotype.Component
 
-/** Свежий снимок дневника для промпта (не сохраняется в Redis-историю). */
+/** Свежий снимок дневника для промпта (не сохраняется в историю диалога). */
 @Component
 @ConditionalOnTelegramBot
 class WorkoutAgentContextBuilder(

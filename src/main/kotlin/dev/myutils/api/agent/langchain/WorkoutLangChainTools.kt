@@ -88,6 +88,21 @@ class WorkoutLangChainTools(
 		return tracked("send_notification") { toolsService.sendNotification(chatId, message) }
 	}
 
+	@Tool(
+		"Память о пользователе (цели, травмы, предпочтения). action: remember — новый факт (content); " +
+			"update — правка по fact_id (content); forget — удалить по fact_id. " +
+			"fact_id бери из блока «Известные факты» в system-контексте. " +
+			"Не запоминай разовые тренировки — они уже в дневнике.",
+	)
+	fun manageUserFact(
+		action: String,
+		content: String? = null,
+		factId: String? = null,
+	): String =
+		tracked("manage_user_fact") {
+			toolsService.manageUserFact(chatId, action, content, factId)
+		}
+
 	@Tool("Запланировать напоминание в Telegram на время deliver_at (Temporal workflow).")
 	fun scheduleNotification(
 		message: String,

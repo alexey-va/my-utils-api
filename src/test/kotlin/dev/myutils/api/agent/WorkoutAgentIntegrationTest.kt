@@ -1,8 +1,8 @@
 package dev.myutils.api.agent
 
 import dev.myutils.api.agent.langchain.WorkoutLangChain4jAgent
+import dev.myutils.api.agent.memory.AgentConversationStore
 import dev.myutils.api.testkit.TestingIntegrationTestBase
-import dev.myutils.api.testkit.impl.InMemoryChatMemoryStore
 import dev.myutils.api.testkit.impl.InMemoryTelegramMessenger
 import dev.myutils.api.testkit.impl.StubChatModelFactory
 import kotlinx.coroutines.runBlocking
@@ -27,7 +27,7 @@ class WorkoutAgentIntegrationTest : TestingIntegrationTestBase() {
 	private lateinit var chatModelFactory: StubChatModelFactory
 
 	@Autowired
-	private lateinit var memoryStore: InMemoryChatMemoryStore
+	private lateinit var conversationStore: AgentConversationStore
 
 	@BeforeEach
 	fun resetFakes() {
@@ -78,7 +78,7 @@ class WorkoutAgentIntegrationTest : TestingIntegrationTestBase() {
 		agent.run(chatId = 99L, userMessage = "первый")
 		agent.run(chatId = 99L, userMessage = "второй")
 
-		assertTrue(memoryStore.messageCount(99L) >= 2)
+		assertTrue(conversationStore.loadRecent(99L).size >= 2)
 		assertEquals(2, chatModelFactory.model.requests.size)
 	}
 }

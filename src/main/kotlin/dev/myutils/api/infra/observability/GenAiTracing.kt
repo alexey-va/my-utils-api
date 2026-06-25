@@ -2,7 +2,7 @@ package dev.myutils.api.infra.observability
 
 import dev.myutils.api.infra.util.LogPreview
 import dev.myutils.api.temporal.agent.AgentLlmStepResult
-import io.opentelemetry.api.GlobalOpenTelemetry
+import io.opentelemetry.api.OpenTelemetry
 import io.opentelemetry.api.trace.Span
 import io.opentelemetry.api.trace.SpanKind
 import io.opentelemetry.api.trace.StatusCode
@@ -10,16 +10,25 @@ import io.opentelemetry.api.trace.Tracer
 import io.opentelemetry.context.Context
 import io.opentelemetry.context.propagation.TextMapGetter
 import io.opentelemetry.context.propagation.TextMapSetter
+import org.springframework.beans.factory.ObjectProvider
+import org.springframework.stereotype.Component
 import java.util.concurrent.ConcurrentHashMap
 
-/** OpenTelemetry gen_ai spans for the workout Telegram agent (local Tempo / Grafana). */
-object GenAiTracing {
-	private const val INSTRUMENTATION = "dev.myutils.api.agent"
-	private const val AGENT_NAME = "workout-telegram-agent"
-	private const val PROVIDER = "openrouter"
+/** OpenTelemetry gen_ai spans via Spring-managed SDK → OTLP → Tempo / Grafana. */
+@Component
+class GenAiTracing(
+	openTelemetryProvider: ObjectProvider<OpenTelemetry>,
+) {
+	private val openTelemetry: OpenTelemetry =
+		openTelemetryProvider.getIfAvailable { OpenTelemetry.noop() }
+	private companion object {
+		const val INSTRUMENTATION = "dev.myutils.api.agent"
+		const val AGENT_NAME = "workout-telegram-agent"
+		const val PROVIDER = "openrouter"
+	}
 
-	private val tracer: Tracer = GlobalOpenTelemetry.getTracer(INSTRUMENTATION)
-	private val propagator = GlobalOpenTelemetry.getPropagators().textMapPropagator
+	private val tracer: Tracer = openTelemetry.getTracer(INSTRUMENTATION)
+	private val propagator = openTelemetry.propagators.textMapPropagator
 
 	private val traceParentGetter =
 		object : TextMapGetter<Map<String, String>> {

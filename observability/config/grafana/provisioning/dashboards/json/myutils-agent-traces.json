@@ -28,7 +28,7 @@
           "showLineNumbers": false,
           "showMiniMap": false
         },
-        "content": "### Agent traces (OpenTelemetry gen_ai)\n\nИщи по **conversation id** = Telegram `chatId`. Waterfall: `invoke_agent` → `chat` → `execute_tool`.\n\nTraceQL примеры:\n- `{ resource.service.name = \"my-utils-api\" && span.gen_ai.conversation.id != nil }`\n- `{ span.gen_ai.conversation.id = \"${conversation_id}\" }`",
+        "content": "### Agent traces (OpenTelemetry gen_ai)\n\n**All agent traces** — последние `invoke_agent` / `chat` / `execute_tool` без фильтра.\n\n**Conversation** — введи Telegram `chatId` в переменную выше (это `gen_ai.conversation.id`).\n\nWaterfall: `invoke_agent` → `chat` → `execute_tool`.",
         "mode": "markdown"
       },
       "title": "How to read",
@@ -37,8 +37,26 @@
     {
       "datasource": { "type": "tempo", "uid": "tempo" },
       "fieldConfig": { "defaults": {}, "overrides": [] },
-      "gridPos": { "h": 18, "w": 24, "x": 0, "y": 4 },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 4 },
       "id": 2,
+      "options": {},
+      "targets": [
+        {
+          "datasource": { "type": "tempo", "uid": "tempo" },
+          "query": "{ resource.service.name = \"my-utils-api\" && span.gen_ai.operation.name != nil }",
+          "queryType": "traceql",
+          "refId": "A",
+          "tableType": "traces"
+        }
+      ],
+      "title": "All agent traces",
+      "type": "traces"
+    },
+    {
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "fieldConfig": { "defaults": {}, "overrides": [] },
+      "gridPos": { "h": 14, "w": 24, "x": 0, "y": 18 },
+      "id": 3,
       "options": {},
       "targets": [
         {
@@ -49,7 +67,7 @@
           "tableType": "traces"
         }
       ],
-      "title": "Conversation traces",
+      "title": "Conversation traces (chatId filter)",
       "type": "traces"
     }
   ],
@@ -71,10 +89,10 @@
       }
     ]
   },
-  "time": { "from": "now-6h", "to": "now" },
+  "time": { "from": "now-7d", "to": "now" },
   "timepicker": {},
   "timezone": "browser",
   "title": "myutils-agent-traces",
   "uid": "myutils-agent-traces",
-  "version": 1
+  "version": 2
 }

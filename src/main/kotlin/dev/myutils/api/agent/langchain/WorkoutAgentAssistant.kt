@@ -11,6 +11,8 @@ interface WorkoutAgentAssistant {
 		{{systemPrompt}}
 
 		{{snapshot}}
+
+		{{userFacts}}
 		""",
 	)
 	fun chat(
@@ -18,5 +20,6 @@ interface WorkoutAgentAssistant {
 		@UserMessage userMessage: String,
 		@V("systemPrompt") systemPrompt: String,
 		@V("snapshot") snapshot: String,
+		@V("userFacts") userFacts: String,
 	): String
 }

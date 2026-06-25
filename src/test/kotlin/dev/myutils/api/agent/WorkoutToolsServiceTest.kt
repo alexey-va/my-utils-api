@@ -1,5 +1,6 @@
 package dev.myutils.api.agent
 
+import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.telegram.TelegramMessenger
@@ -19,10 +20,21 @@ class WorkoutToolsServiceTest {
 	private val facade: WorkoutBotFacade = mock()
 	private val notifications: TemporalNotificationFacade = mock()
 
-	private fun service(messenger: TelegramMessenger? = null): WorkoutToolsService {
+	private fun service(
+		messenger: TelegramMessenger? = null,
+		userFacts: AgentUserFactsService? = null,
+	): WorkoutToolsService {
 		val messengerProvider = mock<ObjectProvider<TelegramMessenger>>()
 		whenever(messengerProvider.getIfAvailable()).thenReturn(messenger)
-		return WorkoutToolsService(facade, notifications, AgentMetrics(SimpleMeterRegistry()), messengerProvider)
+		val userFactsProvider = mock<ObjectProvider<AgentUserFactsService>>()
+		whenever(userFactsProvider.getIfAvailable()).thenReturn(userFacts)
+		return WorkoutToolsService(
+			facade,
+			notifications,
+			AgentMetrics(SimpleMeterRegistry()),
+			messengerProvider,
+			userFactsProvider,
+		)
 	}
 
 	@Test
@@ -244,6 +256,48 @@ class WorkoutToolsServiceTest {
 		assertTrue(ToolExecutionFeedback.isFailure(result))
 		assertTrue(result.contains("Неверная дата from"))
 		assertTrue(result.contains("20226-06-09"))
+	}
+
+	@Test
+	fun `manage_user_fact remember delegates to facts service`() {
+		val userFacts: AgentUserFactsService = mock()
+		whenever(userFacts.remember(7L, "травма колена")).thenReturn("Запомнил факт")
+		val service = service(userFacts = userFacts)
+		val result =
+			service.runTool(
+				"manage_user_fact",
+				chatId = 7L,
+				args = mapOf("action" to "remember", "content" to "травма колена"),
+			)
+		assertEquals("Запомнил факт", result)
+	}
+
+	@Test
+	fun `manage_user_fact forget requires fact_id`() {
+		val userFacts: AgentUserFactsService = mock()
+		val service = service(userFacts = userFacts)
+		val result =
+			service.runTool(
+				"manageUserFact",
+				chatId = 1L,
+				args = mapOf("action" to "forget"),
+			)
+		assertTrue(ToolExecutionFeedback.isFailure(result))
+		assertTrue(result.contains("fact_id"))
+	}
+
+	@Test
+	fun `manage_user_fact rejects unknown action`() {
+		val userFacts: AgentUserFactsService = mock()
+		val service = service(userFacts = userFacts)
+		val result =
+			service.runTool(
+				"manage_user_fact",
+				chatId = 1L,
+				args = mapOf("action" to "archive", "content" to "x"),
+			)
+		assertTrue(ToolExecutionFeedback.isFailure(result))
+		assertTrue(result.contains("remember"))
 	}
 
 	@Test

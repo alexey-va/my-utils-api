@@ -157,6 +157,15 @@ object AppProperties {
 			range = 1..32,
 		)
 
+	val AGENT_MEMORY_RECENT_MESSAGES: IntProperty =
+		IntProperty(
+			key = "agent.memory.recent-messages",
+			description = "Сколько последних сообщений диалога подставлять в запрос LLM (полная история хранится в Postgres).",
+			tags = listOf("agent"),
+			default = 10,
+			range = 1..50,
+		)
+
 	val OPENROUTER_RETRY_MAX_ATTEMPTS: IntProperty =
 		IntProperty(
 			key = "openrouter.retry.max-attempts",
@@ -178,7 +187,7 @@ object AppProperties {
 	val TELEGRAM_CONVERSATION_TTL_HOURS: IntProperty =
 		IntProperty(
 			key = "telegram.conversation-ttl-hours",
-			description = "Сколько часов хранить историю чата в Redis.",
+			description = "Устарело: история чата хранится в Postgres (agent.memory.recent-messages).",
 			tags = listOf("telegram"),
 			default = 48,
 			range = 1..(24 * 30),

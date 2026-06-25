@@ -18,6 +18,7 @@ import org.springframework.stereotype.Component
 class WorkoutToolActivitiesImpl(
 	private val toolsService: WorkoutToolsService,
 	private val objectMapper: ObjectMapper,
+	private val genAiTracing: GenAiTracing,
 ) : WorkoutToolActivities {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -28,7 +29,7 @@ class WorkoutToolActivitiesImpl(
 			input.chatId,
 			LogPreview.of(input.argumentsJson, max = 240),
 		)
-		return GenAiTracing.executeTool(
+		return genAiTracing.executeTool(
 			traceParent = input.traceParent,
 			chatId = input.chatId,
 			toolName = input.toolName,

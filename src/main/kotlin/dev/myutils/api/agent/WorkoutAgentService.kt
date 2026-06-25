@@ -22,6 +22,7 @@ class WorkoutAgentService(
 	private val temporalWorkflow: ObjectProvider<TemporalWorkflowService>,
 	private val telegram: TelegramMessenger,
 	private val agentMetrics: AgentMetrics,
+	private val genAiTracing: GenAiTracing,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	suspend fun handleMessage(
@@ -49,8 +50,8 @@ class WorkoutAgentService(
 			if (text != "/start") {
 				telegram.sendTyping(chatId)
 			}
-			GenAiTracing.invokeAgent(chatId, userId, text) {
-				val traceParent = GenAiTracing.currentTraceParent()
+			genAiTracing.invokeAgent(chatId, userId, text) {
+				val traceParent = genAiTracing.currentTraceParent()
 				temporal.startAgentTurn(
 					AgentTurnInput(
 						chatId = chatId,
@@ -91,7 +92,7 @@ class WorkoutAgentService(
 		val startedAt = System.currentTimeMillis()
 		try {
 			val reply =
-				GenAiTracing.invokeAgent(chatId, userId, text) {
+				genAiTracing.invokeAgent(chatId, userId, text) {
 					langChain4jAgent.run(chatId, text)
 				}
 			telegram.sendHtmlMessage(chatId, reply)
