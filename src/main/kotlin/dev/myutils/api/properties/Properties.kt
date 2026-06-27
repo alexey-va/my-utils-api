@@ -144,7 +144,7 @@ object AppProperties {
 			key = "openrouter.model",
 			description = "Модель OpenRouter для Telegram-агента (формат provider/model-id).",
 			tags = listOf("agent"),
-			default = "anthropic/claude-3.5-haiku",
+			default = "deepseek/deepseek-v4-pro",
 			validate = { model -> model.length in 3..200 && model.contains('/') },
 		)
 

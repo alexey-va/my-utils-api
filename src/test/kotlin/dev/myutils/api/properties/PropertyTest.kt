@@ -44,9 +44,9 @@ class PropertyTest {
 	@Test
 	fun `StringProperty accepts openrouter model`() {
 		val p = AppProperties.OPENROUTER_MODEL
-		assertEquals("anthropic/claude-3.5-haiku", p.default)
+		assertEquals("deepseek/deepseek-v4-pro", p.default)
 		assertEquals(
-			"anthropic/claude-3.5-haiku",
+			"deepseek/deepseek-v4-pro",
 			p.deserialize(p.serialize(p.default, mapper), mapper),
 		)
 	}
