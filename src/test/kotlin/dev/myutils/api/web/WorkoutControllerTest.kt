@@ -21,7 +21,7 @@ class WorkoutControllerTest : IntegrationTestBase() {
 	private lateinit var objectMapper: ObjectMapper
 
 	@Test
-	fun `grid dates are oldest to newest`() {
+	fun `grid dates are newest to oldest`() {
 		val exerciseName = "Grid sort lift ${System.nanoTime()}"
 		val exercise =
 			mockMvc
@@ -67,11 +67,11 @@ class WorkoutControllerTest : IntegrationTestBase() {
 				.get("dates")
 				.map { it.asText() }
 
-		assertTrue(dates == dates.sorted())
+		assertTrue(dates == dates.sortedDescending())
 		val i18 = dates.indexOf("2026-05-18")
 		val i19 = dates.indexOf("2026-05-19")
 		val i20 = dates.indexOf("2026-05-20")
-		assertTrue(i18 >= 0 && i19 > i18 && i20 > i19)
+		assertTrue(i18 >= 0 && i20 < i19 && i19 < i18)
 
 		mockMvc.delete("/api/workouts/exercises/$exerciseId").andExpect {
 			status { isNoContent() }

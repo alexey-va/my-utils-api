@@ -71,7 +71,7 @@ class WorkoutService(
 			entries
 				.map { it.performedOn }
 				.distinct()
-				.sorted()
+				.sortedDescending()
 
 		val entryByExerciseAndDate =
 			entries.associateBy { it.exercise.id to it.performedOn }

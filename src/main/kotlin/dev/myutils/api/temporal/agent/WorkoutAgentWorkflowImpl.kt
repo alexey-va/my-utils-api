@@ -22,11 +22,25 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 			WorkoutAgentActivities::class.java,
 			ActivityOptions
 				.newBuilder()
-				.setStartToCloseTimeout(Duration.ofMinutes(6))
+				.setStartToCloseTimeout(Duration.ofMinutes(2))
 				.setRetryOptions(
 					RetryOptions
 						.newBuilder()
-						.setMaximumAttempts(2)
+						.setMaximumAttempts(3)
+						.build(),
+				).build(),
+		)
+
+	private val agentLlmActivities: WorkoutAgentActivities =
+		Workflow.newActivityStub(
+			WorkoutAgentActivities::class.java,
+			ActivityOptions
+				.newBuilder()
+				.setStartToCloseTimeout(Duration.ofSeconds(30))
+				.setRetryOptions(
+					RetryOptions
+						.newBuilder()
+						.setMaximumAttempts(5)
 						.build(),
 				).build(),
 		)
@@ -116,7 +130,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					"userMessage" to (userMessage?.let { LogPreview.of(it) } ?: "(none)"),
 				),
 			)
-			val step = agentActivities.llmStep(
+			val step = agentLlmActivities.llmStep(
 				AgentLlmStepInput(
 					chatId = input.chatId,
 					userMessage = userMessage,
