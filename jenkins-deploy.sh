@@ -23,5 +23,12 @@ COMPOSE="docker compose -f docker-compose.yml -f docker-compose.jenkins.yml"
 
 export GIT_COMMIT="$(git rev-parse HEAD)"
 
-${COMPOSE} up -d postgres redis temporal-postgresql temporal temporal-ui
+for port in 15432 16379; do
+  if ! timeout 1 bash -c "cat < /dev/null > /dev/tcp/127.0.0.1/${port}" 2>/dev/null; then
+    echo "Postgres/Redis not listening on 127.0.0.1:${port} (run push-myutils-datastores.sh on utils)" >&2
+    exit 1
+  fi
+done
+
+${COMPOSE} up -d temporal-postgresql temporal temporal-ui
 ${COMPOSE} up -d --build --force-recreate api
