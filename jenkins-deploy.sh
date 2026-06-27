@@ -6,11 +6,12 @@ cd "${WORKSPACE}"
 # Public URL of the frontend (browser Origin header). Comma-separated for several hosts.
 export MYUTILS_CORS_ALLOWED_ORIGINS="${MYUTILS_CORS_ALLOWED_ORIGINS:-http://utils.alexeyav.ru,https://utils.alexeyav.ru,http://127.0.0.1:13082}"
 
-# Telegram bot — TELEGRAM_BOT_TOKEN + OPENROUTER_API_KEY from Jenkins credentials.
-export TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+# TELEGRAM_BOT_TOKEN + OPENROUTER_API_KEY from Infisical (machine identity on utils).
+# shellcheck source=/etc/mcfine/load-secrets.sh
+source /etc/mcfine/load-secrets.sh myutilsapi
+
 export TELEGRAM_ALLOWED_USER_IDS="${TELEGRAM_ALLOWED_USER_IDS:-303179278}"
 export MYUTILS_TELEGRAM_ENABLED="${MYUTILS_TELEGRAM_ENABLED:-true}"
-export OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-}"
 export OPENROUTER_PROXY_ENABLED=true
 export OPENROUTER_PROXY_HOST=185.242.106.81
 export OPENROUTER_PROXY_PORT=8888
