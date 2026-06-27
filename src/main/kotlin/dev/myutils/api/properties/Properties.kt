@@ -166,6 +166,15 @@ object AppProperties {
 			range = 1..50,
 		)
 
+	val AGENT_CONTEXT_RECENT_ENTRIES: IntProperty =
+		IntProperty(
+			key = "agent.context.recent-entries",
+			description = "Сколько последних записей дневника включать в снимок контекста агента при каждом запросе.",
+			tags = listOf("agent"),
+			default = 20,
+			range = 1..100,
+		)
+
 	val AGENT_MEMORY_COMPACT_THRESHOLD_MESSAGES: IntProperty =
 		IntProperty(
 			key = "agent.memory.compact-threshold-messages",

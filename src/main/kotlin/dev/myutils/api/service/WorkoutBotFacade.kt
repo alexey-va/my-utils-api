@@ -171,6 +171,7 @@ class WorkoutBotFacade(
 			nowLine = nowLine,
 			exercises = exercises,
 			allEntries = allEntries,
+			recentEntriesLimit = AppProperties.AGENT_CONTEXT_RECENT_ENTRIES.get(),
 			todaySummary = getDaySummary(today),
 			yesterdaySummary = getDaySummary(yesterday),
 		)

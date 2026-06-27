@@ -14,6 +14,7 @@ object WorkoutAgentSnapshotFormatter {
 		nowLine: String,
 		exercises: List<Exercise>,
 		allEntries: List<WorkoutEntry>,
+		recentEntriesLimit: Int,
 		todaySummary: String,
 		yesterdaySummary: String,
 	): String {
@@ -30,10 +31,14 @@ object WorkoutAgentSnapshotFormatter {
 		val doneThisWeekIds =
 			entriesThisWeek.map { it.exercise.id }.toSet()
 
+		val recentLimit = recentEntriesLimit.coerceIn(1, 100)
+
 		return buildString {
 			appendLine("## Актуальный снимок дневника")
 			appendLine(nowLine)
 			appendLine("Сегодня: $today, неделя: ${dateFmt.format(weekStart)}–${dateFmt.format(weekEnd)}")
+			appendLine()
+			appendRecentEntries(allEntries, recentLimit)
 			appendLine()
 			appendWeekSections(today, exercises, entriesThisWeek, doneThisWeekIds, lastByExerciseId)
 			appendLine()
@@ -46,6 +51,25 @@ object WorkoutAgentSnapshotFormatter {
 			appendLine("### Все упражнения (последняя сессия — для расчёта весов)")
 			appendLastSessionPerExercise(exercises, lastByExerciseId)
 		}.trim()
+	}
+
+	private fun StringBuilder.appendRecentEntries(
+		allEntries: List<WorkoutEntry>,
+		limit: Int,
+	) {
+		appendLine("### Последние $limit записей дневника")
+		val recent = allEntries.take(limit)
+		if (recent.isEmpty()) {
+			appendLine("Записей пока нет.")
+			return
+		}
+		for (entry in recent) {
+			appendLine(
+				"• ${dateFmt.format(entry.performedOn)} «${entry.exercise.name}» " +
+					"(${WorkoutMuscleGroups.labelRu(entry.exercise.muscleGroup)}): " +
+					WorkoutNotation.format(entry),
+			)
+		}
 	}
 
 	private fun StringBuilder.appendWeekSections(

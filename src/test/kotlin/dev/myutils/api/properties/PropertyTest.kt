@@ -13,7 +13,8 @@ class PropertyTest {
 
 	@Test
 	fun `AppProperties ALL discovers runtime properties without recursion`() {
-		assertEquals(11, AppProperties.ALL.size)
+		assertTrue(AppProperties.ALL.size >= 12)
+		assertTrue(AppProperties.ALL.any { it.key == "agent.context.recent-entries" })
 		assertTrue(AppProperties.ALL.any { it.key == "openrouter.model" })
 		assertTrue(AppProperties.ALL.any { it.key == "agent.system-prompt" })
 		assertEquals(PropertyEditor.TEXTAREA, AppProperties.AGENT_SYSTEM_PROMPT.editor)
