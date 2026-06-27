@@ -35,15 +35,17 @@ class WorkoutLangChainTools(
 	): String = tracked("delete_workout") { toolsService.deleteWorkout(exerciseName, performedOn) }
 
 	@Tool(
-		"Записать/обновить за день: вес 3*X/МАХ → set_count=3, reps_per_set=X, max_reps=МАХ, weight_kg полный.",
+		"Записать/обновить за день. Классика: 3*X/МАХ → set_count=3, reps_per_set=X, max_reps=МАХ. " +
+			"Разные повторы: set_reps=\"10/10/9/9\" или \"10,10,9,12\" (тогда reps_per_set и max_reps не нужны).",
 	)
 	fun logWorkout(
 		exerciseName: String,
 		weightKg: Int,
-		repsPerSet: Int,
-		maxReps: Int,
+		repsPerSet: Int? = null,
+		maxReps: Int? = null,
 		performedOn: String? = null,
 		setCount: Int = 3,
+		setReps: String? = null,
 	): String =
 		tracked("log_workout") {
 			toolsService.logWorkout(
@@ -53,6 +55,7 @@ class WorkoutLangChainTools(
 				setCount = setCount,
 				repsPerSet = repsPerSet,
 				maxReps = maxReps,
+				setRepsRaw = setReps,
 			)
 		}
 

@@ -2,7 +2,7 @@ package dev.myutils.api.agent.memory
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
-import dev.myutils.api.agent.langchain.WorkoutLangChain4jAgent
+import dev.myutils.api.agent.memory.AgentChatTurnService
 import dev.myutils.api.domain.AgentContextSummary
 import dev.myutils.api.domain.AgentContextSummaryRepository
 import dev.myutils.api.domain.AgentConversationMessage
@@ -25,7 +25,7 @@ class AgentMemoryAdminService(
 	private val summaryRepository: AgentContextSummaryRepository,
 	private val factRepository: AgentUserFactRepository,
 	private val compactionService: ObjectProvider<AgentContextCompactionService>,
-	private val langChainAgent: ObjectProvider<WorkoutLangChain4jAgent>,
+	private val chatTurnService: AgentChatTurnService,
 	private val memoryAssembler: ObjectProvider<AgentMemoryAssembler>,
 	private val objectMapper: ObjectMapper,
 ) {
@@ -166,24 +166,7 @@ class AgentMemoryAdminService(
 	fun simulateChatTurn(
 		chatId: Long,
 		content: String,
-	): AgentMemoryChatTurnResult {
-		val agent =
-			langChainAgent.getIfAvailable()
-				?: throw ResponseStatusException(
-					HttpStatus.SERVICE_UNAVAILABLE,
-					"Агент недоступен (Telegram-бот / OpenRouter не настроен).",
-				)
-		val trimmed = content.trim()
-		require(trimmed.isNotEmpty()) { "Текст сообщения не может быть пустым." }
-		val afterId = messageRepository.maxIdByChatId(chatId)
-		val reply = agent.run(chatId, trimmed)
-		val newMessages =
-			messageRepository.findByChatIdAndIdGreaterThanOrderByCreatedAtAsc(chatId, afterId)
-		return AgentMemoryChatTurnResult(
-			reply = reply,
-			messages = newMessages.map { it.toDto() },
-		)
-	}
+	): AgentMemoryChatTurnResult = chatTurnService.runSyncTurn(chatId, content)
 
 	fun compact(
 		chatId: Long,

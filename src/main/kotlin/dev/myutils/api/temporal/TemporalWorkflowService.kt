@@ -112,6 +112,24 @@ class TemporalWorkflowService(
 		)
 	}
 
+	/** Синхронный turn — для admin simulate (без доставки в Telegram). */
+	fun executeAgentTurn(input: AgentTurnInput) {
+		val workflowId = agentTurnWorkflowId(input.chatId)
+		val stub =
+			workflowClient.newWorkflowStub(
+				WorkoutAgentWorkflow::class.java,
+				workflowOptions(workflowId),
+			)
+		stub.handleTurn(input)
+		log.info(
+			"Completed agent turn workflowId={} chatId={} userId={} deliverToTelegram={}",
+			workflowId,
+			input.chatId,
+			input.userId,
+			input.deliverToTelegram,
+		)
+	}
+
 	fun cancelNotification(workflowId: String): Boolean =
 		try {
 			workflowClient.newUntypedWorkflowStub(workflowId).cancel()

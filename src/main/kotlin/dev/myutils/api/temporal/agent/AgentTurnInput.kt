@@ -6,4 +6,6 @@ data class AgentTurnInput(
 	val text: String,
 	val maxToolIterations: Int = 8,
 	val traceParent: String? = null,
+	/** false — не отправлять ответ в Telegram (admin simulate). */
+	val deliverToTelegram: Boolean = true,
 )

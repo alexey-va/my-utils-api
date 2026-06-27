@@ -5,6 +5,7 @@ import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_DAY_SUMMARIES
 import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_EXERCISE_PROGRESS
+import dev.myutils.api.service.WorkoutSetReps
 import dev.myutils.api.telegram.TelegramButtonParser
 import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.temporal.TemporalNotificationFacade
@@ -53,14 +54,30 @@ class WorkoutToolsService(
 		performedOn: String?,
 		weightKg: Int,
 		setCount: Int,
-		repsPerSet: Int,
-		maxReps: Int,
+		repsPerSet: Int?,
+		maxReps: Int?,
+		setRepsRaw: String? = null,
 	): String {
 		val date =
 			when (val resolved = resolvePerformedOn(performedOn)) {
 				is DateResolve.Ok -> resolved.date
 				is DateResolve.Invalid -> return performedOnError(performedOn)
 			}
+		val setReps = setRepsRaw?.let { WorkoutSetReps.parseArgument(it) }
+		if (setReps != null) {
+			val normalized = WorkoutSetReps.normalize(setCount = setReps.size, repsPerSet = setReps.min(), maxReps = setReps.max(), setReps = setReps)
+			return workoutBotFacade.logWorkout(
+				exerciseName = exerciseName,
+				performedOn = date,
+				weightKg = weightKg,
+				setCount = normalized.setCount,
+				repsPerSet = normalized.repsPerSet,
+				maxReps = normalized.maxReps,
+				setReps = setReps,
+			)
+		}
+		require(repsPerSet != null) { "reps_per_set обязателен без set_reps" }
+		require(maxReps != null) { "max_reps обязателен без set_reps" }
 		return workoutBotFacade.logWorkout(
 			exerciseName = exerciseName,
 			performedOn = date,
@@ -224,8 +241,9 @@ class WorkoutToolsService(
 							performedOn = toolArgs.optional("performed_on"),
 							weightKg = toolArgs.requireInt("weight_kg"),
 							setCount = toolArgs.optionalInt("set_count") ?: 3,
-							repsPerSet = toolArgs.requireInt("reps_per_set"),
-							maxReps = toolArgs.requireInt("max_reps"),
+							repsPerSet = toolArgs.optionalInt("reps_per_set"),
+							maxReps = toolArgs.optionalInt("max_reps"),
+							setRepsRaw = toolArgs.optional("set_reps"),
 						)
 					"delete_workout" ->
 						deleteWorkout(

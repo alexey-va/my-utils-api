@@ -75,6 +75,34 @@ class WorkoutToolsServiceTest {
 	}
 
 	@Test
+	fun `log_workout parses set_reps`() {
+		whenever(
+			facade.logWorkout(
+				exerciseName = "Bench press",
+				performedOn = null,
+				weightKg = 35,
+				setCount = 4,
+				repsPerSet = 9,
+				maxReps = 10,
+				setReps = listOf(10, 10, 9, 9),
+			),
+		).thenReturn("Записано: Bench press")
+		val service = service()
+		val result =
+			service.runTool(
+				"log_workout",
+				chatId = 1L,
+				args =
+					mapOf(
+						"exercise_name" to "Bench press",
+						"weight_kg" to "35",
+						"set_reps" to "10/10/9/9",
+					),
+			)
+		assertTrue(result.contains("Записано"))
+	}
+
+	@Test
 	fun `logWorkout accepts LangChain4j camelCase tool name and args`() {
 		whenever(
 			facade.logWorkout(

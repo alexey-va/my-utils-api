@@ -106,13 +106,15 @@ class WorkoutService(
 
 		val points =
 			entries.map { entry ->
+				val reps = WorkoutSetReps.effectiveReps(entry)
 				ProgressPointDto(
 					date = entry.performedOn,
 					weightKg = entry.weightKg,
 					setCount = entry.setCount,
 					repsPerSet = entry.repsPerSet,
 					maxReps = entry.maxReps,
-					volume = entry.setCount * entry.repsPerSet * entry.weightKg,
+					setReps = WorkoutSetReps.parseStorage(entry.setReps),
+					volume = WorkoutSetReps.volume(entry),
 				)
 			}
 
@@ -205,6 +207,14 @@ class WorkoutService(
 			workoutEntryRepository.delete(existing.get())
 		}
 
+		val normalized =
+			WorkoutSetReps.normalize(
+				setCount = request.setCount,
+				repsPerSet = request.repsPerSet,
+				maxReps = request.maxReps,
+				setReps = request.setReps,
+			)
+
 		val saved =
 			workoutEntryRepository.save(
 				WorkoutEntry(
@@ -212,14 +222,15 @@ class WorkoutService(
 					exercise = exercise,
 					performedOn = request.performedOn,
 					weightKg = request.weightKg,
-					setCount = request.setCount,
-					repsPerSet = request.repsPerSet,
-					maxReps = request.maxReps,
+					setCount = normalized.setCount,
+					repsPerSet = normalized.repsPerSet,
+					maxReps = normalized.maxReps,
+					setReps = normalized.setRepsStorage,
 				),
 			)
 		log.info(
 			"DB UPSERT workout_entry source={} user={} action={} entryId={} replacedEntryId={} " +
-				"exerciseId={} exerciseName={} date={} weightKg={} sets={} reps={} maxReps={}",
+				"exerciseId={} exerciseName={} date={} weightKg={} sets={} reps={} maxReps={} setReps={}",
 			source,
 			user.email,
 			if (replacedEntryId != null) "replace" else "insert",
@@ -229,9 +240,10 @@ class WorkoutService(
 			exercise.name,
 			request.performedOn,
 			request.weightKg,
-			request.setCount,
-			request.repsPerSet,
-			request.maxReps,
+			normalized.setCount,
+			normalized.repsPerSet,
+			normalized.maxReps,
+			normalized.setRepsStorage,
 		)
 	}
 
@@ -241,11 +253,11 @@ class WorkoutService(
 			setCount = entry.setCount,
 			repsPerSet = entry.repsPerSet,
 			maxReps = entry.maxReps,
+			setReps = WorkoutSetReps.parseStorage(entry.setReps),
 			display = formatCell(entry),
 		)
 
-	private fun formatCell(entry: WorkoutEntry): String =
-		"${entry.weightKg}  ${entry.setCount}×${entry.repsPerSet}  (${entry.maxReps})"
+	private fun formatCell(entry: WorkoutEntry): String = WorkoutSetReps.display(entry.weightKg, entry)
 
 	private fun findOwnedExercise(
 		user: User,
@@ -271,7 +283,7 @@ class WorkoutService(
 			bestWeightKg = entries.maxOf { it.weightKg },
 			latestWeightKg = entries.last().weightKg,
 			bestMaxReps = entries.maxOf { it.maxReps },
-			bestVolume = entries.maxOf { it.setCount * it.repsPerSet * it.weightKg },
+			bestVolume = entries.maxOf { WorkoutSetReps.volume(it) },
 		)
 	}
 

@@ -74,22 +74,25 @@ class WorkoutBotFacade(
 		setCount: Int,
 		repsPerSet: Int,
 		maxReps: Int?,
+		setReps: List<Int>? = null,
 	): String {
 		val exercise = resolveExercise(exerciseName)
 		val date = performedOn ?: today()
 		val max = maxReps ?: repsPerSet
+		val normalized = WorkoutSetReps.normalize(setCount, repsPerSet, max, setReps)
 		workoutService.upsertEntry(
 			UpsertWorkoutEntryRequest(
 				exerciseId = exercise.id,
 				performedOn = date,
 				weightKg = weightKg,
-				setCount = setCount,
-				repsPerSet = repsPerSet,
-				maxReps = max,
+				setCount = normalized.setCount,
+				repsPerSet = normalized.repsPerSet,
+				maxReps = normalized.maxReps,
+				setReps = setReps,
 			),
 			source = "telegram-bot",
 		)
-		val notation = WorkoutNotation.format(weightKg, setCount, repsPerSet, max)
+		val notation = WorkoutSetReps.displayRu(weightKg, normalized.reps)
 		return "Записано: ${exercise.name}, ${dateFmt.format(date)} — $notation"
 	}
 

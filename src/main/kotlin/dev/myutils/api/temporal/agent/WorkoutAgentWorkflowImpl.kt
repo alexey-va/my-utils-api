@@ -75,7 +75,9 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 				),
 			)
 			recordTurnMetrics(startedAt, llmSteps, "error")
-			notifyAgentFailure(input.chatId, error)
+			if (input.deliverToTelegram) {
+				notifyAgentFailure(input.chatId, error)
+			}
 		}
 	}
 
@@ -98,7 +100,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		val prelude = agentActivities.resolvePrelude(input)
 		if (prelude.kind == AgentPreludeResult.Kind.REPLY) {
 			recordTurnMetrics(startedAt, llmSteps, preludeOutcome(input, prelude.message))
-			telegramActivities.sendMessage(input.chatId, prelude.message.orEmpty())
+			deliverReply(input, prelude.message.orEmpty())
 			return llmSteps
 		}
 
@@ -135,7 +137,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 				)
 				val reply = step.reply.trim().ifEmpty { "Готово." }
 				recordTurnMetrics(startedAt, llmSteps, "reply")
-				telegramActivities.sendMessage(input.chatId, reply)
+				deliverReply(input, reply)
 				return llmSteps
 			}
 
@@ -193,7 +195,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 			),
 		)
 		recordTurnMetrics(startedAt, llmSteps, "tool_limit")
-		telegramActivities.sendMessage(input.chatId, "Слишком много шагов с инструментами, попробуй короче.")
+		deliverReply(input, "Слишком много шагов с инструментами, попробуй короче.")
 		return llmSteps
 	}
 
@@ -258,6 +260,16 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					),
 				),
 		)
+
+	private fun deliverReply(
+		input: AgentTurnInput,
+		message: String,
+	) {
+		if (!input.deliverToTelegram) {
+			return
+		}
+		telegramActivities.sendMessage(input.chatId, message)
+	}
 
 	private fun recordTurnMetrics(
 		startedAt: Long,
