@@ -153,8 +153,8 @@ object AppProperties {
 			key = "openrouter.max-tool-iterations",
 			description = "Максимум итераций tool-calling за одно сообщение.",
 			tags = listOf("agent"),
-			default = 8,
-			range = 1..32,
+			default = 30,
+			range = 1..64,
 		)
 
 	val AGENT_MEMORY_RECENT_MESSAGES: IntProperty =
