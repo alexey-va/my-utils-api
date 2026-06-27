@@ -1,27 +1,28 @@
 # Jenkins deploy: bind only on localhost, non-default ports (no clash with 8080/5432/6379).
 # Telegram: long polling via getUpdates.
+# !override — replace base compose ports (merge would keep 8080:8080 and break vs reposilite).
 services:
   postgres:
-    ports:
+    ports: !override
       - "127.0.0.1:15432:5432"
 
   redis:
-    ports:
+    ports: !override
       - "127.0.0.1:16379:6379"
 
   temporal:
-    ports:
+    ports: !override
       - "127.0.0.1:17233:7233"
 
   temporal-ui:
-    ports:
+    ports: !override
       - "127.0.0.1:18233:8080"
     environment:
       TEMPORAL_UI_PUBLIC_PATH: /temporal
       TEMPORAL_CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,https://utils.alexeyav.ru,http://utils.alexeyav.ru,https://temporal.alexeyav.ru,http://temporal.alexeyav.ru"
 
   api:
-    ports:
+    ports: !override
       - "127.0.0.1:18080:8080"
     environment:
       MYUTILS_CORS_ALLOWED_ORIGINS: "${MYUTILS_CORS_ALLOWED_ORIGINS}"
