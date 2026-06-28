@@ -58,6 +58,11 @@ if [[ -f "${SCRIPT_DIR}/scripts/apply-metal-discord-template.py" ]]; then
   ssh "${HOST}" "set -a; [ -f ${REMOTE_DIR}/.env ] && source ${REMOTE_DIR}/.env; set +a; GRAFANA_URL=http://127.0.0.1:3500/grafana python3 ${REMOTE_DIR}/scripts/apply-metal-discord-template.py" || true
 fi
 
+echo "Ensure UFW allows Docker → Tempo OTLP on host..."
+if [[ -f "${SCRIPT_DIR}/scripts/setup-utils-firewall.sh" ]]; then
+  ssh "${HOST}" "bash -s" < "${SCRIPT_DIR}/scripts/setup-utils-firewall.sh" || true
+fi
+
 echo ""
 echo "Done."
 echo "  Logs:    https://utils.alexeyav.ru/grafana/d/myutils-api-logs/my-utils-api-logs"
