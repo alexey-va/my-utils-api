@@ -1,0 +1,291 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: metal-hardware
+    folder: My Utils
+    interval: 1m
+    rules:
+      - uid: efqg6umajocg0c
+        title: Metal host unreachable
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: up{job="node-exporter"}
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: lt
+                  operator:
+                    type: and
+                  reducer:
+                    type: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        dashboardUid: rYdddlPWk
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          description: Node exporter is down — the server may be offline or the metrics agent failed.
+          summary: '{{ $labels.service_name }}: metrics scraper down'
+        labels:
+          severity: critical
+          team: metal
+        isPaused: false
+        notification_settings:
+          receiver: discord
+          group_by:
+            - alertname
+            - service_name
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 4h
+      - uid: dfqg6wqbqesxse
+        title: Metal CPU high
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: 100 * (1 - avg by (instance, service_name) (rate(node_cpu_seconds_total{job="node-exporter",mode="idle"}[5m])))
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 90
+                    type: gt
+                  operator:
+                    type: and
+                  reducer:
+                    type: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        dashboardUid: rYdddlPWk
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          description: CPU usage stayed above 90% for several minutes. The host may be overloaded or a runaway process is consuming cores.
+          summary: '{{ $labels.service_name }}: CPU critically high'
+        labels:
+          severity: critical
+          team: metal
+        isPaused: false
+        notification_settings:
+          receiver: discord
+          group_by:
+            - alertname
+            - service_name
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 4h
+      - uid: cfqg6wy89uewwf
+        title: Metal memory high
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: (1 - (node_memory_MemAvailable_bytes{job="node-exporter"} / node_memory_MemTotal_bytes{job="node-exporter"})) * 100
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 90
+                    type: gt
+                  operator:
+                    type: and
+                  reducer:
+                    type: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        dashboardUid: rYdddlPWk
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          description: Available RAM dropped below 10%. Risk of OOM kills, swap thrashing, and service instability.
+          summary: '{{ $labels.service_name }}: memory critically low'
+        labels:
+          severity: critical
+          team: metal
+        isPaused: false
+        notification_settings:
+          receiver: discord
+          group_by:
+            - alertname
+            - service_name
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 4h
+      - uid: afqg6x9q6ipkwe
+        title: Metal disk full
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: 100 - ((node_filesystem_avail_bytes{job="node-exporter",mountpoint="/",fstype!="rootfs"} * 100) / node_filesystem_size_bytes{job="node-exporter",mountpoint="/",fstype!="rootfs"})
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 85
+                    type: gt
+                  operator:
+                    type: and
+                  reducer:
+                    type: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        dashboardUid: rYdddlPWk
+        noDataState: OK
+        execErrState: Alerting
+        for: 10m
+        annotations:
+          description: Root filesystem usage exceeded 85%. Disk writes may fail soon — clean logs, caches, or expand storage.
+          summary: '{{ $labels.service_name }}: root disk almost full'
+        labels:
+          severity: warning
+          team: metal
+        isPaused: false
+        notification_settings:
+          receiver: discord
+          group_by:
+            - alertname
+            - service_name
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 6h
