@@ -5,18 +5,15 @@ when:
 steps:
   - name: deploy
     image: docker:27-cli
+    network_mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /home/freedeeml/ci:/opt/ci:ro
       - /home/freedeeml/load-secrets.sh:/home/freedeeml/load-secrets.sh:ro
       - /home/freedeeml/.secrets:/home/freedeeml/.secrets:ro
-    backend_options:
-      docker:
-        extra_hosts:
-          - host.docker.internal:host-gateway
     environment:
       HOME: /home/freedeeml
-      MYUTILS_DATASTORE_HOST: host.docker.internal
+      MYUTILS_DATASTORE_HOST: 127.0.0.1
     commands:
       - apk add --no-cache bash git
       - export WORKSPACE=$${CI_WORKSPACE}
