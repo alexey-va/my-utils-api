@@ -1,0 +1,37 @@
+# Jenkins deploy: bind only on localhost, non-default ports (no clash with 8080/5432/6379).
+# Telegram: long polling via getUpdates.
+# !override — replace base compose ports (merge would keep 8080:8080 and break vs reposilite).
+# Postgres + Redis: native systemd on utils (127.0.0.1:15432 / :16379). See mcserver push-myutils-datastores.sh.
+services:
+  temporal:
+    ports: !override
+      - "127.0.0.1:17233:7233"
+
+  temporal-ui:
+    ports: !override
+      - "127.0.0.1:18233:8080"
+    environment:
+      TEMPORAL_UI_PUBLIC_PATH: /temporal
+      TEMPORAL_CORS_ORIGINS: "http://localhost:5173,http://127.0.0.1:5173,https://utils.alexeyav.ru,http://utils.alexeyav.ru,https://temporal.alexeyav.ru,http://temporal.alexeyav.ru"
+
+  api:
+    ports: !override
+      - "127.0.0.1:18080:8080"
+    environment:
+      POSTGRES_HOST: host.docker.internal
+      POSTGRES_PORT: "15432"
+      REDIS_HOST: host.docker.internal
+      REDIS_PORT: "16379"
+      MYUTILS_CORS_ALLOWED_ORIGINS: "${MYUTILS_CORS_ALLOWED_ORIGINS}"
+      MYUTILS_TELEGRAM_ENABLED: "${MYUTILS_TELEGRAM_ENABLED:-true}"
+      TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN}"
+      TELEGRAM_ALLOWED_USER_IDS: "${TELEGRAM_ALLOWED_USER_IDS}"
+      OPENROUTER_API_KEY: "${OPENROUTER_API_KEY}"
+      OPENROUTER_PROXY_ENABLED: "true"
+      OPENROUTER_PROXY_HOST: "185.242.106.81"
+      OPENROUTER_PROXY_PORT: "8888"
+      MYUTILS_TEMPORAL_ENABLED: "true"
+      TEMPORAL_TARGET: "temporal:7233"
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://host.docker.internal:4318/v1/traces"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
