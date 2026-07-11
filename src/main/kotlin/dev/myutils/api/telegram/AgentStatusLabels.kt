@@ -31,10 +31,17 @@ object AgentStatusLabels {
 			else -> "Выполняю ${AgentToolCatalog.normalizeName(rawName)}…"
 		}
 
-	fun toolsRunning(rawNames: List<String>): String =
-		when (rawNames.size) {
-			0 -> "Обрабатываю…"
-			1 -> toolRunning(rawNames.first())
-			else -> "Выполняю ${rawNames.size} действия…"
+	fun toolsRunning(rawNames: List<String>): String {
+		if (rawNames.isEmpty()) {
+			return "Обрабатываю…"
 		}
+		val distinct =
+			rawNames
+				.map { AgentToolCatalog.normalizeName(it) }
+				.distinct()
+		return when (distinct.size) {
+			1 -> toolRunning(rawNames.first())
+			else -> "Выполняю ${distinct.size} действия…"
+		}
+	}
 }
