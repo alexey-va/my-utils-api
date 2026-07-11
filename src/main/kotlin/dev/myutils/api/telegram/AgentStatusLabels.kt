@@ -13,24 +13,7 @@ object AgentStatusLabels {
 
 	const val COMPOSING_REPLY: String = "Формирую ответ…"
 
-	fun toolRunning(rawName: String): String =
-		when (AgentToolCatalog.normalizeName(rawName)) {
-			"log_workout" -> "Записываю в дневник…"
-			"delete_workout" -> "Удаляю запись…"
-			"get_day_summaries", "get_days" -> "Получаю статистику по дням…"
-			"get_exercise_progresses", "get_progress" -> "Получаю прогресс…"
-			"list_exercises" -> "Загружаю список упражнений…"
-			"create_exercise" -> "Создаю упражнение…"
-			"rename_exercise" -> "Переименовываю упражнение…"
-			"remember_fact", "manage_user_fact" -> "Запоминаю факт…"
-			"forget_fact" -> "Удаляю из памяти…"
-			"send_rich_message" -> "Отправляю сообщение с кнопками…"
-			"send_progress_chart" -> "Строю график прогресса…"
-			"send_notification" -> "Отправляю уведомление…"
-			"schedule_notification" -> "Планирую напоминание…"
-			"cancel_notification" -> "Отменяю напоминание…"
-			else -> "Выполняю ${AgentToolCatalog.normalizeName(rawName)}…"
-		}
+	fun toolRunning(rawName: String): String = AgentToolCatalog.statusLabel(rawName)
 
 	fun toolsRunning(rawNames: List<String>): String {
 		if (rawNames.isEmpty()) {

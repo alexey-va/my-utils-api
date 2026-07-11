@@ -66,13 +66,13 @@ class WorkoutLangChainTools(
 
 	@Tool("Запомнить факт о пользователе (цель, травма, предпочтение). Не для разовых тренировок.")
 	fun rememberFact(content: String): String =
-		tracked("manage_user_fact") {
+		tracked("remember_fact") {
 			toolsService.manageUserFact(chatId, "remember", content, null, null)
 		}
 
 	@Tool("Забыть факт по fact_id из блока «Известные факты».")
 	fun forgetFact(factId: String): String =
-		tracked("manage_user_fact") {
+		tracked("forget_fact") {
 			toolsService.manageUserFact(chatId, "forget", null, factId, null)
 		}
 
@@ -120,7 +120,7 @@ class WorkoutLangChainTools(
 	private fun tracked(
 		toolName: String,
 		block: () -> String,
-	): String = toolsService.trackedDirectTool(toolName, block)
+	): String = toolsService.trackedDirectTool(chatId, toolName, block)
 
 	private fun requireTemporal() {
 		check(temporalEnabled) { "Temporal выключен — уведомления недоступны." }

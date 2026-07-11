@@ -31,6 +31,13 @@ class AgentStatusMessenger(
 		show(chatId, AgentStatusLabels.toolsRunning(toolNames))
 	}
 
+	fun toolRunning(
+		chatId: Long,
+		toolName: String,
+	) {
+		show(chatId, AgentStatusLabels.toolRunning(toolName))
+	}
+
 	fun composingReply(chatId: Long) {
 		show(chatId, AgentStatusLabels.COMPOSING_REPLY)
 	}

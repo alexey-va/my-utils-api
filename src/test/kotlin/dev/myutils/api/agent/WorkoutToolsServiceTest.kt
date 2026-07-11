@@ -3,6 +3,7 @@ package dev.myutils.api.agent
 import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
+import dev.myutils.api.telegram.AgentStatusMessenger
 import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.temporal.TemporalNotificationFacade
 import org.springframework.beans.factory.ObjectProvider
@@ -23,17 +24,21 @@ class WorkoutToolsServiceTest {
 	private fun service(
 		messenger: TelegramMessenger? = null,
 		userFacts: AgentUserFactsService? = null,
+		agentStatus: AgentStatusMessenger? = null,
 	): WorkoutToolsService {
 		val messengerProvider = mock<ObjectProvider<TelegramMessenger>>()
 		whenever(messengerProvider.getIfAvailable()).thenReturn(messenger)
 		val userFactsProvider = mock<ObjectProvider<AgentUserFactsService>>()
 		whenever(userFactsProvider.getIfAvailable()).thenReturn(userFacts)
+		val agentStatusProvider = mock<ObjectProvider<AgentStatusMessenger>>()
+		whenever(agentStatusProvider.getIfAvailable()).thenReturn(agentStatus)
 		return WorkoutToolsService(
 			facade,
 			notifications,
 			AgentMetrics(SimpleMeterRegistry()),
 			messengerProvider,
 			userFactsProvider,
+			agentStatusProvider,
 		)
 	}
 
@@ -283,10 +288,11 @@ class WorkoutToolsServiceTest {
 	@Test
 	fun `send_progress_chart sends photo`() {
 		val messenger: TelegramMessenger = mock()
+		val status: AgentStatusMessenger = mock()
 		val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
 		val caption = "📈 <b>Жим</b>"
 		whenever(facade.renderProgressChart("Жим", 12)).thenReturn(png to caption)
-		val service = service(messenger)
+		val service = service(messenger = messenger, agentStatus = status)
 		val result =
 			service.runTool(
 				"send_progress_chart",
@@ -294,6 +300,7 @@ class WorkoutToolsServiceTest {
 				args = mapOf("exercise_name" to "Жим"),
 			)
 		assertTrue(result.contains("График"))
+		verify(status).toolRunning(42L, "send_progress_chart")
 		verify(messenger).sendPhoto(eq(42L), eq(png), eq(caption))
 	}
 

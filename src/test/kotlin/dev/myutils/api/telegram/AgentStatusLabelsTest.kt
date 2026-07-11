@@ -21,4 +21,9 @@ class AgentStatusLabelsTest {
 			)
 		assertEquals("Выполняю 2 действия…", label)
 	}
+
+	@Test
+	fun `chart tool has dedicated status`() {
+		assertEquals("Строю график прогресса…", AgentStatusLabels.toolRunning("send_progress_chart"))
+	}
 }

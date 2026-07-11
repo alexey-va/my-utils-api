@@ -5,6 +5,7 @@ import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_DAY_SUMMARIES
 import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_EXERCISE_PROGRESS
+import dev.myutils.api.telegram.AgentStatusMessenger
 import dev.myutils.api.telegram.TelegramButtonParser
 import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.temporal.TemporalNotificationFacade
@@ -24,6 +25,7 @@ class WorkoutToolsService(
 	private val agentMetrics: AgentMetrics,
 	private val telegramMessenger: ObjectProvider<TelegramMessenger>,
 	private val userFacts: ObjectProvider<AgentUserFactsService>,
+	private val agentStatus: ObjectProvider<AgentStatusMessenger>,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -217,6 +219,7 @@ class WorkoutToolsService(
 		val toolName = camelToSnake(name)
 		val toolArgs = args.normalizeKeys()
 		log.info("Tool {} chatId={} args={}", toolName, chatId, LogPreview.of(toolArgs.toString(), max = 240))
+		publishToolStatus(chatId, toolName)
 		return agentMetrics.timeTool(toolName, "temporal") {
 			runToolBody(toolName, chatId, toolArgs, rawName = name)
 		}
@@ -312,9 +315,24 @@ class WorkoutToolsService(
 	}
 
 	fun trackedDirectTool(
+		chatId: Long,
 		toolName: String,
 		block: () -> String,
-	): String = agentMetrics.timeTool(toolName, "direct", block)
+	): String {
+		publishToolStatus(chatId, toolName)
+		return agentMetrics.timeTool(toolName, "direct", block)
+	}
+
+	private fun publishToolStatus(
+		chatId: Long,
+		toolName: String,
+	) {
+		val key = camelToSnake(toolName)
+		if (key !in AgentToolCatalog.registeredToolNames()) {
+			return
+		}
+		agentStatus.getIfAvailable()?.toolRunning(chatId, toolName)
+	}
 
 	private fun Map<String, String?>.normalizeKeys(): Map<String, String?> =
 		mapKeys { (key, _) -> camelToSnake(key) }
