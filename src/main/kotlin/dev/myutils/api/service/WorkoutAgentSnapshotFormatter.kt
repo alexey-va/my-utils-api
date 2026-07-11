@@ -15,6 +15,8 @@ object WorkoutAgentSnapshotFormatter {
 		exercises: List<Exercise>,
 		allEntries: List<WorkoutEntry>,
 		recentEntriesLimit: Int,
+		calendarDays: Int,
+		progressSessionsPerExercise: Int,
 		todaySummary: String,
 		yesterdaySummary: String,
 	): String {
@@ -35,10 +37,21 @@ object WorkoutAgentSnapshotFormatter {
 
 		return buildString {
 			appendLine("## Актуальный снимок дневника")
+			appendLine(
+				"Данные ниже уже в контексте — для плана, статистики и прогресса НЕ вызывай " +
+					"get_days / get_progress / list_exercises, если пользователь не просит дату вне календаря.",
+			)
 			appendLine(nowLine)
 			appendLine("Сегодня: $today, неделя: ${dateFmt.format(weekStart)}–${dateFmt.format(weekEnd)}")
 			appendLine()
+			appendLine("### Список упражнений (${exercises.size})")
+			appendExerciseCatalog(exercises)
+			appendLine()
+			appendCalendarDays(today, allEntries, calendarDays.coerceIn(1, 31))
+			appendLine()
 			appendRecentEntries(allEntries, recentLimit)
+			appendLine()
+			appendExerciseProgress(exercises, allEntries, progressSessionsPerExercise.coerceIn(1, 12))
 			appendLine()
 			appendWeekSections(today, exercises, entriesThisWeek, doneThisWeekIds, lastByExerciseId)
 			appendLine()
@@ -51,6 +64,68 @@ object WorkoutAgentSnapshotFormatter {
 			appendLine("### Все упражнения (последняя сессия — для расчёта весов)")
 			appendLastSessionPerExercise(exercises, lastByExerciseId)
 		}.trim()
+	}
+
+	private fun StringBuilder.appendExerciseCatalog(exercises: List<Exercise>) {
+		if (exercises.isEmpty()) {
+			appendLine("— упражнений нет")
+			return
+		}
+		for (exercise in exercises.sortedWith(compareBy({ it.muscleGroup }, { it.name }))) {
+			appendLine("• «${exercise.name}» (${WorkoutMuscleGroups.labelRu(exercise.muscleGroup)})")
+		}
+	}
+
+	private fun StringBuilder.appendCalendarDays(
+		today: LocalDate,
+		allEntries: List<WorkoutEntry>,
+		days: Int,
+	) {
+		appendLine("### Календарь $days дней (новые сверху)")
+		val byDay = allEntries.groupBy { it.performedOn }
+		var day = today
+		repeat(days) {
+			val entries = byDay[day].orEmpty().sortedBy { it.createdAt }
+			if (entries.isEmpty()) {
+				appendLine("• ${dateFmt.format(day)}: —")
+			} else {
+				val items =
+					entries.joinToString("; ") { entry ->
+						"«${entry.exercise.name}» ${WorkoutNotation.format(entry)}"
+					}
+				appendLine("• ${dateFmt.format(day)}: $items")
+			}
+			day = day.minusDays(1)
+		}
+	}
+
+	private fun StringBuilder.appendExerciseProgress(
+		exercises: List<Exercise>,
+		allEntries: List<WorkoutEntry>,
+		sessionsPerExercise: Int,
+	) {
+		appendLine("### История по упражнениям (до $sessionsPerExercise сессий, новые слева)")
+		val byExerciseId = allEntries.groupBy { it.exercise.id }
+		var withHistory = 0
+		for (exercise in exercises.sortedWith(compareBy({ it.muscleGroup }, { it.name }))) {
+			val sessions =
+				byExerciseId[exercise.id]
+					?.sortedByDescending { it.performedOn }
+					?.take(sessionsPerExercise)
+					.orEmpty()
+			if (sessions.isEmpty()) {
+				continue
+			}
+			withHistory++
+			val hist =
+				sessions.joinToString(" ← ") { session ->
+					"${dateFmt.format(session.performedOn)} ${WorkoutNotation.format(session)}"
+				}
+			appendLine("• «${exercise.name}»: $hist")
+		}
+		if (withHistory == 0) {
+			appendLine("Записей пока нет.")
+		}
 	}
 
 	private fun StringBuilder.appendRecentEntries(

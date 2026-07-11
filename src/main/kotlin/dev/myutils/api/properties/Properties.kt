@@ -174,8 +174,26 @@ object AppProperties {
 			key = "agent.context.recent-entries",
 			description = "Сколько последних записей дневника включать в снимок контекста агента при каждом запросе.",
 			tags = listOf("agent"),
-			default = 20,
+			default = 30,
 			range = 1..100,
+		)
+
+	val AGENT_CONTEXT_CALENDAR_DAYS: IntProperty =
+		IntProperty(
+			key = "agent.context.calendar-days",
+			description = "Сколько последних дней (календарь) включать в снимок контекста агента.",
+			tags = listOf("agent"),
+			default = 14,
+			range = 1..31,
+		)
+
+	val AGENT_CONTEXT_PROGRESS_SESSIONS: IntProperty =
+		IntProperty(
+			key = "agent.context.progress-sessions",
+			description = "Сколько последних сессий на упражнение включать в снимок (история прогресса).",
+			tags = listOf("agent"),
+			default = 4,
+			range = 1..12,
 		)
 
 	val AGENT_MEMORY_COMPACT_THRESHOLD_MESSAGES: IntProperty =

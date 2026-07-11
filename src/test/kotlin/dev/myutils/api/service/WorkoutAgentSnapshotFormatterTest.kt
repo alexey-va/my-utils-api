@@ -38,6 +38,8 @@ class WorkoutAgentSnapshotFormatterTest {
 				exercises = listOf(bench),
 				allEntries = entries,
 				recentEntriesLimit = 3,
+				calendarDays = 14,
+				progressSessionsPerExercise = 4,
 				todaySummary = "Сегодня ok",
 				yesterdaySummary = "Вчера ok",
 			)
@@ -50,5 +52,8 @@ class WorkoutAgentSnapshotFormatterTest {
 		assertTrue(recentBlock.contains("05.06 «Жим»"))
 		assertTrue(recentBlock.contains("03.06 «Жим»"))
 		assertTrue(!recentBlock.contains("01.06 «Жим»"))
+		assertTrue(snapshot.contains("### Календарь 14 дней"))
+		assertTrue(snapshot.contains("### История по упражнениям"))
+		assertTrue(snapshot.contains("### Список упражнений"))
 	}
 }
