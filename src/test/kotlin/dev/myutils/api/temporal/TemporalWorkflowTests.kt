@@ -104,6 +104,20 @@ class TemporalWorkflowTests {
 			) {
 				sentMessages.add(chatId to text)
 			}
+
+			override fun updateAgentStatus(
+				chatId: Long,
+				text: String,
+			) = Unit
+
+			override fun completeAgentStatus(chatId: Long) = Unit
+
+			override fun failAgentStatus(
+				chatId: Long,
+				text: String,
+			) {
+				sentMessages.add(chatId to text)
+			}
 		}
 
 	@AfterEach

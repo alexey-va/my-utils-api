@@ -8,7 +8,9 @@ object AgentToolCatalog {
 			"sendRichMessage",
 		)
 
-	fun isImmediateReturn(toolName: String): Boolean = camelToSnake(toolName) in immediateReturnTools
+	fun isImmediateReturn(toolName: String): Boolean = normalizeName(toolName) in immediateReturnTools
+
+	fun normalizeName(toolName: String): String = camelToSnake(toolName)
 
 	private fun camelToSnake(value: String): String =
 		value

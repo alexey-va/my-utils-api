@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sync observability stack to Timeweb ~/grafana and reload containers.
+# Sync observability stack to utils (utils.alexeyav.ru) and reload containers.
 # Source of truth in repo: my-utils-api/observability/
 # Server layout: ~/grafana (user freedeeml → /home/freedeeml/grafana)
 # Does NOT overwrite server .env or docker-compose secrets block.
 
-HOST="${OBSERVABILITY_HOST:-Timeweb}"
+HOST="${OBSERVABILITY_HOST:-utils}"
 REMOTE_DIR="${OBSERVABILITY_REMOTE_DIR:-~/grafana}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -49,13 +49,26 @@ else:
 path.write_text(text)
 PY"
 
-echo "Reload stack (grafana, loki, promtail, prometheus, tempo)..."
-ssh "${HOST}" "cd ${REMOTE_DIR} && docker compose up -d grafana loki promtail prometheus tempo"
+echo "Reload stack (grafana, loki, promtail, prometheus, node-exporter, blackbox-exporter, tempo)..."
+ssh "${HOST}" "cd ${REMOTE_DIR} && docker compose up -d grafana loki promtail prometheus node-exporter blackbox-exporter tempo"
 
-echo "Apply Metal Discord notification template (optional)..."
+echo "Apply Metal Discord template + retire legacy RusCrafting alerts..."
 if [[ -f "${SCRIPT_DIR}/scripts/apply-metal-discord-template.py" ]]; then
   rsync -avz "${SCRIPT_DIR}/scripts/" "${HOST}:${REMOTE_DIR}/scripts/"
-  ssh "${HOST}" "set -a; [ -f ${REMOTE_DIR}/.env ] && source ${REMOTE_DIR}/.env; set +a; GRAFANA_URL=http://127.0.0.1:3500/grafana python3 ${REMOTE_DIR}/scripts/apply-metal-discord-template.py" || true
+  ssh "${HOST}" "bash -s" <<EOF || true
+set -a
+[ -f ${REMOTE_DIR}/.env ] && source ${REMOTE_DIR}/.env
+export GRAFANA_USER="\${GRAFANA_USER:-freedeeml}"
+export GRAFANA_PASSWORD="\${GRAFANA_PASSWORD:-\$(grep GF_SECURITY_ADMIN_PASSWORD ${REMOTE_DIR}/docker-compose.yml | head -1 | sed 's/.*=//')}"
+export GRAFANA_URL=http://127.0.0.1:3500/grafana
+set +a
+for i in 1 2 3 4 5 6 7 8 9 10; do
+  curl -sf "\${GRAFANA_URL%/}/api/health" >/dev/null && break
+  sleep 2
+done
+python3 ${REMOTE_DIR}/scripts/apply-metal-discord-template.py
+python3 ${REMOTE_DIR}/scripts/retire-ruscrafting-alerts.py
+EOF
 fi
 
 echo "Ensure UFW allows Docker → Tempo OTLP on host..."
@@ -65,7 +78,8 @@ fi
 
 echo ""
 echo "Done."
-echo "  Logs:    https://utils.alexeyav.ru/grafana/d/myutils-api-logs/my-utils-api-logs"
-echo "  Metrics: https://utils.alexeyav.ru/grafana/d/myutils-api-metrics/my-utils-api-metrics"
-echo "  Traces:  https://utils.alexeyav.ru/grafana/d/myutils-agent-traces/myutils-agent-traces"
+echo "  RusCrafting: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status"
+echo "  Alerts:      https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts"
+echo "  Logs:        https://utils.alexeyav.ru/grafana/d/myutils-api-logs/my-utils-api-logs"
+echo "  Metrics:     https://utils.alexeyav.ru/grafana/d/myutils-api-metrics/my-utils-api-metrics"
 echo "  Explore: {app=\"my-utils-api\"}"

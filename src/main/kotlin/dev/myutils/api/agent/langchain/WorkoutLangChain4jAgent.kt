@@ -80,7 +80,13 @@ class WorkoutLangChain4jAgent(
 		val tools = WorkoutLangChainTools.create(chatId, toolsService, properties)
 		val toolSpecs = ToolSpecifications.toolSpecificationsFrom(tools)
 
-		val requestMessages = buildLlmMessages(chatId, input.userMessage)
+		val requestMessages =
+			buildLlmMessages(chatId, input.userMessage).toMutableList()
+		if (input.userMessage.isNullOrBlank() && requestMessages.lastOrNull() is ToolExecutionResultMessage) {
+			requestMessages.add(
+				UserMessage.from("Кратко подведи итог для пользователя на русском по результатам tools."),
+			)
+		}
 		TemporalActivityLog
 			.enrich(
 				log
@@ -102,8 +108,36 @@ class WorkoutLangChain4jAgent(
 					.build(),
 			)
 		val aiMessage = response.aiMessage()
+		val replyText = aiMessage.text().orEmpty()
 
 		conversationStore.append(chatId, buildMemoryAppend(input.userMessage, aiMessage))
+
+		if (AgentReplyGuard.looksInvalidForRussianUser(replyText) && aiMessage.toolExecutionRequests().isEmpty()) {
+			TemporalActivityLog
+				.enrich(
+					log
+						.atWarn()
+						.setMessage("LLM reply rejected as non-Russian, retrying once")
+						.addKeyValue("chatId", chatId)
+						.addKeyValue("reply", LogPreview.of(replyText)),
+				).log()
+			val retryMessages =
+				requestMessages +
+					UserMessage.from("Ответь только на русском. Кратко подведи итог записей для пользователя.")
+			val retryResponse =
+				chatModelFactory.create().chat(
+					ChatRequest
+						.builder()
+						.messages(retryMessages)
+						.build(),
+				)
+			val retryAi = retryResponse.aiMessage()
+			val retryReply = retryAi.text().orEmpty()
+			if (retryReply.isNotBlank() && !AgentReplyGuard.looksInvalidForRussianUser(retryReply)) {
+				conversationStore.append(chatId, listOf(retryAi))
+				return AgentLlmStepResult(reply = retryReply, toolCalls = emptyList())
+			}
+		}
 
 		TemporalActivityLog
 			.enrich(

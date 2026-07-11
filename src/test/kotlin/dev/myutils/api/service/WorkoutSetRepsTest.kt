@@ -18,6 +18,11 @@ class WorkoutSetRepsTest {
 	}
 
 	@Test
+	fun `display two sets without classic format`() {
+		assertEquals("70 кг 8/12", WorkoutSetReps.displayRu(70, listOf(8, 12)))
+	}
+
+	@Test
 	fun `display classic trainer pattern`() {
 		assertEquals("70  3×10  (12)", WorkoutSetReps.display(70, listOf(10, 10, 10, 12)))
 		assertEquals("70 кг 3*10/12", WorkoutSetReps.displayRu(70, listOf(10, 10, 10, 12)))

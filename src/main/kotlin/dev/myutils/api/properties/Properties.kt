@@ -142,10 +142,13 @@ object AppProperties {
 	val OPENROUTER_MODEL: StringProperty =
 		StringProperty(
 			key = "openrouter.model",
-			description = "Модель OpenRouter для Telegram-агента (формат provider/model-id).",
+			description = "Модель OpenRouter для Telegram-агента (provider/model-id или @preset/…).",
 			tags = listOf("agent"),
-			default = "deepseek/deepseek-v4-pro",
-			validate = { model -> model.length in 3..200 && model.contains('/') },
+			default = "@preset/deepseek",
+			validate = { model ->
+				model.length in 3..200 &&
+					(model.contains('/') || model.startsWith("@preset/"))
+			},
 		)
 
 	val OPENROUTER_MAX_TOOL_ITERATIONS: IntProperty =

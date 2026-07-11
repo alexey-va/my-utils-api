@@ -1,11 +1,11 @@
-# Grafana stack on Timeweb (host network). Secrets via .env (not committed).
+# Grafana stack on utils (host network). Secrets via .env (not committed).
 services:
   grafana:
     image: grafana/grafana:latest
     user: ${USER_ID}
     volumes:
       - grafana_data:/var/lib/grafana
-      - ./config/grafana:/etc/grafana/provisioning
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
     environment:
       - GF_SERVER_HTTP_PORT=3500
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}

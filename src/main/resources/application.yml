@@ -12,22 +12,26 @@ management:
   metrics:
     tags:
       application: my-utils-api
+    enable:
+      jvm: true
+      process: true
+      system: true
     distribution:
       percentiles-histogram:
         agent.turn.duration: true
         agent.llm.step.duration: true
         agent.tool.duration: true
   tracing:
-    enabled: true
+    enabled: ${MYUTILS_TRACING_ENABLED:false}
     sampling:
-      probability: 1.0
+      probability: ${MYUTILS_TRACING_SAMPLING_PROBABILITY:1.0}
   opentelemetry:
     resource-attributes:
       service.name: my-utils-api
       service.namespace: my-utils
   otlp:
     tracing:
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://127.0.0.1:4318/v1/traces}
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:}
 
 logging:
   level:
@@ -86,7 +90,6 @@ spring:
       port: ${REDIS_PORT:6379}
   temporal:
     connection:
-      enable: ${MYUTILS_TEMPORAL_ENABLED:false}
       target: ${TEMPORAL_TARGET:127.0.0.1:7233}
     namespace: default
     workers-auto-discovery:

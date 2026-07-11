@@ -35,8 +35,32 @@ class InMemoryTelegramMessenger : TelegramMessenger {
 		chatId: Long,
 		text: String,
 		replyMarkup: Keyboard?,
-	) {
+	): Int? {
 		messages.computeIfAbsent(chatId) { mutableListOf() }.add(SentMessage(text, replyMarkup))
+		return messages[chatId]!!.size
+	}
+
+	override fun editHtmlMessage(
+		chatId: Long,
+		messageId: Int,
+		text: String,
+	) {
+		val list = messages.computeIfAbsent(chatId) { mutableListOf() }
+		val index = messageId - 1
+		if (index in list.indices) {
+			list[index] = SentMessage(text, list[index].replyMarkup)
+		}
+	}
+
+	override fun deleteMessage(
+		chatId: Long,
+		messageId: Int,
+	) {
+		val list = messages[chatId] ?: return
+		val index = messageId - 1
+		if (index in list.indices) {
+			list.removeAt(index)
+		}
 	}
 
 	override fun sendTyping(chatId: Long) {

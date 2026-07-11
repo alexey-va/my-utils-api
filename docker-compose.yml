@@ -68,8 +68,8 @@ services:
       OPENROUTER_PROXY_HOST: ${OPENROUTER_PROXY_HOST:-}
       OPENROUTER_PROXY_PORT: ${OPENROUTER_PROXY_PORT:-8888}
       MYUTILS_TEMPORAL_ENABLED: ${MYUTILS_TEMPORAL_ENABLED:-true}
+      MYUTILS_TRACING_ENABLED: ${MYUTILS_TRACING_ENABLED:-false}
       TEMPORAL_TARGET: ${TEMPORAL_TARGET:-temporal:7233}
-      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-http://host.docker.internal:4318/v1/traces}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     depends_on:

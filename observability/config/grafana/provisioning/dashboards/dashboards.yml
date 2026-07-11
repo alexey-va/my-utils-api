@@ -1,6 +1,26 @@
 apiVersion: 1
 
 providers:
+  - name: metal-alerts-root
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/root
+
+  - name: ruscrafting
+    orgId: 1
+    folder: RusCrafting
+    type: file
+    disableDeletion: false
+    updateIntervalSeconds: 30
+    allowUiUpdates: true
+    options:
+      path: /etc/grafana/provisioning/dashboards/ruscrafting
+
   - name: my-utils
     orgId: 1
     folder: My Utils
@@ -9,4 +29,4 @@ providers:
     updateIntervalSeconds: 30
     allowUiUpdates: true
     options:
-      path: /etc/grafana/provisioning/dashboards/json
+      path: /etc/grafana/provisioning/dashboards/my-utils

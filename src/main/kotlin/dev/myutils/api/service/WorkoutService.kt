@@ -213,6 +213,7 @@ class WorkoutService(
 				repsPerSet = request.repsPerSet,
 				maxReps = request.maxReps,
 				setReps = request.setReps,
+				setWeights = request.setWeights,
 			)
 
 		val saved =
@@ -226,6 +227,7 @@ class WorkoutService(
 					repsPerSet = normalized.repsPerSet,
 					maxReps = normalized.maxReps,
 					setReps = normalized.setRepsStorage,
+					setWeights = normalized.setWeightsStorage,
 				),
 			)
 		log.info(

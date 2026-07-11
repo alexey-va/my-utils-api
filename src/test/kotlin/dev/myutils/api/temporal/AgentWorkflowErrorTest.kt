@@ -50,6 +50,20 @@ class AgentWorkflowErrorTest {
 				) {
 					sentMessages.add(text)
 				}
+
+				override fun updateAgentStatus(
+					chatId: Long,
+					text: String,
+				) = Unit
+
+				override fun completeAgentStatus(chatId: Long) = Unit
+
+				override fun failAgentStatus(
+					chatId: Long,
+					text: String,
+				) {
+					sentMessages.add(text)
+				}
 			},
 		)
 		testEnv.start()
@@ -75,6 +89,6 @@ class AgentWorkflowErrorTest {
 		WorkflowClient.start(stub::handleTurn, input)
 		testEnv.sleep(Duration.ofSeconds(10))
 
-		assertTrue(sentMessages.any { it.contains("Не удалось обработать запрос") })
+		assertTrue(sentMessages.any { it.contains("❌ Не удалось обработать запрос") })
 	}
 }

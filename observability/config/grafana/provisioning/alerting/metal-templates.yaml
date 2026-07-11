@@ -4,109 +4,77 @@ templates:
     name: metal-discord
     template: |
       {{ define "metal.hostName" -}}
-      {{- or .Labels.service_name "unknown" -}}
-      {{ end }}
-
-      {{ define "metal.hostRole" -}}
-      {{- $host := or .Labels.service_name "" -}}
-      {{- if eq $host "utils" -}}Monitoring stack · Yandex Cloud
-      {{- else if eq $host "velocity" -}}Minecraft proxy host
-      {{- else if eq $host "gercena" -}}Minecraft backend host
-      {{- else -}}Server host
-      {{- end -}}
+      {{- or .Labels.service_name .Labels.alias .Labels.server_name "unknown" -}}
       {{ end }}
 
       {{ define "metal.issueTitle" -}}
       {{- $name := .Labels.alertname -}}
-      {{- if eq $name "Metal host unreachable" -}}Host unreachable
-      {{- else if eq $name "Metal CPU high" -}}CPU overload
-      {{- else if eq $name "Metal memory high" -}}Memory exhausted
-      {{- else if eq $name "Metal disk full" -}}Root disk almost full
+      {{- if eq $name "Metal host unreachable" -}}Host down
+      {{- else if eq $name "Metal CPU high" -}}CPU high
+      {{- else if eq $name "Metal memory high" -}}RAM low
+      {{- else if eq $name "Metal disk full" -}}Disk full
+      {{- else if eq $name "Metal service unreachable" -}}Service down
       {{- else -}}{{ $name }}
       {{- end -}}
       {{ end }}
 
-      {{ define "metal.issueDetail" -}}
+      {{ define "metal.issueHint" -}}
       {{- $name := .Labels.alertname -}}
-      {{- if eq $name "Metal host unreachable" -}}Metrics agent stopped responding — host may be down or node-exporter failed.
-      {{- else if eq $name "Metal CPU high" -}}CPU usage stayed above 90% for several minutes.
-      {{- else if eq $name "Metal memory high" -}}Less than 10% RAM available — OOM risk.
-      {{- else if eq $name "Metal disk full" -}}Root filesystem usage exceeded 85%.
+      {{- if eq $name "Metal host unreachable" -}}node-exporter not responding
+      {{- else if eq $name "Metal CPU high" -}}CPU >90% for 5m
+      {{- else if eq $name "Metal memory high" -}}RAM >90% for 5m
+      {{- else if eq $name "Metal disk full" -}}disk >85% for 10m
+      {{- else if eq $name "Metal service unreachable" -}}blackbox probe failed 2m+
       {{- else if .Annotations.summary -}}{{ .Annotations.summary }}
-      {{- else -}}Check Grafana for details.
+      {{- else -}}check Grafana
       {{- end -}}
       {{ end }}
 
       {{ define "metal.formatDuration" -}}
-      {{- $dur := . -}}
-      {{- if eq (printf "%s" $dur) "0s" -}}under a minute
-      {{- else -}}{{ printf "%s" $dur }}
+      {{- $text := printf "%s" . -}}
+      {{- if or (eq $text "0s") (eq $text "0") (eq $text "") -}}<1m
+      {{- else -}}{{ $text }}
       {{- end -}}
       {{ end }}
 
       {{ define "metal.alert.firing" -}}
-      **Host:** `{{ template "metal.hostName" . }}` · {{ template "metal.hostRole" . }}
-      **Problem:** {{ template "metal.issueTitle" . }}
-      **Severity:** `{{ or .Labels.severity "unknown" }}`
-
-      > {{ template "metal.issueDetail" . }}
-      {{- if .Annotations.description }}
-
-      {{ .Annotations.description }}
-      {{- end }}
-
-      **Since:** {{ .StartsAt | date "Mon 02 Jan 2006, 15:04 UTC" }}
-      {{- if .GeneratorURL }}
-      [Open alert]({{ .GeneratorURL }})
-      {{- end }}
+      **{{ template "metal.hostName" . }}** · {{ template "metal.issueTitle" . }} · `{{ or .Labels.severity "?" }}`
+      {{ template "metal.issueHint" . }}
+      {{- if .GeneratorURL }} · [open]({{ .GeneratorURL }}){{- end -}}
       {{ end }}
 
       {{ define "metal.alert.resolved" -}}
-      **Host:** `{{ template "metal.hostName" . }}`
-      **Problem:** {{ template "metal.issueTitle" . }} — resolved
-      **Downtime:** {{ template "metal.formatDuration" (.EndsAt.Sub .StartsAt) }}
-      **Period:** {{ .StartsAt | date "15:04 UTC" }} → {{ .EndsAt | date "15:04 UTC" }}
+      **{{ template "metal.hostName" . }}** · {{ template "metal.issueTitle" . }} ✓ · {{ template "metal.formatDuration" (.EndsAt.Sub .StartsAt) }}
+      {{ .StartsAt | date "15:04" }}→{{ .EndsAt | date "15:04 UTC" }}
       {{ end }}
 
       {{ define "metal.discord.title" -}}
       {{- if eq .Status "firing" -}}
       {{- if eq (len .Alerts.Firing) 1 -}}
-      {{- $a := index .Alerts.Firing 0 -}}
-      🔴 Metal · {{ template "metal.hostName" $a }} · {{ template "metal.issueTitle" $a }}
+      🔴 {{ template "metal.hostName" (index .Alerts.Firing 0) }} · {{ template "metal.issueTitle" (index .Alerts.Firing 0) }}
       {{- else -}}
-      🔴 Metal · {{ len .Alerts.Firing }} hardware issues
+      🔴 {{ len .Alerts.Firing }} alerts firing
       {{- end -}}
       {{- else -}}
       {{- if eq (len .Alerts.Resolved) 1 -}}
-      {{- $a := index .Alerts.Resolved 0 -}}
-      ✅ Metal · {{ template "metal.hostName" $a }} · recovered
+      ✅ {{ template "metal.hostName" (index .Alerts.Resolved 0) }} · {{ template "metal.issueTitle" (index .Alerts.Resolved 0) }} ok
       {{- else -}}
-      ✅ Metal · {{ len .Alerts.Resolved }} issues resolved
+      ✅ {{ len .Alerts.Resolved }} alerts resolved
       {{- end -}}
       {{- end -}}
       {{ end }}
 
       {{ define "metal.discord.message" -}}
       {{- if gt (len .Alerts.Firing) 0 -}}
-      🚨 **Hardware alert**
       {{- range .Alerts.Firing }}
-
-      ---
-      {{ template "metal.alert.firing" . }}
+      • {{ template "metal.alert.firing" . }}
       {{- end }}
-
-      [Metal Status](https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status) · [Alerting]({{ .ExternalURL }})
+      [status](https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts) · [alerting]({{ .ExternalURL }})
       {{- end -}}
-
       {{- if gt (len .Alerts.Resolved) 0 -}}
-
-      ✅ **Hardware recovered**
       {{- range .Alerts.Resolved }}
-
-      ---
-      {{ template "metal.alert.resolved" . }}
+      • {{ template "metal.alert.resolved" . }}
       {{- end }}
-
-      [Metal Status](https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status) · [Alerting]({{ .ExternalURL }})
+      [status](https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts)
       {{- end -}}
       {{ end }}

@@ -6,6 +6,7 @@ import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.temporal.TemporalWorkflowService
 import dev.myutils.api.temporal.agent.AgentTurnInput
+import dev.myutils.api.telegram.AgentStatusMessenger
 import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.infra.observability.GenAiTracing
@@ -21,6 +22,7 @@ class WorkoutAgentService(
 	private val langChain4jAgent: WorkoutLangChain4jAgent,
 	private val temporalWorkflow: ObjectProvider<TemporalWorkflowService>,
 	private val telegram: TelegramMessenger,
+	private val agentStatus: AgentStatusMessenger,
 	private val agentMetrics: AgentMetrics,
 	private val genAiTracing: GenAiTracing,
 ) {
@@ -48,7 +50,7 @@ class WorkoutAgentService(
 		if (temporal != null && properties.temporal.enabled) {
 			agentMetrics.recordReceived("temporal")
 			if (text != "/start") {
-				telegram.sendTyping(chatId)
+				agentStatus.begin(chatId)
 			}
 			genAiTracing.invokeAgent(chatId, userId, text) {
 				val traceParent = genAiTracing.currentTraceParent()
@@ -88,13 +90,14 @@ class WorkoutAgentService(
 		}
 
 		agentMetrics.recordReceived("direct")
-		telegram.sendTyping(chatId)
+		agentStatus.begin(chatId)
 		val startedAt = System.currentTimeMillis()
 		try {
 			val reply =
 				genAiTracing.invokeAgent(chatId, userId, text) {
 					langChain4jAgent.run(chatId, text)
 				}
+			agentStatus.complete(chatId)
 			telegram.sendHtmlMessage(chatId, reply)
 			agentMetrics.recordInbound(
 				path = "direct",
@@ -105,10 +108,7 @@ class WorkoutAgentService(
 			log.info("Telegram handled chatId={} reply={}", chatId, LogPreview.of(reply))
 		} catch (ex: Exception) {
 			log.error("Direct agent failed chatId={}: {}", chatId, ex.message, ex)
-			telegram.sendHtmlMessage(
-				chatId,
-				"Не удалось обработать запрос. Попробуй ещё раз или переформулируй.",
-			)
+			agentStatus.fail(chatId, "❌ Не удалось обработать запрос. Попробуй ещё раз.")
 			agentMetrics.recordInbound(
 				path = "direct",
 				outcome = "error",

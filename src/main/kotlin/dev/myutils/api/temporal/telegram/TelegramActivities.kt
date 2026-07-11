@@ -10,4 +10,19 @@ interface TelegramActivities {
 		chatId: Long,
 		text: String,
 	)
+
+	@ActivityMethod
+	fun updateAgentStatus(
+		chatId: Long,
+		text: String,
+	)
+
+	@ActivityMethod
+	fun completeAgentStatus(chatId: Long)
+
+	@ActivityMethod
+	fun failAgentStatus(
+		chatId: Long,
+		text: String,
+	)
 }

@@ -70,30 +70,27 @@ class WorkoutBotFacade(
 	fun logWorkout(
 		exerciseName: String,
 		performedOn: LocalDate?,
-		weightKg: Int,
-		setCount: Int,
-		repsPerSet: Int,
-		maxReps: Int?,
-		setReps: List<Int>? = null,
+		notation: String,
 	): String {
 		val exercise = resolveExercise(exerciseName)
 		val date = performedOn ?: today()
-		val max = maxReps ?: repsPerSet
-		val normalized = WorkoutSetReps.normalize(setCount, repsPerSet, max, setReps)
+		val parsed = WorkoutNotationParser.parse(notation)
 		workoutService.upsertEntry(
 			UpsertWorkoutEntryRequest(
 				exerciseId = exercise.id,
 				performedOn = date,
-				weightKg = weightKg,
-				setCount = normalized.setCount,
-				repsPerSet = normalized.repsPerSet,
-				maxReps = normalized.maxReps,
-				setReps = setReps,
+				weightKg = parsed.weightKg,
+				setCount = parsed.setCount,
+				repsPerSet = parsed.repsPerSet,
+				maxReps = parsed.maxReps,
+				setReps = parsed.reps,
+				setWeights = parsed.weights,
 			),
 			source = "telegram-bot",
 		)
-		val notation = WorkoutSetReps.displayRu(weightKg, normalized.reps)
-		return "Записано: ${exercise.name}, ${dateFmt.format(date)} — $notation"
+		val displayNotation =
+			WorkoutSetReps.displayRu(parsed.weightKg, parsed.reps, parsed.weights)
+		return "Записано: ${exercise.name}, ${dateFmt.format(date)} — $displayNotation"
 	}
 
 	fun deleteWorkout(

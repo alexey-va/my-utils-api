@@ -68,6 +68,18 @@ class ParallelToolWorkflowTest {
 					chatId: Long,
 					text: String,
 				) = Unit
+
+				override fun updateAgentStatus(
+					chatId: Long,
+					text: String,
+				) = Unit
+
+				override fun completeAgentStatus(chatId: Long) = Unit
+
+				override fun failAgentStatus(
+					chatId: Long,
+					text: String,
+				) = Unit
 			},
 		)
 		testEnv.start()

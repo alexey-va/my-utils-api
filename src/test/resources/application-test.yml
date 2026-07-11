@@ -13,7 +13,9 @@ spring:
     test-server:
       enabled: true
     workers-auto-discovery:
-      packages:
+      enable: true
+      register-activity-beans: true
+      workflow-packages:
         - dev.myutils.api.temporal
 
 myutils:

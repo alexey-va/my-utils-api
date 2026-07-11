@@ -51,7 +51,7 @@ class AgentMemoryAssembler(
 				decode(row.messageJson)
 					?.takeUnless { StoredMessageFilter.isSystemRole(it.role) }
 					?.let { ChatMemoryMessageMapper.toLangChain(it) }
-			}
+			}.let { AgentMemorySanitizer.dropIncompleteToolTurns(it) }
 
 	private fun decode(raw: String): ChatMessage? =
 		runCatching { objectMapper.readValue<ChatMessage>(raw) }.getOrNull()

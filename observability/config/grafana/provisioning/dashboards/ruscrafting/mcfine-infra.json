@@ -1,0 +1,678 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red"
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 8,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "max(probe_success{job=\"blackbox_minecraft\"}) by (alias)",
+          "legendFormat": "{{alias}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Minecraft TCP probe",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(mc_players_online_total) by (server_name)",
+          "legendFormat": "{{server_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Players online (Paper)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 100,
+          "min": 0,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 0
+      },
+      "id": 3,
+      "targets": [
+        {
+          "expr": "100 - (avg by (service_name) (rate(node_cpu_seconds_total{mode=\"idle\",service_name=~\"velocity|gercena\"}[5m])) * 100)",
+          "legendFormat": "{{service_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "CPU %",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "id": 4,
+      "targets": [
+        {
+          "expr": "node_memory_MemTotal_bytes{service_name=~\"velocity|gercena\"} - node_memory_MemAvailable_bytes{service_name=~\"velocity|gercena\"}",
+          "legendFormat": "{{service_name}} used",
+          "refId": "A"
+        }
+      ],
+      "title": "RAM used",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "id": 5,
+      "targets": [
+        {
+          "expr": "node_netstat_Tcp_CurrEstab{service_name=~\"velocity|gercena\"}",
+          "legendFormat": "{{service_name}} TCP estab",
+          "refId": "A"
+        }
+      ],
+      "title": "TCP established connections",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 16
+      },
+      "id": 6,
+      "targets": [
+        {
+          "expr": "sum by (service_name) (rate(node_network_receive_bytes_total{service_name=~\"velocity|gercena\",device!~\"lo|docker.*|veth.*\"}[5m]))",
+          "legendFormat": "{{service_name}} rx",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (service_name) (rate(node_network_transmit_bytes_total{service_name=~\"velocity|gercena\",device!~\"lo|docker.*|veth.*\"}[5m]))",
+          "legendFormat": "{{service_name}} tx",
+          "refId": "B"
+        }
+      ],
+      "title": "Network throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "bedlw839mzuo0d"
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 7,
+      "options": {
+        "showTime": true,
+        "sortOrder": "Descending"
+      },
+      "targets": [
+        {
+          "expr": "{service_name=\"velocity\", job=\"velocity_proxy\"} |~ \"connected player|LimboFilter|disconnect|ERROR\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Velocity proxy log (joins / antibot / errors)",
+      "type": "logs"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 34
+      },
+      "id": 100,
+      "title": "Backend join / transfer",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "bedlw839mzuo0d"
+      },
+      "description": "Velocity \u043e\u0442\u043a\u0440\u044b\u043b \u043a\u0430\u043d\u0430\u043b \u043d\u0430 spawn/survival ([server connection] \u2026 has connected). \u0415\u0449\u0451 \u043d\u0435 \u0437\u043d\u0430\u0447\u0438\u0442, \u0447\u0442\u043e \u0438\u0433\u0440\u043e\u043a \u0432 \u043c\u0438\u0440\u0435.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 0,
+        "y": 35
+      },
+      "id": 8,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
+          "expr": "sum(count_over_time({service_name=\"velocity\", job=\"velocity_proxy\"} |= \"[server connection]\" |= \"has connected\" [$__range]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Velocity \u2192 backend connect",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "bedlw839mzuo0d"
+      },
+      "description": "Paper \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043b \u0432\u0445\u043e\u0434 \u0432 \u043c\u0438\u0440 (logged in with entity id).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 6,
+        "y": 35
+      },
+      "id": 9,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
+          "expr": "sum(count_over_time({service_name=~\"spawn|survival\"} |= \"logged in with entity id\" [$__range]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Paper login OK",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "bedlw839mzuo0d"
+      },
+      "description": "Login/configuration timeout \u0438\u043b\u0438 disconnect \u043d\u0430 Paper \u0434\u043e \u0432\u0445\u043e\u0434\u0430 \u0432 \u043c\u0438\u0440.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 12,
+        "y": 35
+      },
+      "id": 10,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
+          "expr": "sum(count_over_time({service_name=~\"spawn|survival\"} |~ \"lost connection: Timed out|ServerConfigurationPacketListenerImpl|ServerLoginPacketListenerImpl.*lost connection\" [$__range]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Paper join failed",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "bedlw839mzuo0d"
+      },
+      "description": "\u041a\u0430\u043d\u0430\u043b Velocity\u2194backend \u0437\u0430\u043a\u0440\u044b\u0442 \u0434\u043e \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u0438\u044f login (resource pack, transfer, disconnect).",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        }
+      },
+      "gridPos": {
+        "h": 5,
+        "w": 6,
+        "x": 18,
+        "y": 35
+      },
+      "id": 11,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
+          "expr": "sum(count_over_time({service_name=\"velocity\", job=\"velocity_proxy\"} |= \"[server connection]\" |= \"has disconnected\" [$__range]))",
+          "refId": "A"
+        }
+      ],
+      "title": "Backend channel drop",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "bedlw839mzuo0d"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 80,
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "unit": "short"
+        }
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 40
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
+          "expr": "sum(count_over_time({service_name=\"velocity\", job=\"velocity_proxy\"} |= \"[server connection]\" |= \"has connected\" [$__interval]))",
+          "legendFormat": "velocity connect",
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
+          "expr": "sum(count_over_time({service_name=~\"spawn|survival\"} |= \"logged in with entity id\" [$__interval]))",
+          "legendFormat": "paper login",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
+          "expr": "sum(count_over_time({service_name=~\"spawn|survival\"} |= \"lost connection: Timed out\" [$__interval]))",
+          "legendFormat": "paper timeout",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
+          "expr": "sum(count_over_time({service_name=\"velocity\", job=\"velocity_proxy\"} |= \"[server connection]\" |= \"has disconnected\" [$__interval]))",
+          "legendFormat": "backend drop",
+          "refId": "D"
+        }
+      ],
+      "title": "Backend join events / min",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "loki",
+        "uid": "bedlw839mzuo0d"
+      },
+      "description": "\u0421\u043e\u0431\u044b\u0442\u0438\u044f transfer/login: connect/disconnect \u043a\u0430\u043d\u0430\u043b\u0430, Paper timeout, resource pack. \u0415\u0441\u043b\u0438 connect \u0435\u0441\u0442\u044c, \u0430 login \u043d\u0435\u0442 \u2014 \u0438\u0433\u0440\u043e\u043a \u0437\u0430\u0441\u0442\u0440\u044f\u043b \u043c\u0435\u0436\u0434\u0443 Velocity \u0438 Paper.",
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 48
+      },
+      "id": 13,
+      "options": {
+        "dedupStrategy": "none",
+        "enableLogDetails": true,
+        "showTime": true,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
+          "expr": "{service_name=~\"velocity|spawn|survival\"} |~ \"\\\\[server connection\\\\].*has (connected|disconnected)|logged in with entity id|lost connection: Timed out|ServerConfigurationPacketListenerImpl|connecting to server|velocityresourcepacks|connected player.*has disconnected\"",
+          "refId": "A"
+        }
+      ],
+      "title": "Backend join issues (log)",
+      "type": "logs"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 42,
+  "tags": [
+    "ruscrafting",
+    "velocity",
+    "ddos"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Velocity",
+  "uid": "mcfine-infra",
+  "weekStart": ""
+}

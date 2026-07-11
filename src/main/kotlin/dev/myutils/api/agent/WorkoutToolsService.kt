@@ -5,7 +5,6 @@ import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_DAY_SUMMARIES
 import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_EXERCISE_PROGRESS
-import dev.myutils.api.service.WorkoutSetReps
 import dev.myutils.api.telegram.TelegramButtonParser
 import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.temporal.TemporalNotificationFacade
@@ -52,41 +51,59 @@ class WorkoutToolsService(
 	fun logWorkout(
 		exerciseName: String,
 		performedOn: String?,
-		weightKg: Int,
-		setCount: Int,
-		repsPerSet: Int?,
-		maxReps: Int?,
-		setRepsRaw: String? = null,
+		notation: String,
 	): String {
 		val date =
 			when (val resolved = resolvePerformedOn(performedOn)) {
 				is DateResolve.Ok -> resolved.date
 				is DateResolve.Invalid -> return performedOnError(performedOn)
 			}
-		val setReps = setRepsRaw?.let { WorkoutSetReps.parseArgument(it) }
-		if (setReps != null) {
-			val normalized = WorkoutSetReps.normalize(setCount = setReps.size, repsPerSet = setReps.min(), maxReps = setReps.max(), setReps = setReps)
-			return workoutBotFacade.logWorkout(
-				exerciseName = exerciseName,
-				performedOn = date,
-				weightKg = weightKg,
-				setCount = normalized.setCount,
-				repsPerSet = normalized.repsPerSet,
-				maxReps = normalized.maxReps,
-				setReps = setReps,
-			)
-		}
-		require(repsPerSet != null) { "reps_per_set обязателен без set_reps" }
-		require(maxReps != null) { "max_reps обязателен без set_reps" }
-		return workoutBotFacade.logWorkout(
-			exerciseName = exerciseName,
-			performedOn = date,
-			weightKg = weightKg,
-			setCount = setCount,
-			repsPerSet = repsPerSet,
-			maxReps = maxReps,
-		)
+		return workoutBotFacade.logWorkout(exerciseName, date, notation)
 	}
+
+	fun getDaySummaries(days: String? = null): String {
+		val dates =
+			when (val resolved = resolveDayListSimple(days)) {
+				is DayListResolve.Ok -> resolved.dates
+				is DayListResolve.Error ->
+					return ToolExecutionFeedback.failure(
+						error = resolved.message,
+						hint = "Формат YYYY-MM-DD через запятую.",
+					)
+			}
+		return workoutBotFacade.getDaySummaries(dates)
+	}
+
+	fun getDaySummariesRange(
+		from: String? = null,
+		to: String? = null,
+		days: String? = null,
+	): String {
+		val daysArg = days ?: buildDaysFromRange(from, to)
+		return getDaySummaries(daysArg)
+	}
+
+	private fun buildDaysFromRange(
+		from: String?,
+		to: String?,
+	): String? {
+		val fromRaw = from?.trim()?.takeIf { it.isNotEmpty() }
+		val toRaw = to?.trim()?.takeIf { it.isNotEmpty() }
+		if (fromRaw == null && toRaw == null) {
+			return null
+		}
+		val resolved = resolveDayList(fromRaw, toRaw, null)
+		if (resolved is DayListResolve.Error) {
+			throw IllegalArgumentException(resolved.message)
+		}
+		val ok = resolved as DayListResolve.Ok
+		return ok.dates.joinToString(",") { it.toString() }
+	}
+
+	fun sendNotification(
+		chatId: Long,
+		message: String,
+	): String = temporalNotificationFacade.sendNow(chatId, message)
 
 	fun deleteWorkout(
 		exerciseName: String,
@@ -111,28 +128,6 @@ class WorkoutToolsService(
 			}
 		return workoutBotFacade.getExerciseProgressSummaries(names, recentSessions ?: 6)
 	}
-
-	fun getDaySummaries(
-		from: String?,
-		to: String?,
-		days: String?,
-	): String {
-		val dates =
-			when (val resolved = resolveDayList(from, to, days)) {
-				is DayListResolve.Ok -> resolved.dates
-				is DayListResolve.Error ->
-					return ToolExecutionFeedback.failure(
-						error = resolved.message,
-						hint = "Исправь даты и вызови инструмент снова. Формат YYYY-MM-DD, значения в кавычках в arguments JSON.",
-					)
-			}
-		return workoutBotFacade.getDaySummaries(dates)
-	}
-
-	fun sendNotification(
-		chatId: Long,
-		message: String,
-	): String = temporalNotificationFacade.sendNow(chatId, message)
 
 	fun scheduleNotification(
 		chatId: Long,
@@ -238,29 +233,29 @@ class WorkoutToolsService(
 					"log_workout" ->
 						logWorkout(
 							exerciseName = toolArgs.require("exercise_name"),
-							performedOn = toolArgs.optional("performed_on"),
-							weightKg = toolArgs.requireInt("weight_kg"),
-							setCount = toolArgs.optionalInt("set_count") ?: 3,
-							repsPerSet = toolArgs.optionalInt("reps_per_set"),
-							maxReps = toolArgs.optionalInt("max_reps"),
-							setRepsRaw = toolArgs.optional("set_reps"),
+							performedOn = toolArgs.optional("performed_on") ?: toolArgs.optional("date"),
+							notation = resolveLogNotation(toolArgs),
 						)
 					"delete_workout" ->
 						deleteWorkout(
 							toolArgs.require("exercise_name"),
 							toolArgs.optional("performed_on"),
 						)
-					"get_exercise_progresses" ->
+					"get_exercise_progresses", "get_progress" ->
 						getExerciseProgresses(
-							toolArgs.require("exercises"),
+							toolArgs.optional("exercises") ?: toolArgs.require("exercise"),
 							toolArgs.optionalInt("recent_sessions"),
 						)
-					"get_day_summaries" ->
-						getDaySummaries(
+					"get_day_summaries", "get_days" ->
+						getDaySummariesRange(
 							toolArgs.optional("from"),
 							toolArgs.optional("to"),
 							toolArgs.optional("days"),
 						)
+					"remember_fact" ->
+						manageUserFact(chatId, "remember", toolArgs.require("content"), null, null)
+					"forget_fact" ->
+						manageUserFact(chatId, "forget", null, toolArgs.require("fact_id"), null)
 					"send_notification" -> sendNotification(chatId, toolArgs.require("message"))
 					"schedule_notification" ->
 						scheduleNotification(
@@ -435,6 +430,29 @@ class WorkoutToolsService(
 		if (trimmed.isNullOrEmpty()) return null
 		return trimmed.toDoubleOrNull()
 			?: throw IllegalArgumentException("Некорректная confidence: $raw (ожидается число 0..1)")
+	}
+
+	internal fun resolveDayListSimple(days: String?): DayListResolve {
+		val daysList = days?.trim()?.takeIf { it.isNotEmpty() }
+		if (daysList == null) {
+			return DayListResolve.Ok(listOf(LocalDate.now()))
+		}
+		return resolveDayList(null, null, daysList)
+	}
+
+	private fun resolveLogNotation(toolArgs: Map<String, String?>): String {
+		toolArgs.optional("notation")?.let { return it }
+		val weight = toolArgs.optionalInt("weight_kg")
+			?: throw IllegalArgumentException("Нужно поле notation (например 70 3*10/12 или 70 8/12)")
+		toolArgs.optional("set_reps")?.let { setReps ->
+			return "$weight $setReps"
+		}
+		val setCount = toolArgs.optionalInt("set_count") ?: 3
+		val repsPerSet = toolArgs.optionalInt("reps_per_set")
+			?: throw IllegalArgumentException("Нужно поле notation")
+		val maxReps = toolArgs.optionalInt("max_reps")
+			?: throw IllegalArgumentException("Нужно поле notation")
+		return "$weight ${setCount}*$repsPerSet/$maxReps"
 	}
 
 	private fun requireUserFacts(): AgentUserFactsService =

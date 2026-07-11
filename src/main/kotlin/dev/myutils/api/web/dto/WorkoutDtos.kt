@@ -30,6 +30,7 @@ data class UpsertWorkoutEntryRequest(
 	@field:Min(1) val repsPerSet: Int,
 	@field:Min(1) val maxReps: Int,
 	val setReps: List<Int>? = null,
+	val setWeights: List<Int>? = null,
 )
 
 data class WorkoutCellDto(

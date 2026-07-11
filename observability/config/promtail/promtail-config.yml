@@ -60,16 +60,16 @@ scrape_configs:
             - labels:
                 level:
 
-  # Host syslog (legacy)
-  - job_name: timeweb_logs
+  # Host syslog
+  - job_name: host_syslogs
     static_configs:
       - targets:
           - localhost
         labels:
-          job: timeweb_auth_logs
+          job: host_auth_logs
           __path__: /var/log/auth.log
       - targets:
           - localhost
         labels:
-          job: timeweb_syslogs
+          job: host_syslogs
           __path__: /var/log/syslog

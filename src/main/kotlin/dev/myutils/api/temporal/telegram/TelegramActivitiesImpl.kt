@@ -1,5 +1,6 @@
 package dev.myutils.api.temporal.telegram
 
+import dev.myutils.api.telegram.AgentStatusMessenger
 import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.temporal.TemporalConstants
 import io.temporal.spring.boot.ActivityImpl
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Component
 @ActivityImpl(taskQueues = [TemporalConstants.TASK_QUEUE])
 class TelegramActivitiesImpl(
 	private val telegram: TelegramMessenger,
+	private val agentStatus: AgentStatusMessenger,
 ) : TelegramActivities {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -19,7 +21,26 @@ class TelegramActivitiesImpl(
 		chatId: Long,
 		text: String,
 	) {
+		agentStatus.complete(chatId)
 		telegram.sendHtmlMessage(chatId, text)
 		log.info("Temporal Telegram message sent chatId={} chars={}", chatId, text.length)
+	}
+
+	override fun updateAgentStatus(
+		chatId: Long,
+		text: String,
+	) {
+		agentStatus.update(chatId, text)
+	}
+
+	override fun completeAgentStatus(chatId: Long) {
+		agentStatus.complete(chatId)
+	}
+
+	override fun failAgentStatus(
+		chatId: Long,
+		text: String,
+	) {
+		agentStatus.fail(chatId, text)
 	}
 }

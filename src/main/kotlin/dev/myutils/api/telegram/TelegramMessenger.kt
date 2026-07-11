@@ -5,6 +5,8 @@ import com.pengrad.telegrambot.model.request.ChatAction
 import com.pengrad.telegrambot.model.request.Keyboard
 import com.pengrad.telegrambot.model.request.ParseMode
 import com.pengrad.telegrambot.request.AnswerCallbackQuery
+import com.pengrad.telegrambot.request.DeleteMessage
+import com.pengrad.telegrambot.request.EditMessageText
 import com.pengrad.telegrambot.request.SendChatAction
 import com.pengrad.telegrambot.request.SendMessage
 import com.pengrad.telegrambot.response.BaseResponse
@@ -19,6 +21,17 @@ interface TelegramMessenger {
 		chatId: Long,
 		text: String,
 		replyMarkup: Keyboard? = null,
+	): Int?
+
+	fun editHtmlMessage(
+		chatId: Long,
+		messageId: Int,
+		text: String,
+	)
+
+	fun deleteMessage(
+		chatId: Long,
+		messageId: Int,
 	)
 
 	fun sendTyping(chatId: Long)
@@ -40,7 +53,7 @@ class PengradTelegramMessenger(
 		chatId: Long,
 		text: String,
 		replyMarkup: Keyboard?,
-	) {
+	): Int? {
 		val request =
 			SendMessage(chatId, text.take(TelegramLimits.MESSAGE_MAX_LENGTH))
 				.parseMode(ParseMode.HTML)
@@ -50,8 +63,34 @@ class PengradTelegramMessenger(
 		val response = bot.execute(request)
 		if (response.isOk) {
 			log.info("Telegram send ok chatId={} text={}", chatId, LogPreview.of(text))
-		} else {
-			log.warnTelegramFailed("send", response, " chatId=$chatId")
+			return response.message()?.messageId()
+		}
+		log.warnTelegramFailed("send", response, " chatId=$chatId")
+		return null
+	}
+
+	override fun editHtmlMessage(
+		chatId: Long,
+		messageId: Int,
+		text: String,
+	) {
+		val response =
+			bot.execute(
+				EditMessageText(chatId, messageId, text.take(TelegramLimits.MESSAGE_MAX_LENGTH))
+					.parseMode(ParseMode.HTML),
+			)
+		if (!response.isOk) {
+			log.warnTelegramFailed("edit", response, " chatId=$chatId messageId=$messageId")
+		}
+	}
+
+	override fun deleteMessage(
+		chatId: Long,
+		messageId: Int,
+	) {
+		val response = bot.execute(DeleteMessage(chatId, messageId))
+		if (!response.isOk) {
+			log.warnTelegramFailed("delete", response, " chatId=$chatId messageId=$messageId")
 		}
 	}
 

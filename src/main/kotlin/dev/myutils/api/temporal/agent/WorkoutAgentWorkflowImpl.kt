@@ -122,6 +122,9 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		val maxSteps = input.maxToolIterations.coerceAtLeast(1)
 		repeat(maxSteps) {
 			llmSteps++
+			if (input.deliverToTelegram) {
+				telegramActivities.updateAgentStatus(input.chatId, "⏳ Думаю… (шаг $llmSteps)")
+			}
 			log.info(
 				"Agent LLM step",
 				mapOf(
@@ -168,6 +171,10 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 						},
 				),
 			)
+			if (input.deliverToTelegram) {
+				val toolLabel = step.toolCalls.joinToString { humanToolName(it.name) }
+				telegramActivities.updateAgentStatus(input.chatId, "⏳ $toolLabel…")
+			}
 			val toolResults = executeToolCallsParallel(input.chatId, input.traceParent, step.toolCalls)
 			log.info(
 				"Agent LLM step tool results",
@@ -196,6 +203,9 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					),
 				)
 				recordTurnMetrics(startedAt, llmSteps, "immediate_tool")
+				if (input.deliverToTelegram) {
+					telegramActivities.completeAgentStatus(input.chatId)
+				}
 				return llmSteps
 			}
 		}
@@ -314,7 +324,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		error: Exception,
 	) {
 		try {
-			telegramActivities.sendMessage(chatId, agentFailureReply(error))
+			telegramActivities.failAgentStatus(chatId, agentFailureReply(error))
 		} catch (notifyError: Exception) {
 			log.warn(
 				"Failed to notify user about agent failure",
@@ -338,6 +348,16 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 				?.takeIf { it.isNotEmpty() }
 				?.let { "\n\nТехнически: ${LogPreview.of(it, max = 240)}" }
 				.orEmpty()
-		return "Не удалось обработать запрос. Попробуй ещё раз или переформулируй.$suffix"
+		return "❌ Не удалось обработать запрос. Попробуй ещё раз или переформулируй.$suffix"
 	}
+
+	private fun humanToolName(raw: String): String =
+		when (AgentToolCatalog.normalizeName(raw)) {
+			"log_workout" -> "Записываю в дневник"
+			"delete_workout" -> "Удаляю запись"
+			"get_day_summaries", "get_days" -> "Читаю дневник"
+			"get_exercise_progresses", "get_progress" -> "Смотрю прогресс"
+			"list_exercises" -> "Список упражнений"
+			else -> "Выполняю ${AgentToolCatalog.normalizeName(raw)}"
+		}
 }

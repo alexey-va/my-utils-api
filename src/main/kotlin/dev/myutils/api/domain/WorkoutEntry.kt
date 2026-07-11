@@ -34,6 +34,8 @@ class WorkoutEntry(
 	val maxReps: Int,
 	@Column(name = "set_reps")
 	val setReps: String? = null,
+	@Column(name = "set_weights")
+	val setWeights: String? = null,
 	@Column(name = "created_at", nullable = false)
 	val createdAt: Instant = Instant.now(),
 )

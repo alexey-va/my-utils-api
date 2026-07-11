@@ -46,15 +46,12 @@ class WorkoutToolsServiceTest {
 	}
 
 	@Test
-	fun `log_workout parses arguments`() {
+	fun `log_workout parses notation`() {
 		whenever(
 			facade.logWorkout(
 				exerciseName = "Bench press",
 				performedOn = null,
-				weightKg = 80,
-				setCount = 3,
-				repsPerSet = 5,
-				maxReps = 5,
+				notation = "80 3*5/5",
 			),
 		).thenReturn("Записано: Bench press")
 		val service = service()
@@ -65,26 +62,43 @@ class WorkoutToolsServiceTest {
 				args =
 					mapOf(
 						"exercise_name" to "Bench press",
-						"weight_kg" to "80",
-						"set_count" to "3",
-						"reps_per_set" to "5",
-						"max_reps" to "5",
+						"notation" to "80 3*5/5",
 					),
 			)
 		assertTrue(result.contains("Записано"))
 	}
 
 	@Test
-	fun `log_workout parses set_reps`() {
+	fun `log_workout parses two-set notation`() {
+		whenever(
+			facade.logWorkout(
+				exerciseName = "Жим грудь",
+				performedOn = LocalDate.parse("2026-07-11"),
+				notation = "70 8/12",
+			),
+		).thenReturn("Записано: Жим грудь")
+		val service = service()
+		val result =
+			service.runTool(
+				"logWorkout",
+				chatId = 1L,
+				args =
+					mapOf(
+						"exerciseName" to "Жим грудь",
+						"notation" to "70 8/12",
+						"date" to "2026-07-11",
+					),
+			)
+		assertTrue(result.contains("Записано"))
+	}
+
+	@Test
+	fun `log_workout legacy set_reps still works`() {
 		whenever(
 			facade.logWorkout(
 				exerciseName = "Bench press",
 				performedOn = null,
-				weightKg = 35,
-				setCount = 4,
-				repsPerSet = 9,
-				maxReps = 10,
-				setReps = listOf(10, 10, 9, 9),
+				notation = "35 10/10/9/9",
 			),
 		).thenReturn("Записано: Bench press")
 		val service = service()
@@ -108,10 +122,7 @@ class WorkoutToolsServiceTest {
 			facade.logWorkout(
 				exerciseName = "Жим",
 				performedOn = null,
-				weightKg = 70,
-				setCount = 3,
-				repsPerSet = 10,
-				maxReps = 12,
+				notation = "70 3*10/12",
 			),
 		).thenReturn("Записано: Жим")
 		val service = service()
@@ -122,10 +133,7 @@ class WorkoutToolsServiceTest {
 				args =
 					mapOf(
 						"exerciseName" to "Жим",
-						"weightKg" to "70",
-						"setCount" to "3",
-						"repsPerSet" to "10",
-						"maxReps" to "12",
+						"notation" to "70 3*10/12",
 					),
 			)
 		assertTrue(result.contains("Записано"))

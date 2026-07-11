@@ -62,14 +62,13 @@ groups:
         execErrState: Alerting
         for: 2m
         annotations:
-          description: Node exporter is down — the server may be offline or the metrics agent failed.
-          summary: '{{ $labels.service_name }}: metrics scraper down'
+          summary: node-exporter not responding
         labels:
           severity: critical
           team: metal
         isPaused: false
         notification_settings:
-          receiver: discord
+          receiver: Metal Discord
           group_by:
             - alertname
             - service_name
@@ -133,14 +132,13 @@ groups:
         execErrState: Alerting
         for: 5m
         annotations:
-          description: CPU usage stayed above 90% for several minutes. The host may be overloaded or a runaway process is consuming cores.
-          summary: '{{ $labels.service_name }}: CPU critically high'
+          summary: CPU above 90% for 5 minutes
         labels:
           severity: critical
           team: metal
         isPaused: false
         notification_settings:
-          receiver: discord
+          receiver: Metal Discord
           group_by:
             - alertname
             - service_name
@@ -204,14 +202,13 @@ groups:
         execErrState: Alerting
         for: 5m
         annotations:
-          description: Available RAM dropped below 10%. Risk of OOM kills, swap thrashing, and service instability.
-          summary: '{{ $labels.service_name }}: memory critically low'
+          summary: RAM above 90% for 5 minutes
         labels:
           severity: critical
           team: metal
         isPaused: false
         notification_settings:
-          receiver: discord
+          receiver: Metal Discord
           group_by:
             - alertname
             - service_name
@@ -275,17 +272,86 @@ groups:
         execErrState: Alerting
         for: 10m
         annotations:
-          description: Root filesystem usage exceeded 85%. Disk writes may fail soon — clean logs, caches, or expand storage.
-          summary: '{{ $labels.service_name }}: root disk almost full'
+          summary: root disk above 85% for 10 minutes
         labels:
           severity: warning
           team: metal
         isPaused: false
         notification_settings:
-          receiver: discord
+          receiver: Metal Discord
           group_by:
             - alertname
             - service_name
           group_wait: 30s
           group_interval: 5m
           repeat_interval: 6h
+      - uid: bfqg6service01
+        title: Metal service unreachable
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              datasource:
+                type: prometheus
+                uid: prometheus
+              editorMode: code
+              expr: max by (alias) (probe_success{alias=~"velocity|spawn|survival|route"})
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: A
+              intervalMs: 1000
+              maxDataPoints: 43200
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params:
+                      - 1
+                    type: lt
+                  operator:
+                    type: and
+                  reducer:
+                    type: last
+              datasource:
+                type: __expr__
+                uid: __expr__
+              expression: B
+              intervalMs: 1000
+              maxDataPoints: 43200
+              refId: C
+              type: threshold
+        dashboardUid: rYdddlPWk
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: blackbox probe failed for 2+ minutes
+        labels:
+          severity: critical
+          team: metal
+        isPaused: false
+        notification_settings:
+          receiver: Metal Discord
+          group_by:
+            - alertname
+            - alias
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 4h
