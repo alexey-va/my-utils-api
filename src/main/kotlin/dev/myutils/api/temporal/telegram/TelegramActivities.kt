@@ -12,10 +12,22 @@ interface TelegramActivities {
 	)
 
 	@ActivityMethod
-	fun updateAgentStatus(
+	fun agentStatusThinking(
 		chatId: Long,
-		text: String,
+		step: Int,
 	)
+
+	@ActivityMethod
+	fun agentStatusTools(
+		chatId: Long,
+		toolNames: List<String>,
+	)
+
+	@ActivityMethod
+	fun agentStatusToolsDone(chatId: Long)
+
+	@ActivityMethod
+	fun agentStatusComposing(chatId: Long)
 
 	@ActivityMethod
 	fun completeAgentStatus(chatId: Long)

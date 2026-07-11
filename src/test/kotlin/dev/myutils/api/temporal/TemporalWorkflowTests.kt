@@ -105,10 +105,19 @@ class TemporalWorkflowTests {
 				sentMessages.add(chatId to text)
 			}
 
-			override fun updateAgentStatus(
+			override fun agentStatusThinking(
 				chatId: Long,
-				text: String,
+				step: Int,
 			) = Unit
+
+			override fun agentStatusTools(
+				chatId: Long,
+				toolNames: List<String>,
+			) = Unit
+
+			override fun agentStatusToolsDone(chatId: Long) = Unit
+
+			override fun agentStatusComposing(chatId: Long) = Unit
 
 			override fun completeAgentStatus(chatId: Long) = Unit
 

@@ -26,11 +26,26 @@ class TelegramActivitiesImpl(
 		log.info("Temporal Telegram message sent chatId={} chars={}", chatId, text.length)
 	}
 
-	override fun updateAgentStatus(
+	override fun agentStatusThinking(
 		chatId: Long,
-		text: String,
+		step: Int,
 	) {
-		agentStatus.update(chatId, text)
+		agentStatus.thinking(chatId, step)
+	}
+
+	override fun agentStatusTools(
+		chatId: Long,
+		toolNames: List<String>,
+	) {
+		agentStatus.toolsStarted(chatId, toolNames)
+	}
+
+	override fun agentStatusToolsDone(chatId: Long) {
+		agentStatus.toolsFinished(chatId)
+	}
+
+	override fun agentStatusComposing(chatId: Long) {
+		agentStatus.composingReply(chatId)
 	}
 
 	override fun completeAgentStatus(chatId: Long) {

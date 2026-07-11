@@ -123,7 +123,11 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		repeat(maxSteps) {
 			llmSteps++
 			if (input.deliverToTelegram) {
-				telegramActivities.updateAgentStatus(input.chatId, "⏳ Думаю… (шаг $llmSteps)")
+				if (userMessage.isNullOrBlank()) {
+					telegramActivities.agentStatusComposing(input.chatId)
+				} else {
+					telegramActivities.agentStatusThinking(input.chatId, llmSteps)
+				}
 			}
 			log.info(
 				"Agent LLM step",
@@ -172,8 +176,10 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 				),
 			)
 			if (input.deliverToTelegram) {
-				val toolLabel = step.toolCalls.joinToString { humanToolName(it.name) }
-				telegramActivities.updateAgentStatus(input.chatId, "⏳ $toolLabel…")
+				telegramActivities.agentStatusTools(
+					input.chatId,
+					step.toolCalls.map { it.name },
+				)
 			}
 			val toolResults = executeToolCallsParallel(input.chatId, input.traceParent, step.toolCalls)
 			log.info(
@@ -193,6 +199,9 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					results = toolResults,
 				),
 			)
+			if (input.deliverToTelegram) {
+				telegramActivities.agentStatusToolsDone(input.chatId)
+			}
 			if (isImmediateReturnStep(step.toolCalls)) {
 				log.info(
 					"Agent immediate tool step finished",
@@ -350,14 +359,4 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 				.orEmpty()
 		return "❌ Не удалось обработать запрос. Попробуй ещё раз или переформулируй.$suffix"
 	}
-
-	private fun humanToolName(raw: String): String =
-		when (AgentToolCatalog.normalizeName(raw)) {
-			"log_workout" -> "Записываю в дневник"
-			"delete_workout" -> "Удаляю запись"
-			"get_day_summaries", "get_days" -> "Читаю дневник"
-			"get_exercise_progresses", "get_progress" -> "Смотрю прогресс"
-			"list_exercises" -> "Список упражнений"
-			else -> "Выполняю ${AgentToolCatalog.normalizeName(raw)}"
-		}
 }
