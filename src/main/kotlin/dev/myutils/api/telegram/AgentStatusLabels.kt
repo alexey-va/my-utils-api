@@ -31,5 +31,10 @@ object AgentStatusLabels {
 			else -> "Выполняю ${AgentToolCatalog.normalizeName(rawName)}…"
 		}
 
-	fun toolsRunning(rawNames: List<String>): List<String> = rawNames.map { toolRunning(it) }
+	fun toolsRunning(rawNames: List<String>): String =
+		when (rawNames.size) {
+			0 -> "Обрабатываю…"
+			1 -> toolRunning(rawNames.first())
+			else -> "Выполняю ${rawNames.size} действия…"
+		}
 }

@@ -1,76 +1,43 @@
 package dev.myutils.api.telegram
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
 import dev.myutils.api.infra.config.ConditionalOnTelegramBot
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
 import java.time.Duration
 
-/**
- * Накопительный статус в одном Telegram-сообщении (как progress в Cursor).
- * Строки не исчезают, пока идут тулы и пока LLM формирует ответ.
- */
+/** Одно статус-сообщение в Telegram — всегда только текущее действие. */
 @Component
 @ConditionalOnTelegramBot
 class AgentStatusMessenger(
 	private val telegram: TelegramMessenger,
 	private val redis: StringRedisTemplate,
-	private val objectMapper: ObjectMapper,
 ) {
 	fun begin(chatId: Long) {
 		reset(chatId)
-		val state =
-			AgentStatusState(
-				messageId = null,
-				lines = mutableListOf(StatusLine.pending(AgentStatusLabels.thinking())),
-			)
-		flush(chatId, state)
+		show(chatId, AgentStatusLabels.thinking())
 	}
 
 	fun thinking(
 		chatId: Long,
 		step: Int,
 	) {
-		mutate(chatId) { state ->
-			state.completeActive()
-			state.lines.add(StatusLine.pending(AgentStatusLabels.thinking(step)))
-		}
+		show(chatId, AgentStatusLabels.thinking(step))
 	}
 
 	fun toolsStarted(
 		chatId: Long,
 		toolNames: List<String>,
 	) {
-		if (toolNames.isEmpty()) {
-			return
-		}
-		mutate(chatId) { state ->
-			state.completeActive()
-			for (label in AgentStatusLabels.toolsRunning(toolNames)) {
-				state.lines.add(StatusLine.pending(label))
-			}
-			state.trimTail()
-		}
-	}
-
-	fun toolsFinished(chatId: Long) {
-		mutate(chatId) { state ->
-			state.completeActive()
-		}
+		show(chatId, AgentStatusLabels.toolsRunning(toolNames))
 	}
 
 	fun composingReply(chatId: Long) {
-		mutate(chatId) { state ->
-			state.completeActive()
-			state.lines.add(StatusLine.pending(AgentStatusLabels.COMPOSING_REPLY))
-			state.trimTail()
-		}
+		show(chatId, AgentStatusLabels.COMPOSING_REPLY)
 	}
 
 	fun complete(chatId: Long) {
-		val state = load(chatId) ?: return
-		state.messageId?.let { telegram.deleteMessage(chatId, it) }
+		val messageId = loadMessageId(chatId) ?: return
+		telegram.deleteMessage(chatId, messageId)
 		clear(chatId)
 	}
 
@@ -78,59 +45,46 @@ class AgentStatusMessenger(
 		chatId: Long,
 		text: String,
 	) {
-		mutate(chatId) { state ->
-			state.completeActive()
-			state.lines.add(StatusLine.failed(text))
-			state.trimTail()
-		}
+		update(chatId, "❌ $text")
 		clear(chatId)
 	}
 
-	private fun mutate(
+	private fun show(
 		chatId: Long,
-		block: (AgentStatusState) -> Unit,
+		text: String,
 	) {
-		val state = load(chatId) ?: AgentStatusState(messageId = null, lines = mutableListOf())
-		block(state)
-		flush(chatId, state)
+		update(chatId, "⏳ $text")
 	}
 
-	private fun flush(
+	private fun update(
 		chatId: Long,
-		state: AgentStatusState,
+		text: String,
 	) {
-		val body = state.render()
-		val messageId = state.messageId
+		val messageId = loadMessageId(chatId)
 		if (messageId == null) {
-			val sentId = telegram.sendHtmlMessage(chatId, body)
+			val sentId = telegram.sendHtmlMessage(chatId, text)
 			if (sentId != null) {
-				state.messageId = sentId
-				save(chatId, state)
+				storeMessageId(chatId, sentId)
 			}
 		} else {
-			telegram.editHtmlMessage(chatId, messageId, body)
-			save(chatId, state)
+			telegram.editHtmlMessage(chatId, messageId, text)
 		}
 		telegram.sendTyping(chatId)
 	}
 
 	private fun reset(chatId: Long) {
-		val state = load(chatId)
-		state?.messageId?.let { telegram.deleteMessage(chatId, it) }
+		loadMessageId(chatId)?.let { telegram.deleteMessage(chatId, it) }
 		clear(chatId)
 	}
 
-	private fun save(
+	private fun storeMessageId(
 		chatId: Long,
-		state: AgentStatusState,
+		messageId: Int,
 	) {
-		redis.opsForValue().set(key(chatId), objectMapper.writeValueAsString(state), STATUS_TTL)
+		redis.opsForValue().set(key(chatId), messageId.toString(), STATUS_TTL)
 	}
 
-	private fun load(chatId: Long): AgentStatusState? {
-		val raw = redis.opsForValue().get(key(chatId)) ?: return null
-		return runCatching { objectMapper.readValue<AgentStatusState>(raw) }.getOrNull()
-	}
+	private fun loadMessageId(chatId: Long): Int? = redis.opsForValue().get(key(chatId))?.toIntOrNull()
 
 	private fun clear(chatId: Long) {
 		redis.delete(key(chatId))
@@ -140,46 +94,5 @@ class AgentStatusMessenger(
 
 	companion object {
 		private val STATUS_TTL: Duration = Duration.ofHours(2)
-		const val MAX_VISIBLE_LINES: Int = 12
-	}
-}
-
-private data class AgentStatusState(
-	var messageId: Int?,
-	val lines: MutableList<StatusLine>,
-) {
-	fun completeActive() {
-		for (line in lines) {
-			if (line.pending) {
-				line.markDone()
-			}
-		}
-	}
-
-	fun render(): String = lines.joinToString("\n") { it.render() }
-
-	fun trimTail(maxLines: Int = AgentStatusMessenger.MAX_VISIBLE_LINES) {
-		while (lines.size > maxLines) {
-			lines.removeAt(0)
-		}
-	}
-}
-
-private data class StatusLine(
-	var emoji: String,
-	val text: String,
-	var pending: Boolean,
-) {
-	fun markDone() {
-		emoji = "✓"
-		pending = false
-	}
-
-	fun render(): String = "$emoji $text"
-
-	companion object {
-		fun pending(text: String): StatusLine = StatusLine(emoji = "⏳", text = text, pending = true)
-
-		fun failed(text: String): StatusLine = StatusLine(emoji = "❌", text = text, pending = false)
 	}
 }

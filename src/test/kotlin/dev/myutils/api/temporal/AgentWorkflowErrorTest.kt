@@ -61,8 +61,6 @@ class AgentWorkflowErrorTest {
 					toolNames: List<String>,
 				) = Unit
 
-				override fun agentStatusToolsDone(chatId: Long) = Unit
-
 				override fun agentStatusComposing(chatId: Long) = Unit
 
 				override fun completeAgentStatus(chatId: Long) = Unit

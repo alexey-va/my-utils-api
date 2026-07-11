@@ -1,9 +1,7 @@
 package dev.myutils.api.telegram
 
-import com.fasterxml.jackson.databind.ObjectMapper
-import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
-import com.fasterxml.jackson.module.kotlin.readValue
 import com.pengrad.telegrambot.model.request.Keyboard
+import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 import org.springframework.data.redis.core.StringRedisTemplate
@@ -12,36 +10,26 @@ import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 
 class AgentStatusMessengerTest {
-	private val mapper: ObjectMapper = jacksonObjectMapper()
-
 	@Test
-	fun `accumulates tool lines and keeps composing visible`() {
+	fun `shows only current action`() {
 		val telegram = RecordingTelegramMessenger()
 		val (redis, store) = inMemoryRedis()
-		val messenger = AgentStatusMessenger(telegram, redis, mapper)
+		val messenger = AgentStatusMessenger(telegram, redis)
 
 		messenger.begin(42L)
-		messenger.toolsStarted(42L, listOf("logWorkout", "getDays"))
-		messenger.toolsFinished(42L)
+		messenger.toolsStarted(42L, listOf("logWorkout"))
 		messenger.composingReply(42L)
 
-		val saved = store["agent:status:42"]!!
-		val state = mapper.readValue<AgentStatusStateDto>(saved)
-		val rendered = state.lines.joinToString("\n") { "${it.emoji} ${it.text}" }
-		assertTrue(rendered.contains("✓ Думаю…"))
-		assertTrue(rendered.contains("✓ Записываю в дневник…"))
-		assertTrue(rendered.contains("✓ Получаю статистику по дням…"))
-		assertTrue(rendered.contains("⏳ Формирую ответ…"))
-		assertTrue(telegram.edits.last().contains("⏳ Формирую ответ…"))
+		assertEquals("⏳ Формирую ответ…", telegram.edits.last())
+		assertTrue(store["agent:status:42"] == "100")
 	}
 
 	@Test
 	fun `complete deletes status message`() {
 		val telegram = RecordingTelegramMessenger()
 		val (redis, store) = inMemoryRedis()
-		val messenger = AgentStatusMessenger(telegram, redis, mapper)
-		store["agent:status:7"] =
-			mapper.writeValueAsString(AgentStatusStateDto(messageId = 55, lines = mutableListOf()))
+		val messenger = AgentStatusMessenger(telegram, redis)
+		store["agent:status:7"] = "55"
 
 		messenger.complete(7L)
 
@@ -57,7 +45,10 @@ class AgentStatusMessengerTest {
 			chatId: Long,
 			text: String,
 			replyMarkup: Keyboard?,
-		): Int? = nextMessageId++
+		): Int? {
+			edits.add(text)
+			return nextMessageId++
+		}
 
 		override fun editHtmlMessage(
 			chatId: Long,
@@ -106,15 +97,4 @@ class AgentStatusMessengerTest {
 		}
 		return template to store
 	}
-
-	private data class AgentStatusStateDto(
-		var messageId: Int?,
-		val lines: MutableList<StatusLineDto>,
-	)
-
-	private data class StatusLineDto(
-		var emoji: String,
-		val text: String,
-		var pending: Boolean,
-	)
 }

@@ -24,9 +24,6 @@ interface TelegramActivities {
 	)
 
 	@ActivityMethod
-	fun agentStatusToolsDone(chatId: Long)
-
-	@ActivityMethod
 	fun agentStatusComposing(chatId: Long)
 
 	@ActivityMethod

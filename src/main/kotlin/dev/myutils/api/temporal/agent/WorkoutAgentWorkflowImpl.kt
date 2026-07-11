@@ -199,9 +199,6 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					results = toolResults,
 				),
 			)
-			if (input.deliverToTelegram) {
-				telegramActivities.agentStatusToolsDone(input.chatId)
-			}
 			if (isImmediateReturnStep(step.toolCalls)) {
 				log.info(
 					"Agent immediate tool step finished",

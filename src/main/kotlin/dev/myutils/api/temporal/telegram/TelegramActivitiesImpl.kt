@@ -40,10 +40,6 @@ class TelegramActivitiesImpl(
 		agentStatus.toolsStarted(chatId, toolNames)
 	}
 
-	override fun agentStatusToolsDone(chatId: Long) {
-		agentStatus.toolsFinished(chatId)
-	}
-
 	override fun agentStatusComposing(chatId: Long) {
 		agentStatus.composingReply(chatId)
 	}
