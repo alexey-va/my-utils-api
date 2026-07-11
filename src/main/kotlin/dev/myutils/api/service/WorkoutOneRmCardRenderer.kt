@@ -143,7 +143,7 @@ class WorkoutOneRmCardRenderer {
 		val x = PADDING + 20
 		val y = 370
 		val w = CANVAS_WIDTH - (PADDING + 20) * 2
-		val h = 250
+		val h = 270
 		g.color = Palette.ZONE_PANEL
 		g.fillRoundRect(x, y, w, h, 20, 20)
 
@@ -151,27 +151,35 @@ class WorkoutOneRmCardRenderer {
 		g.color = Palette.TEXT
 		g.drawString("Рабочие зоны от 1ПМ", x + 20, y + 28)
 
-		var rowY = y + 52
-		val barX = x + 170
-		val barMaxW = w - 210
+		val weightColW = 108
+		val weightColX = x + w - weightColW - 16
+		val barLeft = x + 72
+		val barRight = weightColX - 14
+		val barMaxW = (barRight - barLeft).coerceAtLeast(120)
+
+		var rowY = y + 56
 		for (zone in report.zones) {
 			g.font = font(Font.PLAIN, 13f)
 			g.color = Palette.TEXT_MUTED
 			g.drawString("${zone.percent}%", x + 20, rowY)
+
 			g.color = Palette.TEXT
-			g.drawString(zone.label, x + 58, rowY)
+			g.drawString(zone.label, x + 72, rowY)
 
 			val weightLabel = "${weightFmt.format(zone.weightKg)} кг"
-			g.font = font(Font.BOLD, 13f)
-			g.drawString(weightLabel, x + w - 20 - g.fontMetrics.stringWidth(weightLabel), rowY)
+			g.font = font(Font.BOLD, 16f)
+			g.color = Palette.ZONE_WEIGHT
+			val weightW = g.fontMetrics.stringWidth(weightLabel)
+			g.drawString(weightLabel, weightColX + weightColW - weightW, rowY)
 
-			val fillW = (barMaxW * zone.percent / 100.0).toInt().coerceAtLeast(8)
+			val barY = rowY + 8
+			val fillW = (barMaxW * zone.percent / 100.0).toInt().coerceAtLeast(6)
 			g.color = Palette.ZONE_TRACK
-			g.fillRoundRect(barX, rowY - 10, barMaxW, 8, 8, 8)
+			g.fillRoundRect(barLeft, barY, barMaxW, 10, 8, 8)
 			g.color = zoneColor(zone.percent)
-			g.fillRoundRect(barX, rowY - 10, fillW, 8, 8, 8)
+			g.fillRoundRect(barLeft, barY, fillW, 10, 8, 8)
 
-			rowY += 34
+			rowY += 40
 		}
 	}
 
@@ -268,12 +276,13 @@ class WorkoutOneRmCardRenderer {
 		val ZONE_80 = Color(249, 115, 22)
 		val ZONE_70 = Color(59, 130, 246)
 		val ZONE_60 = Color(52, 211, 153)
+		val ZONE_WEIGHT = Color(255, 251, 235)
 		val FOOTER_BG = Color(15, 23, 42, 210)
 	}
 
 	companion object {
 		private const val CANVAS_WIDTH = 1000
-		private const val CANVAS_HEIGHT = 700
+		private const val CANVAS_HEIGHT = 720
 		private const val PADDING = 20
 	}
 }

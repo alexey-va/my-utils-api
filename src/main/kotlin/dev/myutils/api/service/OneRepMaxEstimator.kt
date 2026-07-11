@@ -168,4 +168,47 @@ object OneRepMaxEstimator {
 		value: Double,
 		step: Double,
 	): Double = round(value / step) * step
+
+	fun formatWeightKg(value: Double): String =
+		if (value % 1.0 == 0.0) {
+			value.toInt().toString()
+		} else {
+			"%.1f".format(value)
+		}
+
+	/** Текст для агента — что именно увидел пользователь на карточке. */
+	fun formatAgentSummary(report: Report): String {
+		val session = report.session
+		val set = session.bestSet
+		val formulas =
+			session.formulas.joinToString { "${it.name} ${formatWeightKg(it.oneRmKg)}" }
+		val zones =
+			report.zones.joinToString { "${it.percent}% ${it.label} ${formatWeightKg(it.weightKg)} кг" }
+		val historyLine =
+			when {
+				report.historicalBestKg == null -> "Рекорд по истории: первый расчёт"
+				report.historicalBestKg <= session.consensusKg + 0.01 ->
+					"Рекорд по истории: ${formatWeightKg(report.historicalBestKg)} кг (текущая сессия — рекорд)"
+				else -> {
+					val date = report.historicalBestDate?.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yy")) ?: "—"
+					"Рекорд по истории: ${formatWeightKg(report.historicalBestKg)} кг ($date)"
+				}
+			}
+		return buildString {
+			appendLine("Карточка 1ПМ отправлена в чат. Показано пользователю:")
+			appendLine("• ${report.exerciseName}, сессия ${session.date.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yy"))} — ${session.notation}")
+			appendLine("• Оценка 1ПМ: ${formatWeightKg(session.consensusKg)} кг (${confidenceRu(session.confidence)})")
+			appendLine("• Подход для расчёта: ${set.weightKg}×${set.reps}")
+			appendLine("• Формулы: $formulas")
+			appendLine("• Рабочие зоны: $zones")
+			appendLine("• $historyLine")
+		}.trim()
+	}
+
+	private fun confidenceRu(confidence: Confidence): String =
+		when (confidence) {
+			Confidence.HIGH -> "высокая точность"
+			Confidence.MEDIUM -> "средняя точность"
+			Confidence.LOW -> "грубая оценка"
+		}
 }

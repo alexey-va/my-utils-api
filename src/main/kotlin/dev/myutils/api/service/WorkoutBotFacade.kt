@@ -187,7 +187,7 @@ class WorkoutBotFacade(
 	fun renderOneRmEstimate(
 		exerciseName: String,
 		performedOn: LocalDate? = null,
-	): Pair<ByteArray, String> {
+	): OneRmEstimateResult {
 		val exercise = resolveExercise(exerciseName)
 		val user = localWorkoutUser()
 		val history =
@@ -213,18 +213,16 @@ class WorkoutBotFacade(
 			}
 		val report = OneRepMaxEstimator.estimateFromEntry(exercise.name, entry, history)
 		val png = oneRmCardRenderer.render(report)
-		val oneRm = report.session.consensusKg
-		val formatted =
-			if (oneRm % 1.0 == 0.0) {
-				oneRm.toInt().toString()
-			} else {
-				"%.1f".format(oneRm)
-			}
+		val formatted = OneRepMaxEstimator.formatWeightKg(report.session.consensusKg)
 		val set = report.session.bestSet
 		val caption =
 			"🎯 <b>${exercise.name}</b> — оценка 1ПМ: <b>$formatted кг</b> " +
 				"(по ${set.weightKg}×${set.reps})"
-		return png to caption
+		return OneRmEstimateResult(
+			png = png,
+			caption = caption,
+			agentSummary = OneRepMaxEstimator.formatAgentSummary(report),
+		)
 	}
 
 	/** Компактный снимок для агента — пересобирается на каждое сообщение, не кешируется в Redis. */

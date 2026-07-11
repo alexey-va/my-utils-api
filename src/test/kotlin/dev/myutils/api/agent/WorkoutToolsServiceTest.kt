@@ -3,6 +3,7 @@ package dev.myutils.api.agent
 import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.WorkoutBotFacade
+import dev.myutils.api.service.OneRmEstimateResult
 import dev.myutils.api.telegram.AgentStatusMessenger
 import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.temporal.TemporalNotificationFacade
@@ -323,7 +324,9 @@ class WorkoutToolsServiceTest {
 		val status: AgentStatusMessenger = mock()
 		val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
 		val caption = "🎯 <b>Жим</b> — оценка 1ПМ: <b>105 кг</b>"
-		whenever(facade.renderOneRmEstimate("Жим", null)).thenReturn(png to caption)
+		val summary = "Карточка 1ПМ отправлена в чат. Показано пользователю:\n• Жим"
+		whenever(facade.renderOneRmEstimate("Жим", null))
+			.thenReturn(OneRmEstimateResult(png, caption, summary))
 		val service = service(messenger = messenger, agentStatus = status)
 		val result =
 			service.runTool(
@@ -331,7 +334,7 @@ class WorkoutToolsServiceTest {
 				chatId = 42L,
 				args = mapOf("exercise_name" to "Жим"),
 			)
-		assertTrue(result.contains("1ПМ"))
+		assertTrue(result.contains("Показано пользователю"))
 		verify(status).toolRunning(42L, "estimate_1rm")
 		verify(messenger).sendPhoto(eq(42L), eq(png), eq(caption))
 	}

@@ -71,6 +71,31 @@ class OneRepMaxEstimatorTest {
 		assertTrue(report.session.consensusKg > 0)
 	}
 
+	@Test
+	fun `formatAgentSummary includes key numbers`() {
+		val report =
+			OneRepMaxEstimator.Report(
+				exerciseName = "Жим",
+				session =
+					OneRepMaxEstimator.SessionEstimate(
+						date = LocalDate.of(2026, 6, 15),
+						notation = "75 кг 3*10/12",
+						bestSet = OneRepMaxEstimator.SetSample(75, 12),
+						formulas = listOf(OneRepMaxEstimator.FormulaEstimate("Эпли", 105.0)),
+						consensusKg = 107.5,
+						confidence = OneRepMaxEstimator.Confidence.MEDIUM,
+					),
+				historicalBestKg = 107.5,
+				historicalBestDate = LocalDate.of(2026, 6, 15),
+				zones = OneRepMaxEstimator.trainingZones(107.5),
+			)
+		val summary = OneRepMaxEstimator.formatAgentSummary(report)
+		assertTrue(summary.contains("107.5"))
+		assertTrue(summary.contains("75×12"))
+		assertTrue(summary.contains("Рабочие зоны"))
+		assertTrue(summary.contains("Показано пользователю"))
+	}
+
 	private fun entry(
 		weight: Int,
 		setCount: Int,

@@ -224,9 +224,9 @@ class WorkoutToolsService(
 				is DateResolve.Ok -> resolved.date
 				is DateResolve.Invalid -> return performedOnError(performedOn)
 			}
-		val (png, caption) = workoutBotFacade.renderOneRmEstimate(exerciseName, date)
-		messenger.sendPhoto(chatId, png, caption)
-		return "Карточка 1ПМ отправлена в чат."
+		val result = workoutBotFacade.renderOneRmEstimate(exerciseName, date)
+		messenger.sendPhoto(chatId, result.png, result.caption)
+		return result.agentSummary
 	}
 
 	fun runTool(
