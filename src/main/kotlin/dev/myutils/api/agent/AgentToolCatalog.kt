@@ -6,6 +6,8 @@ object AgentToolCatalog {
 		setOf(
 			"send_rich_message",
 			"sendRichMessage",
+			"send_progress_chart",
+			"sendProgressChart",
 		)
 
 	fun isImmediateReturn(toolName: String): Boolean = normalizeName(toolName) in immediateReturnTools

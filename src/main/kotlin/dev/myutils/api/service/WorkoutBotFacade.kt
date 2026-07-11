@@ -27,6 +27,7 @@ class WorkoutBotFacade(
 	private val exerciseRepository: ExerciseRepository,
 	private val workoutEntryRepository: WorkoutEntryRepository,
 	private val userRepository: UserRepository,
+	private val chartRenderer: WorkoutChartRenderer,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val dateFmt = DateTimeFormatter.ofPattern("dd.MM.yyyy")
@@ -151,6 +152,34 @@ class WorkoutBotFacade(
 				"Лучший МАХ (4-й подход): ${stats.bestMaxReps ?: "—"}.",
 		)
 		return sb.toString().trim()
+	}
+
+	@Transactional(readOnly = true)
+	fun renderProgressChart(
+		exerciseName: String,
+		recentSessions: Int = 12,
+	): Pair<ByteArray, String> {
+		val exercise = resolveExercise(exerciseName)
+		val progress = workoutService.getProgress(exercise.id)
+		val limit = recentSessions.coerceIn(2, 30)
+		val points =
+			progress.points.takeLast(limit).map { point ->
+				WorkoutChartRenderer.Point(
+					date = point.date,
+					weightKg = point.weightKg,
+					maxReps = point.maxReps,
+				)
+			}
+		if (points.size < 2) {
+			throw ResponseStatusException(
+				HttpStatus.BAD_REQUEST,
+				"Мало данных для графика «${exercise.name}» (нужно ≥2 сессии, есть ${points.size}).",
+			)
+		}
+		val png = chartRenderer.renderWeightProgress(exercise.name, points)
+		val caption =
+			"📈 <b>${exercise.name}</b> — вес и МАХ за ${points.size} сессий"
+		return png to caption
 	}
 
 	/** Компактный снимок для агента — пересобирается на каждое сообщение, не кешируется в Redis. */

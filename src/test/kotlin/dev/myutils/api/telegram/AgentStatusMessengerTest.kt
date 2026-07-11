@@ -67,6 +67,12 @@ class AgentStatusMessengerTest {
 
 		override fun sendTyping(chatId: Long) = Unit
 
+		override fun sendPhoto(
+			chatId: Long,
+			png: ByteArray,
+			caption: String?,
+		) = Unit
+
 		override fun answerCallback(
 			callbackQueryId: String,
 			text: String?,

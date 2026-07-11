@@ -9,6 +9,7 @@ import com.pengrad.telegrambot.request.DeleteMessage
 import com.pengrad.telegrambot.request.EditMessageText
 import com.pengrad.telegrambot.request.SendChatAction
 import com.pengrad.telegrambot.request.SendMessage
+import com.pengrad.telegrambot.request.SendPhoto
 import com.pengrad.telegrambot.response.BaseResponse
 import dev.myutils.api.infra.config.ConditionalOnTelegramBot
 import dev.myutils.api.infra.util.LogPreview
@@ -35,6 +36,12 @@ interface TelegramMessenger {
 	)
 
 	fun sendTyping(chatId: Long)
+
+	fun sendPhoto(
+		chatId: Long,
+		png: ByteArray,
+		caption: String? = null,
+	)
 
 	fun answerCallback(
 		callbackQueryId: String,
@@ -97,6 +104,23 @@ class PengradTelegramMessenger(
 	override fun sendTyping(chatId: Long) {
 		runCatching { bot.execute(SendChatAction(chatId, ChatAction.typing)) }
 			.onFailure { ex -> log.debug("Telegram typing failed chatId={}", chatId, ex) }
+	}
+
+	override fun sendPhoto(
+		chatId: Long,
+		png: ByteArray,
+		caption: String?,
+	) {
+		val request = SendPhoto(chatId, png)
+		if (!caption.isNullOrBlank()) {
+			request.caption(caption.take(TelegramLimits.MESSAGE_MAX_LENGTH)).parseMode(ParseMode.HTML)
+		}
+		val response = bot.execute(request)
+		if (response.isOk) {
+			log.info("Telegram photo ok chatId={} bytes={}", chatId, png.size)
+		} else {
+			log.warnTelegramFailed("sendPhoto", response, " chatId=$chatId")
+		}
 	}
 
 	override fun answerCallback(

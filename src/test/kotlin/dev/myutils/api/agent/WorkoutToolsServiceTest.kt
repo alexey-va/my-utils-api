@@ -281,6 +281,36 @@ class WorkoutToolsServiceTest {
 	}
 
 	@Test
+	fun `send_progress_chart sends photo`() {
+		val messenger: TelegramMessenger = mock()
+		val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
+		val caption = "📈 <b>Жим</b>"
+		whenever(facade.renderProgressChart("Жим", 12)).thenReturn(png to caption)
+		val service = service(messenger)
+		val result =
+			service.runTool(
+				"send_progress_chart",
+				chatId = 42L,
+				args = mapOf("exercise_name" to "Жим"),
+			)
+		assertTrue(result.contains("График"))
+		verify(messenger).sendPhoto(eq(42L), eq(png), eq(caption))
+	}
+
+	@Test
+	fun `send_progress_chart without telegram returns fallback`() {
+		val service = service(messenger = null)
+		val result =
+			service.runTool(
+				"send_progress_chart",
+				chatId = 1L,
+				args = mapOf("exercise_name" to "Жим"),
+			)
+		assertTrue(ToolExecutionFeedback.isFailure(result))
+		assertTrue(result.contains("Telegram недоступен"))
+	}
+
+	@Test
 	fun `get_day_summaries rejects invalid date without guessing`() {
 		val service = service()
 		val result =

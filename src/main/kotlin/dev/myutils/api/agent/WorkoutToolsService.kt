@@ -196,6 +196,19 @@ class WorkoutToolsService(
 		}
 	}
 
+	fun sendProgressChart(
+		chatId: Long,
+		exerciseName: String,
+		recentSessions: Int?,
+	): String {
+		val messenger =
+			telegramMessenger.getIfAvailable()
+				?: return ToolExecutionFeedback.failure("Telegram недоступен.")
+		val (png, caption) = workoutBotFacade.renderProgressChart(exerciseName, recentSessions ?: 12)
+		messenger.sendPhoto(chatId, png, caption)
+		return "График прогресса отправлен в чат."
+	}
+
 	fun runTool(
 		name: String,
 		chatId: Long,
@@ -269,6 +282,12 @@ class WorkoutToolsService(
 							chatId = chatId,
 							text = toolArgs.require("text"),
 							buttons = toolArgs.optional("buttons"),
+						)
+					"send_progress_chart" ->
+						sendProgressChart(
+							chatId = chatId,
+							exerciseName = toolArgs.require("exercise_name"),
+							recentSessions = toolArgs.optionalInt("recent_sessions"),
 						)
 					"manage_user_fact" ->
 						manageUserFact(

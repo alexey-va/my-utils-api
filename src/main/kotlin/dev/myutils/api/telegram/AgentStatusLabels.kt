@@ -25,6 +25,7 @@ object AgentStatusLabels {
 			"remember_fact", "manage_user_fact" -> "Запоминаю факт…"
 			"forget_fact" -> "Удаляю из памяти…"
 			"send_rich_message" -> "Отправляю сообщение с кнопками…"
+			"send_progress_chart" -> "Строю график прогресса…"
 			"send_notification" -> "Отправляю уведомление…"
 			"schedule_notification" -> "Планирую напоминание…"
 			"cancel_notification" -> "Отменяю напоминание…"

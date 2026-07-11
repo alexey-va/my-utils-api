@@ -82,6 +82,18 @@ class WorkoutLangChainTools(
 		buttons: String? = null,
 	): String = tracked("send_rich_message") { toolsService.sendRichMessage(chatId, text, buttons) }
 
+	@Tool(
+		"PNG-график прогресса (вес + МАХ повторы) и отправка в чат. " +
+			"Когда просят график, динамику, визуализацию прогресса.",
+	)
+	fun sendProgressChart(
+		exerciseName: String,
+		recentSessions: Int? = 12,
+	): String =
+		tracked("send_progress_chart") {
+			toolsService.sendProgressChart(chatId, exerciseName, recentSessions)
+		}
+
 	@Tool("Сразу отправить сообщение в чат.")
 	fun sendNotification(message: String): String {
 		requireTemporal()

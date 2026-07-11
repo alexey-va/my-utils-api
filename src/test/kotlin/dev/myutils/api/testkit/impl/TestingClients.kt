@@ -18,12 +18,18 @@ import java.util.concurrent.ConcurrentHashMap
 
 class InMemoryTelegramMessenger : TelegramMessenger {
 	private val messages = ConcurrentHashMap<Long, MutableList<SentMessage>>()
+	private val photos = ConcurrentHashMap<Long, MutableList<SentPhoto>>()
 	private val typingCounts = ConcurrentHashMap<Long, Int>()
 	private val callbackAnswers = mutableListOf<CallbackAnswer>()
 
 	data class SentMessage(
 		val text: String,
 		val replyMarkup: Keyboard? = null,
+	)
+
+	data class SentPhoto(
+		val png: ByteArray,
+		val caption: String?,
 	)
 
 	data class CallbackAnswer(
@@ -67,6 +73,14 @@ class InMemoryTelegramMessenger : TelegramMessenger {
 		typingCounts.merge(chatId, 1, Int::plus)
 	}
 
+	override fun sendPhoto(
+		chatId: Long,
+		png: ByteArray,
+		caption: String?,
+	) {
+		photos.computeIfAbsent(chatId) { mutableListOf() }.add(SentPhoto(png, caption))
+	}
+
 	override fun answerCallback(
 		callbackQueryId: String,
 		text: String?,
@@ -76,10 +90,13 @@ class InMemoryTelegramMessenger : TelegramMessenger {
 
 	fun messagesFor(chatId: Long): List<SentMessage> = messages[chatId]?.toList() ?: emptyList()
 
+	fun photosFor(chatId: Long): List<SentPhoto> = photos[chatId]?.toList() ?: emptyList()
+
 	fun typingCount(chatId: Long): Int = typingCounts[chatId] ?: 0
 
 	fun clear() {
 		messages.clear()
+		photos.clear()
 		typingCounts.clear()
 		callbackAnswers.clear()
 	}

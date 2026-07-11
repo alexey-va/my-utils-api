@@ -43,6 +43,7 @@ dependencies {
 
 	implementation("io.temporal:temporal-spring-boot-starter:1.30.1")
 	implementation("com.github.pengrad:java-telegram-bot-api:8.3.0")
+	implementation("org.knowm.xchart:xchart:3.8.8")
 
 	implementation("io.jsonwebtoken:jjwt-api:0.12.6")
 	runtimeOnly("io.jsonwebtoken:jjwt-impl:0.12.6")
