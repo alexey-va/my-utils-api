@@ -211,6 +211,24 @@ class WorkoutToolsService(
 		return "График прогресса отправлен в чат."
 	}
 
+	fun estimateOneRm(
+		chatId: Long,
+		exerciseName: String,
+		performedOn: String?,
+	): String {
+		val messenger =
+			telegramMessenger.getIfAvailable()
+				?: return ToolExecutionFeedback.failure("Telegram недоступен.")
+		val date =
+			when (val resolved = resolvePerformedOn(performedOn)) {
+				is DateResolve.Ok -> resolved.date
+				is DateResolve.Invalid -> return performedOnError(performedOn)
+			}
+		val (png, caption) = workoutBotFacade.renderOneRmEstimate(exerciseName, date)
+		messenger.sendPhoto(chatId, png, caption)
+		return "Карточка 1ПМ отправлена в чат."
+	}
+
 	fun runTool(
 		name: String,
 		chatId: Long,
@@ -292,6 +310,12 @@ class WorkoutToolsService(
 							exerciseName = toolArgs.require("exercise_name"),
 							recentSessions = toolArgs.optionalInt("recent_sessions"),
 						)
+					"estimate_1rm" ->
+						estimateOneRm(
+							chatId = chatId,
+							exerciseName = toolArgs.require("exercise_name"),
+							performedOn = toolArgs.optional("performed_on") ?: toolArgs.optional("date"),
+						)
 					"manage_user_fact" ->
 						manageUserFact(
 							chatId,
@@ -340,6 +364,7 @@ class WorkoutToolsService(
 	private fun camelToSnake(value: String): String =
 		value
 			.replace(Regex("([a-z0-9])([A-Z])")) { "${it.groupValues[1]}_${it.groupValues[2]}" }
+			.replace(Regex("([a-z]+)(\\d+[a-z]*)$")) { "${it.groupValues[1]}_${it.groupValues[2]}" }
 			.lowercase()
 
 	private sealed interface DateResolve {

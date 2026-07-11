@@ -18,6 +18,17 @@ class AgentToolCatalogTest {
 	}
 
 	@Test
+	fun `estimate 1rm is immediate return`() {
+		assertTrue(AgentToolCatalog.isImmediateReturn("estimate_1rm"))
+		assertTrue(AgentToolCatalog.isImmediateReturn("estimate1rm"))
+	}
+
+	@Test
+	fun `estimate 1rm status label`() {
+		assertEquals("Считаю 1ПМ…", AgentToolCatalog.statusLabel("estimate_1rm"))
+	}
+
+	@Test
 	fun `other tools are not immediate return`() {
 		assertTrue(!AgentToolCatalog.isImmediateReturn("log_workout"))
 		assertTrue(!AgentToolCatalog.isImmediateReturn("getDaySummaries"))

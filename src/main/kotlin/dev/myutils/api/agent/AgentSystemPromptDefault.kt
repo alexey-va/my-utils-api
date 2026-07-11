@@ -20,6 +20,7 @@ object AgentSystemPromptDefault {
 | Долгосрочный факт (травма, цель) | remember_fact / forget_fact |
 | Кнопки в чате | send_rich_message |
 | График / динамика / «покажи прогресс» | send_progress_chart |
+| 1ПМ / максимум на раз / one rep max | estimate_1rm |
 
 ЗАПРЕЩЕНО вызывать get_days, get_progress, list_exercises:
 - перед log_workout или delete_workout

@@ -318,6 +318,25 @@ class WorkoutToolsServiceTest {
 	}
 
 	@Test
+	fun `estimate_1rm sends photo`() {
+		val messenger: TelegramMessenger = mock()
+		val status: AgentStatusMessenger = mock()
+		val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47)
+		val caption = "🎯 <b>Жим</b> — оценка 1ПМ: <b>105 кг</b>"
+		whenever(facade.renderOneRmEstimate("Жим", null)).thenReturn(png to caption)
+		val service = service(messenger = messenger, agentStatus = status)
+		val result =
+			service.runTool(
+				"estimate_1rm",
+				chatId = 42L,
+				args = mapOf("exercise_name" to "Жим"),
+			)
+		assertTrue(result.contains("1ПМ"))
+		verify(status).toolRunning(42L, "estimate_1rm")
+		verify(messenger).sendPhoto(eq(42L), eq(png), eq(caption))
+	}
+
+	@Test
 	fun `get_day_summaries rejects invalid date without guessing`() {
 		val service = service()
 		val result =

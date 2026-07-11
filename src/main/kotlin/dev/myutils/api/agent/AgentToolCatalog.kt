@@ -6,6 +6,7 @@ object AgentToolCatalog {
 		setOf(
 			"send_rich_message",
 			"send_progress_chart",
+			"estimate_1rm",
 		)
 
 	/** Человекочитаемый статус в Telegram — у каждого тула своя подпись. */
@@ -25,6 +26,7 @@ object AgentToolCatalog {
 			"manage_user_fact" to "Обновляю память…",
 			"send_rich_message" to "Отправляю сообщение с кнопками…",
 			"send_progress_chart" to "Строю график прогресса…",
+			"estimate_1rm" to "Считаю 1ПМ…",
 			"send_notification" to "Отправляю уведомление…",
 			"schedule_notification" to "Планирую напоминание…",
 			"cancel_notification" to "Отменяю напоминание…",
@@ -44,5 +46,6 @@ object AgentToolCatalog {
 	private fun camelToSnake(value: String): String =
 		value
 			.replace(Regex("([a-z0-9])([A-Z])")) { "${it.groupValues[1]}_${it.groupValues[2]}" }
+			.replace(Regex("([a-z]+)(\\d+[a-z]*)$")) { "${it.groupValues[1]}_${it.groupValues[2]}" }
 			.lowercase()
 }

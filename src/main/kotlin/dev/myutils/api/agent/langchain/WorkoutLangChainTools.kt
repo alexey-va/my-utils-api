@@ -94,6 +94,19 @@ class WorkoutLangChainTools(
 			toolsService.sendProgressChart(chatId, exerciseName, recentSessions)
 		}
 
+	@Tool(
+		"Оценка 1ПМ (одноповторный максимум) по последней или указанной сессии. " +
+			"Карточка с формулами Эпли/Бржицки и рабочими зонами. " +
+			"Когда спрашивают «какой максимум», «1ПМ», «one rep max», «сколько на раз».",
+	)
+	fun estimate1rm(
+		exerciseName: String,
+		date: String? = null,
+	): String =
+		tracked("estimate_1rm") {
+			toolsService.estimateOneRm(chatId, exerciseName, date)
+		}
+
 	@Tool("Сразу отправить сообщение в чат.")
 	fun sendNotification(message: String): String {
 		requireTemporal()

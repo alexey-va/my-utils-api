@@ -45,10 +45,7 @@ class WorkoutChartRenderer {
 		return output.toByteArray()
 	}
 
-	private fun renderPlot(
-		exerciseName: String,
-		sorted: List<Point>,
-	): BufferedImage {
+	private fun renderPlot(sorted: List<Point>): BufferedImage {
 		val xDates = sorted.map { it.date.toChartDate() }
 		val weights = sorted.map { it.weightKg.toDouble() }
 		val maxReps = sorted.map { it.maxReps.toDouble() }

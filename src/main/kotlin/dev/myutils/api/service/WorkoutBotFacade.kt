@@ -28,6 +28,7 @@ class WorkoutBotFacade(
 	private val workoutEntryRepository: WorkoutEntryRepository,
 	private val userRepository: UserRepository,
 	private val chartRenderer: WorkoutChartRenderer,
+	private val oneRmCardRenderer: WorkoutOneRmCardRenderer,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val dateFmt = DateTimeFormatter.ofPattern("dd.MM.yyyy")
@@ -179,6 +180,50 @@ class WorkoutBotFacade(
 		val png = chartRenderer.renderWeightProgress(exercise.name, points)
 		val caption =
 			"📈 <b>${exercise.name}</b> — вес и МАХ за ${points.size} сессий"
+		return png to caption
+	}
+
+	@Transactional(readOnly = true)
+	fun renderOneRmEstimate(
+		exerciseName: String,
+		performedOn: LocalDate? = null,
+	): Pair<ByteArray, String> {
+		val exercise = resolveExercise(exerciseName)
+		val user = localWorkoutUser()
+		val history =
+			workoutEntryRepository.findByUserIdAndExerciseIdOrderByPerformedOnAsc(user.id, exercise.id)
+		if (history.isEmpty()) {
+			throw ResponseStatusException(
+				HttpStatus.BAD_REQUEST,
+				"Нет записей по «${exercise.name}» — сначала залогируй тренировку.",
+			)
+		}
+		val entry =
+			if (performedOn != null) {
+				workoutEntryRepository
+					.findByUserIdAndExerciseIdAndPerformedOn(user.id, exercise.id, performedOn)
+					.orElseThrow {
+						ResponseStatusException(
+							HttpStatus.NOT_FOUND,
+							"Нет записи «${exercise.name}» за ${dateFmt.format(performedOn)}.",
+						)
+					}
+			} else {
+				history.last()
+			}
+		val report = OneRepMaxEstimator.estimateFromEntry(exercise.name, entry, history)
+		val png = oneRmCardRenderer.render(report)
+		val oneRm = report.session.consensusKg
+		val formatted =
+			if (oneRm % 1.0 == 0.0) {
+				oneRm.toInt().toString()
+			} else {
+				"%.1f".format(oneRm)
+			}
+		val set = report.session.bestSet
+		val caption =
+			"🎯 <b>${exercise.name}</b> — оценка 1ПМ: <b>$formatted кг</b> " +
+				"(по ${set.weightKg}×${set.reps})"
 		return png to caption
 	}
 
