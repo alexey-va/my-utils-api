@@ -2,7 +2,7 @@ package dev.myutils.api.agent.memory
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
-import dev.myutils.api.agent.memory.AgentChatTurnService
+import dev.myutils.api.agent.langchain.WorkoutLangChain4jAgent
 import dev.myutils.api.domain.AgentContextSummary
 import dev.myutils.api.domain.AgentContextSummaryRepository
 import dev.myutils.api.domain.AgentConversationMessage
@@ -144,14 +144,26 @@ class AgentMemoryAdminService(
 		chatId: Long,
 		role: String,
 		content: String,
+		images: List<String>? = null,
 	): AgentMemoryMessageDto {
 		val trimmed = content.trim()
-		require(trimmed.isNotEmpty()) { "Текст сообщения не может быть пустым." }
+		val normalizedImages = AgentMessageImages.normalize(images)
+		require(AgentMessageImages.hasPayload(trimmed, normalizedImages)) {
+			"Нужен текст или хотя бы одно изображение."
+		}
 		val normalizedRole = role.trim().lowercase()
 		require(normalizedRole in ALLOWED_APPEND_ROLES) {
 			"role должен быть user, assistant или system."
 		}
-		val dto = ChatMessage(role = normalizedRole, content = trimmed)
+		require(normalizedRole != "system" || normalizedImages.isEmpty()) {
+			"System-сообщения не поддерживают изображения."
+		}
+		val dto =
+			ChatMessage(
+				role = normalizedRole,
+				content = trimmed.ifBlank { null },
+				images = normalizedImages.takeIf { it.isNotEmpty() },
+			)
 		val saved =
 			messageRepository.save(
 				AgentConversationMessage(
@@ -166,7 +178,8 @@ class AgentMemoryAdminService(
 	fun simulateChatTurn(
 		chatId: Long,
 		content: String,
-	): AgentMemoryChatTurnResult = chatTurnService.runSyncTurn(chatId, content)
+		images: List<String>? = null,
+	): AgentMemoryChatTurnResult = chatTurnService.runSyncTurn(chatId, content, images)
 
 	fun compact(
 		chatId: Long,
@@ -246,6 +259,7 @@ class AgentMemoryAdminService(
 			chatId = chatId,
 			role = parsed?.role ?: "unknown",
 			content = parsed?.content,
+			images = parsed?.images?.takeIf { it.isNotEmpty() },
 			toolCallId = parsed?.toolCallId,
 			toolName = parsed?.name,
 			excludedFromContext = excludedFromContext,
@@ -317,6 +331,7 @@ data class AgentMemoryMessageDto(
 	val chatId: Long,
 	val role: String,
 	val content: String?,
+	val images: List<String>? = null,
 	val toolCallId: String?,
 	val toolName: String?,
 	val excludedFromContext: Boolean,

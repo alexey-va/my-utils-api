@@ -18,9 +18,11 @@ data class UpdateMessageExcludedRequest(
 
 data class CreateAgentMessageRequest(
 	@field:NotBlank val role: String,
-	@field:NotBlank val content: String,
+	val content: String = "",
+	val images: List<String>? = null,
 )
 
 data class AgentChatTurnRequest(
-	@field:NotBlank val content: String,
+	val content: String = "",
+	val images: List<String>? = null,
 )

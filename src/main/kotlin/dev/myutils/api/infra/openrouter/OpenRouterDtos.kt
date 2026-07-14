@@ -15,6 +15,8 @@ data class ChatCompletionRequest(
 data class ChatMessage(
 	val role: String,
 	val content: String? = null,
+	/** data:image/…;base64,… URLs for multimodal user turns */
+	val images: List<String>? = null,
 	@JsonProperty("tool_calls")
 	val toolCalls: List<ToolCall>? = null,
 	@JsonProperty("tool_call_id")

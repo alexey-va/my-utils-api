@@ -1,5 +1,8 @@
 package dev.myutils.api.agent.langchain
 
+import dev.myutils.api.agent.AgentToolCatalog
+import dev.myutils.api.agent.ToolArgumentsJsonParser
+import dev.myutils.api.agent.ToolExecutionFeedback
 import dev.myutils.api.agent.WorkoutAgentContextBuilder
 import dev.myutils.api.agent.WorkoutToolsService
 import dev.myutils.api.agent.memory.AgentConversationStore
@@ -12,9 +15,11 @@ import dev.myutils.api.temporal.agent.AgentLlmStepInput
 import dev.myutils.api.temporal.agent.AgentLlmStepResult
 import dev.myutils.api.temporal.agent.RecordToolResultsInput
 import dev.myutils.api.temporal.agent.ToolCallDto
+import dev.myutils.api.temporal.agent.ToolCallResultDto
 import dev.myutils.api.infra.util.LlmRequestLog
 import dev.myutils.api.infra.util.LogPreview
 import dev.myutils.api.temporal.logging.TemporalActivityLog
+import com.fasterxml.jackson.databind.ObjectMapper
 import dev.langchain4j.agent.tool.ToolSpecifications
 import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.ChatMessage as LcChatMessage
@@ -37,6 +42,7 @@ class WorkoutLangChain4jAgent(
 	private val userFacts: AgentUserFactsService,
 	private val contextBuilder: WorkoutAgentContextBuilder,
 	private val toolsService: WorkoutToolsService,
+	private val objectMapper: ObjectMapper,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -73,6 +79,53 @@ class WorkoutLangChain4jAgent(
 		log.info("LangChain4j agent chatId={} reply={}", chatId, LogPreview.of(reply))
 		return reply.trim().ifEmpty { "Готово." }
 	}
+
+	/** Продолжить диалог, когда user message уже в памяти (например с изображением). */
+	fun runFromMemory(chatId: Long): String {
+		val maxSteps = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get().coerceAtLeast(1)
+		var userMessage: String? = null
+		repeat(maxSteps) {
+			val step = llmStep(AgentLlmStepInput(chatId = chatId, userMessage = userMessage))
+			userMessage = null
+			if (!step.hasToolCalls) {
+				return step.reply.trim().ifEmpty { "Готово." }
+			}
+			val results =
+				step.toolCalls.map { call ->
+					ToolCallResultDto(
+						toolCallId = call.id,
+						toolName = call.name,
+						result = executeToolCall(chatId, call),
+					)
+				}
+			recordToolResults(RecordToolResultsInput(chatId = chatId, results = results))
+			if (step.toolCalls.isNotEmpty() && step.toolCalls.all { AgentToolCatalog.isImmediateReturn(it.name) }) {
+				return "Готово."
+			}
+		}
+		return "Слишком много шагов с инструментами, попробуй короче."
+	}
+
+	private fun executeToolCall(
+		chatId: Long,
+		call: ToolCallDto,
+	): String =
+		try {
+			when (val parsed = ToolArgumentsJsonParser.parse(objectMapper, call.argumentsJson)) {
+				is ToolArgumentsJsonParser.ParseResult.Ok ->
+					toolsService.runTool(call.name, chatId, parsed.args)
+				is ToolArgumentsJsonParser.ParseResult.Error ->
+					ToolExecutionFeedback.failure(
+						error = parsed.message,
+						hint = "Исправь arguments JSON и вызови инструмент снова. Даты — строки YYYY-MM-DD в кавычках.",
+					)
+			}
+		} catch (ex: Exception) {
+			log.warn("Direct tool {} failed chatId={}: {}", call.name, chatId, ex.message, ex)
+			ToolExecutionFeedback.failure(
+				error = "Ошибка инструмента ${call.name}: ${ex.message ?: "неизвестная ошибка"}",
+			)
+		}
 
 	/** Один шаг LLM для Temporal workflow (без выполнения tools внутри activity). */
 	fun llmStep(input: AgentLlmStepInput): AgentLlmStepResult {

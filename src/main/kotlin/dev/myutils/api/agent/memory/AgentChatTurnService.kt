@@ -2,6 +2,7 @@ package dev.myutils.api.agent.memory
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import dev.myutils.api.agent.langchain.ChatMemoryMessageMapper
 import dev.myutils.api.agent.langchain.WorkoutLangChain4jAgent
 import dev.myutils.api.domain.AgentConversationMessage
 import dev.myutils.api.domain.AgentConversationMessageRepository
@@ -20,17 +21,31 @@ class AgentChatTurnService(
 	private val properties: MyUtilsProperties,
 	private val temporalWorkflow: ObjectProvider<TemporalWorkflowService>,
 	private val langChainAgent: ObjectProvider<WorkoutLangChain4jAgent>,
+	private val conversationStore: ObjectProvider<AgentConversationStore>,
 	private val messageRepository: AgentConversationMessageRepository,
 	private val objectMapper: ObjectMapper,
 ) {
 	fun runSyncTurn(
 		chatId: Long,
 		text: String,
+		images: List<String>? = null,
 	): AgentMemoryChatTurnResult {
 		val trimmed = text.trim()
-		require(trimmed.isNotEmpty()) { "Текст сообщения не может быть пустым." }
+		val normalizedImages = AgentMessageImages.normalize(images)
+		require(AgentMessageImages.hasPayload(trimmed, normalizedImages)) {
+			"Нужен текст или хотя бы одно изображение."
+		}
 		val afterId = messageRepository.maxIdByChatId(chatId)
 		val userId = resolveUserId()
+		val hasImages = normalizedImages.isNotEmpty()
+
+		if (hasImages) {
+			val userMessage =
+				AgentMessageImages.toUserMessage(trimmed, normalizedImages)
+					?: throw IllegalArgumentException("Не удалось собрать user message.")
+			conversationStore.getIfAvailable()?.append(chatId, listOf(userMessage))
+				?: persistUserMessage(chatId, trimmed, normalizedImages)
+		}
 
 		val temporal = temporalWorkflow.getIfAvailable()
 		if (temporal != null && properties.temporal.enabled) {
@@ -38,7 +53,7 @@ class AgentChatTurnService(
 				AgentTurnInput(
 					chatId = chatId,
 					userId = userId,
-					text = trimmed,
+					text = if (hasImages) "" else trimmed,
 					maxToolIterations = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get(),
 					deliverToTelegram = false,
 				),
@@ -50,7 +65,11 @@ class AgentChatTurnService(
 						HttpStatus.SERVICE_UNAVAILABLE,
 						"Агент недоступен (Telegram-бот / OpenRouter не настроен).",
 					)
-			agent.run(chatId, trimmed)
+			if (hasImages) {
+				agent.runFromMemory(chatId)
+			} else {
+				agent.run(chatId, trimmed)
+			}
 		}
 
 		val newMessages =
@@ -59,6 +78,25 @@ class AgentChatTurnService(
 		return AgentMemoryChatTurnResult(
 			reply = reply,
 			messages = newMessages.map { it.toDto() },
+		)
+	}
+
+	private fun persistUserMessage(
+		chatId: Long,
+		content: String,
+		images: List<String>,
+	) {
+		val dto =
+			ChatMessage(
+				role = "user",
+				content = content.ifBlank { null },
+				images = images,
+			)
+		messageRepository.save(
+			AgentConversationMessage(
+				chatId = chatId,
+				messageJson = objectMapper.writeValueAsString(dto),
+			),
 		)
 	}
 
@@ -83,6 +121,7 @@ class AgentChatTurnService(
 			chatId = chatId,
 			role = parsed?.role ?: "unknown",
 			content = parsed?.content,
+			images = parsed?.images?.takeIf { it.isNotEmpty() },
 			toolCallId = parsed?.toolCallId,
 			toolName = parsed?.name,
 			excludedFromContext = excludedFromContext,

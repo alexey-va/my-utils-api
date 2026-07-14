@@ -2,6 +2,8 @@ package dev.myutils.api.agent.langchain
 
 import dev.langchain4j.agent.tool.ToolExecutionRequest
 import dev.langchain4j.data.message.AiMessage
+import dev.langchain4j.data.message.ImageContent
+import dev.langchain4j.data.message.TextContent
 import dev.langchain4j.data.message.ToolExecutionResultMessage
 import dev.langchain4j.data.message.UserMessage
 import dev.myutils.api.infra.openrouter.ChatMessage
@@ -96,5 +98,51 @@ class ChatMemoryMessageMapperTest {
 
 		assertEquals("user", dto.role)
 		assertEquals("жим 70", restored.singleText())
+	}
+
+	@Test
+	fun `round-trips user message with image`() {
+		val dataUrl = "data:image/png;base64,abc"
+		val original = UserMessage.from(TextContent.from("смотри"), ImageContent.from(dataUrl))
+
+		val dto = ChatMemoryMessageMapper.toDto(original)!!
+		val restored = ChatMemoryMessageMapper.toLangChain(dto) as UserMessage
+
+		assertEquals("смотри", dto.content)
+		assertEquals(listOf(dataUrl), dto.images)
+		assertEquals("смотри", userMessageText(restored))
+		assertTrue(restored.contents().any { it is ImageContent })
+	}
+
+	@Test
+	fun `restores stored chat message with images field`() {
+		val dto =
+			ChatMessage(
+				role = "user",
+				content = "фото",
+				images = listOf("data:image/jpeg;base64,xyz"),
+			)
+
+		val restored = ChatMemoryMessageMapper.toLangChain(dto) as UserMessage
+
+		assertEquals("фото", userMessageText(restored))
+		assertTrue(restored.contents().any { it is ImageContent })
+	}
+
+	private fun userMessageText(message: UserMessage): String? {
+		if (message.hasSingleText()) {
+			return message.singleText().trim().ifBlank { null }
+		}
+		return message
+			.contents()
+			.mapNotNull { part ->
+				if (part is TextContent) {
+					part.text().trim()
+				} else {
+					null
+				}
+			}.joinToString("\n")
+			.trim()
+			.ifBlank { null }
 	}
 }

@@ -50,13 +50,13 @@ class AdminAgentMemoryController(
 	fun appendMessage(
 		@PathVariable chatId: Long,
 		@Valid @RequestBody body: CreateAgentMessageRequest,
-	): AgentMemoryMessageDto = service.appendMessage(chatId, body.role, body.content)
+	): AgentMemoryMessageDto = service.appendMessage(chatId, body.role, body.content, body.images)
 
 	@PostMapping("/chats/{chatId}/chat")
 	fun simulateChatTurn(
 		@PathVariable chatId: Long,
 		@Valid @RequestBody body: AgentChatTurnRequest,
-	): AgentMemoryChatTurnResult = service.simulateChatTurn(chatId, body.content)
+	): AgentMemoryChatTurnResult = service.simulateChatTurn(chatId, body.content, body.images)
 
 	@PostMapping("/chats/{chatId}/facts")
 	fun createFact(

@@ -4,8 +4,10 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest
 import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.ChatMessage as LcChatMessage
 import dev.langchain4j.data.message.SystemMessage
+import dev.langchain4j.data.message.TextContent
 import dev.langchain4j.data.message.ToolExecutionResultMessage
 import dev.langchain4j.data.message.UserMessage
+import dev.myutils.api.agent.memory.AgentMessageImages
 import dev.myutils.api.infra.openrouter.ChatMessage
 import dev.myutils.api.infra.openrouter.ToolCall
 import dev.myutils.api.infra.openrouter.ToolCallFunction
@@ -13,7 +15,7 @@ import dev.myutils.api.infra.openrouter.ToolCallFunction
 internal object ChatMemoryMessageMapper {
 	fun toLangChain(dto: ChatMessage): LcChatMessage? =
 		when (dto.role.lowercase()) {
-			"user" -> dto.content?.let { UserMessage.from(it) }
+			"user" -> AgentMessageImages.toUserMessage(dto.content, dto.images)
 			"assistant" -> dto.toAiMessage()
 			"tool" -> dto.toToolResultMessage()
 			"system" -> dto.content?.let { SystemMessage.from(it) }
@@ -22,7 +24,12 @@ internal object ChatMemoryMessageMapper {
 
 	fun toDto(message: LcChatMessage): ChatMessage? =
 		when (message) {
-			is UserMessage -> ChatMessage(role = "user", content = message.singleText())
+			is UserMessage ->
+				ChatMessage(
+					role = "user",
+					content = userMessageText(message),
+					images = AgentMessageImages.fromUserMessage(message).takeIf { it.isNotEmpty() },
+				)
 			is AiMessage -> message.toDto()
 			is SystemMessage -> ChatMessage(role = "system", content = message.text())
 			is ToolExecutionResultMessage ->
@@ -34,6 +41,23 @@ internal object ChatMemoryMessageMapper {
 				)
 			else -> null
 		}
+
+	private fun userMessageText(message: UserMessage): String? {
+		if (message.hasSingleText()) {
+			return message.singleText().trim().ifBlank { null }
+		}
+		return message
+			.contents()
+			.mapNotNull { part ->
+				if (part is TextContent) {
+					part.text().trim()
+				} else {
+					null
+				}
+			}.joinToString("\n")
+			.trim()
+			.ifBlank { null }
+	}
 
 	private fun ChatMessage.toAiMessage(): AiMessage? {
 		val requests =
