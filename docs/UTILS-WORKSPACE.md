@@ -1,6 +1,6 @@
 # AGENTS.md — utils (monorepo)
 
-Два репозитория под `utils/`: **SPA** + **API**. Деплой на `utils.alexeyav.ru` через Jenkins.
+Два репозитория под `utils/`: **SPA** + **API**. Деплой на `utils.alexeyav.ru` через **Woodpecker CI** (`git push origin main`).
 
 ## Репозитории
 
@@ -21,7 +21,7 @@
 | https://temporal.alexeyav.ru | Temporal UI |
 | https://utils.alexeyav.ru/grafana/ | Grafana (логи API в Loki) |
 
-Jenkins: `MyUtils` (фронт), `MyUtilsApi` (API). Сервер: SSH host `Timeweb`, compose в Jenkins workspace.
+Woodpecker: `.woodpecker.yml` в каждом репо. Сервер: SSH host `Timeweb`.
 
 ## Типичные задачи
 
@@ -32,7 +32,7 @@ Jenkins: `MyUtils` (фронт), `MyUtilsApi` (API). Сервер: SSH host `Tim
 | Telegram / агент | `my-utils-api` → `agent/`, `temporal/agent/` |
 | Тесты API | `@MyUtilsSpringTest(environment = TESTING)` + testkit |
 | Логи в Grafana | Loki `{app="my-utils-api"}`, дашборд `myutils-api-logs` |
-| Деплой | push `main` → Jenkins build |
+| Деплой | `git push origin main` → Woodpecker |
 
 ## Не путать
 

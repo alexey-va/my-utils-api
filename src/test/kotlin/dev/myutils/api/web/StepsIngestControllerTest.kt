@@ -40,5 +40,25 @@ class StepsIngestControllerTest : IntegrationTestBase() {
 		assertEquals(200, response.status)
 		assertTrue(response.contentAsString.contains("\"ok\":true"))
 		assertTrue(response.contentAsString.contains("8432"))
+		assertTrue(response.contentAsString.contains("\"source\":\"structured\""))
+	}
+
+	@Test
+	fun `parses apple shortcut multiline payload`() {
+		val payload = mapOf("" to "5780\n4464\n8065")
+
+		val response =
+			mockMvc
+				.post("/api/health/steps") {
+					contentType = MediaType.APPLICATION_JSON
+					content = objectMapper.writeValueAsString(payload)
+				}.andReturn()
+				.response
+
+		assertEquals(200, response.status)
+		assertTrue(response.contentAsString.contains("\"source\":\"apple-shortcut-multiline\""))
+		assertTrue(response.contentAsString.contains("\"todaySteps\":8065"))
+		assertTrue(response.contentAsString.contains("\"date\":\"2026-07-14\""))
+		assertTrue(response.contentAsString.contains("\"savedDays\""))
 	}
 }
