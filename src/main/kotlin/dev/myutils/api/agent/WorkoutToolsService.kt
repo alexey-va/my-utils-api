@@ -2,6 +2,9 @@ package dev.myutils.api.agent
 
 import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.observability.AgentMetrics
+import dev.myutils.api.infra.util.LogPreview
+import dev.myutils.api.properties.AppProperties
+import dev.myutils.api.service.HealthBodyWeightService
 import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_DAY_SUMMARIES
 import dev.myutils.api.service.WorkoutBotFacade.Companion.MAX_EXERCISE_PROGRESS
@@ -9,18 +12,20 @@ import dev.myutils.api.telegram.AgentStatusMessenger
 import dev.myutils.api.telegram.TelegramButtonParser
 import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.temporal.TemporalNotificationFacade
-import dev.myutils.api.infra.util.LogPreview
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.stereotype.Service
 import org.springframework.web.server.ResponseStatusException
+import java.math.BigDecimal
 import java.time.LocalDate
+import java.time.ZoneId
 import java.time.format.DateTimeParseException
 import java.time.temporal.ChronoUnit
 
 @Service
 class WorkoutToolsService(
 	private val workoutBotFacade: WorkoutBotFacade,
+	private val healthBodyWeightService: HealthBodyWeightService,
 	private val temporalNotificationFacade: TemporalNotificationFacade,
 	private val agentMetrics: AgentMetrics,
 	private val telegramMessenger: ObjectProvider<TelegramMessenger>,
@@ -229,6 +234,30 @@ class WorkoutToolsService(
 		return result.agentSummary
 	}
 
+	fun logBodyWeight(
+		weightKg: String,
+		performedOn: String?,
+	): String {
+		val kg =
+			try {
+				BigDecimal(weightKg.trim().replace(',', '.'))
+			} catch (_: NumberFormatException) {
+				return ToolExecutionFeedback.failure("Неверный вес: $weightKg (например 82.5)")
+			}
+		val date =
+			when (val resolved = resolvePerformedOn(performedOn)) {
+				is DateResolve.Ok -> resolved.date ?: today()
+				is DateResolve.Invalid -> return performedOnError(performedOn)
+			}
+		val saved = healthBodyWeightService.upsert(kg, date)
+		return healthBodyWeightService.formatLogResult(date, saved.weightKg, saved.created)
+	}
+
+	fun getBodyWeight(recentDays: Int?): String {
+		val days = (recentDays ?: 14).coerceIn(1, 90)
+		return healthBodyWeightService.agentSummary(today = today(), recentDays = days)
+	}
+
 	fun runTool(
 		name: String,
 		chatId: Long,
@@ -316,6 +345,12 @@ class WorkoutToolsService(
 							exerciseName = toolArgs.require("exercise_name"),
 							performedOn = toolArgs.optional("performed_on") ?: toolArgs.optional("date"),
 						)
+					"log_body_weight" ->
+						logBodyWeight(
+							weightKg = toolArgs.require("weight_kg"),
+							performedOn = toolArgs.optional("performed_on") ?: toolArgs.optional("date"),
+						)
+					"get_body_weight" -> getBodyWeight(toolArgs.optionalInt("recent_days"))
 					"manage_user_fact" ->
 						manageUserFact(
 							chatId,
@@ -520,4 +555,6 @@ class WorkoutToolsService(
 	private fun requireUserFacts(): AgentUserFactsService =
 		userFacts.getIfAvailable()
 			?: throw IllegalStateException("Память фактов недоступна (Telegram-бот выключен).")
+
+	private fun today(): LocalDate = LocalDate.now(ZoneId.of(AppProperties.TEMPORAL_ZONE_ID.get()))
 }

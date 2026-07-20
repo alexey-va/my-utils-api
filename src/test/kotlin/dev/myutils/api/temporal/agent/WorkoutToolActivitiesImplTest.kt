@@ -42,6 +42,7 @@ class WorkoutToolActivitiesImplTest {
 		val realTools =
 			WorkoutToolsService(
 				workoutBotFacade = mock(),
+				healthBodyWeightService = mock(),
 				temporalNotificationFacade = mock(),
 				agentMetrics = AgentMetrics(SimpleMeterRegistry()),
 				telegramMessenger = messengerProvider,

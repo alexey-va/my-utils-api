@@ -19,6 +19,7 @@ object WorkoutAgentSnapshotFormatter {
 		progressSessionsPerExercise: Int,
 		todaySummary: String,
 		yesterdaySummary: String,
+		bodyWeightSummary: String? = null,
 	): String {
 		val weekStart = WorkoutMuscleGroups.weekStartMonday(today)
 		val weekEnd = weekStart.plusDays(6)
@@ -44,6 +45,11 @@ object WorkoutAgentSnapshotFormatter {
 			appendLine(nowLine)
 			appendLine("Сегодня: $today, неделя: ${dateFmt.format(weekStart)}–${dateFmt.format(weekEnd)}")
 			appendLine()
+			if (!bodyWeightSummary.isNullOrBlank()) {
+				appendLine("### Вес тела")
+				appendLine(bodyWeightSummary)
+				appendLine()
+			}
 			appendLine("### Список упражнений (${exercises.size})")
 			appendExerciseCatalog(exercises)
 			appendLine()

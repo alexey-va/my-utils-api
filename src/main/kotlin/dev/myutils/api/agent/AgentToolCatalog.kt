@@ -21,6 +21,8 @@ object AgentToolCatalog {
 			"get_progress" to "Получаю прогресс…",
 			"get_day_summaries" to "Получаю статистику по дням…",
 			"get_days" to "Получаю статистику по дням…",
+			"log_body_weight" to "Записываю вес тела…",
+			"get_body_weight" to "Смотрю вес тела…",
 			"remember_fact" to "Запоминаю факт…",
 			"forget_fact" to "Удаляю из памяти…",
 			"manage_user_fact" to "Обновляю память…",

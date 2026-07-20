@@ -2,24 +2,28 @@ package dev.myutils.api.agent
 
 import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.observability.AgentMetrics
-import dev.myutils.api.service.WorkoutBotFacade
+import dev.myutils.api.service.HealthBodyWeightService
 import dev.myutils.api.service.OneRmEstimateResult
+import dev.myutils.api.service.WorkoutBotFacade
 import dev.myutils.api.telegram.AgentStatusMessenger
 import dev.myutils.api.telegram.TelegramMessenger
 import dev.myutils.api.temporal.TemporalNotificationFacade
-import org.springframework.beans.factory.ObjectProvider
+import dev.myutils.api.web.dto.UpsertBodyWeightResponse
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
-import java.time.LocalDate
 import org.junit.jupiter.api.Test
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
 import org.mockito.kotlin.whenever
+import org.springframework.beans.factory.ObjectProvider
+import java.math.BigDecimal
+import java.time.LocalDate
 
 class WorkoutToolsServiceTest {
 	private val facade: WorkoutBotFacade = mock()
+	private val bodyWeight: HealthBodyWeightService = mock()
 	private val notifications: TemporalNotificationFacade = mock()
 
 	private fun service(
@@ -35,6 +39,7 @@ class WorkoutToolsServiceTest {
 		whenever(agentStatusProvider.getIfAvailable()).thenReturn(agentStatus)
 		return WorkoutToolsService(
 			facade,
+			bodyWeight,
 			notifications,
 			AgentMetrics(SimpleMeterRegistry()),
 			messengerProvider,
@@ -403,5 +408,38 @@ class WorkoutToolsServiceTest {
 			service.runTool("getDaySummary", 1L, emptyMap()).contains("Неизвестный инструмент"),
 		)
 		assertTrue(ToolExecutionFeedback.isFailure(service.runTool("getExerciseProgress", 1L, emptyMap())))
+	}
+
+	@Test
+	fun `log_body_weight upserts weight`() {
+		val date = LocalDate.parse("2026-07-20")
+		whenever(bodyWeight.upsert(BigDecimal("82.5"), date))
+			.thenReturn(
+				UpsertBodyWeightResponse(
+					date = date.toString(),
+					weightKg = BigDecimal("82.5"),
+					created = true,
+				),
+			)
+		whenever(bodyWeight.formatLogResult(date, BigDecimal("82.5"), true))
+			.thenReturn("Записан вес тела: 82.5 кг (20.07.2026).")
+		val service = service()
+		val result =
+			service.runTool(
+				"log_body_weight",
+				chatId = 1L,
+				args = mapOf("weight_kg" to "82.5", "date" to "2026-07-20"),
+			)
+		assertTrue(result.contains("82.5"))
+		verify(bodyWeight).upsert(BigDecimal("82.5"), date)
+	}
+
+	@Test
+	fun `get_body_weight returns summary`() {
+		whenever(bodyWeight.agentSummary(org.mockito.kotlin.any(), eq(14)))
+			.thenReturn("Последний: 82 кг")
+		val service = service()
+		val result = service.runTool("get_body_weight", chatId = 1L, args = emptyMap())
+		assertTrue(result.contains("82"))
 	}
 }

@@ -29,6 +29,7 @@ class WorkoutBotFacade(
 	private val userRepository: UserRepository,
 	private val chartRenderer: WorkoutChartRenderer,
 	private val oneRmCardRenderer: WorkoutOneRmCardRenderer,
+	private val healthBodyWeightService: HealthBodyWeightService,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val dateFmt = DateTimeFormatter.ofPattern("dd.MM.yyyy")
@@ -248,6 +249,7 @@ class WorkoutBotFacade(
 			progressSessionsPerExercise = AppProperties.AGENT_CONTEXT_PROGRESS_SESSIONS.get(),
 			todaySummary = getDaySummary(today),
 			yesterdaySummary = getDaySummary(yesterday),
+			bodyWeightSummary = healthBodyWeightService.agentSummary(today = today, recentDays = 14),
 		)
 	}
 

@@ -64,6 +64,27 @@ class WorkoutLangChainTools(
 	@Tool("Записи за дни. days — даты YYYY-MM-DD через запятую. Без days — сегодня.")
 	fun getDays(days: String? = null): String = tracked("get_day_summaries") { toolsService.getDaySummaries(days) }
 
+	@Tool(
+		"Записать вес тела (не вес на штанге). weightKg — кг, например 82.5. " +
+			"date — YYYY-MM-DD, по умолчанию сегодня. Когда говорят «взвесился», «мой вес».",
+	)
+	fun logBodyWeight(
+		weightKg: Double,
+		date: String? = null,
+	): String =
+		tracked("log_body_weight") {
+			toolsService.logBodyWeight(weightKg = weightKg.toString(), performedOn = date)
+		}
+
+	@Tool(
+		"История веса тела за последние дни. recentDays — сколько дней смотреть (по умолчанию 14). " +
+			"Если в снимке уже есть блок «Вес тела» — не вызывай без нужды.",
+	)
+	fun getBodyWeight(recentDays: Int? = 14): String =
+		tracked("get_body_weight") {
+			toolsService.getBodyWeight(recentDays)
+		}
+
 	@Tool("Запомнить факт о пользователе (цель, травма, предпочтение). Не для разовых тренировок.")
 	fun rememberFact(content: String): String =
 		tracked("remember_fact") {
