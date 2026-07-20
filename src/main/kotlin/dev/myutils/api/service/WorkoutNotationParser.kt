@@ -5,7 +5,8 @@ package dev.myutils.api.service
  *
  * Примеры:
  * - `70 3*10/12` — 3 рабочих + МАХ (4 подхода)
- * - `70 8/12` — два подхода 8 и 12
+ * - `70 10/12` — то же shorthand: 3×10 + МАХ 12 (не два подхода)
+ * - `70 10/10` — ровно два подхода по 10
  * - `70 7/7/7` — три подхода по 7
  * - `70/75/80 10/10/10` — разный вес на каждый подход
  */
@@ -37,11 +38,11 @@ object WorkoutNotationParser {
 		val variable =
 			Regex("""^([\d./]+)\s+([\d/,]+)$""").matchEntire(notation)
 				?: throw IllegalArgumentException(
-					"Не понял notation «$raw». Примеры: 70 3*10/12, 70 8/12, 70 7/7/7, 70/75/80 10/10/10",
+					"Не понял notation «$raw». Примеры: 70 3*10/12, 70 10/12, 70 10/10, 70 7/7/7, 70/75/80 10/10/10",
 				)
 
 		val left = parseNumberList(variable.groupValues[1])
-		val right = parseNumberList(variable.groupValues[2])
+		val right = expandRepsShorthand(parseNumberList(variable.groupValues[2]))
 
 		return when {
 			left.size > 1 && right.size > 1 -> {
@@ -53,9 +54,22 @@ object WorkoutNotationParser {
 			left.size == 1 -> toParsed(left.first(), null, right)
 			else ->
 				throw IllegalArgumentException(
-					"Не понял notation «$raw». Укажи вес и повторы: 70 8/12 или 70/75/80 10/10/10",
+					"Не понял notation «$raw». Укажи вес и повторы: 70 3*10/12, 70 10/12 или 70/75/80 10/10/10",
 				)
 		}
+	}
+
+	/**
+	 * `A/B` с разными числами — shorthand дневника: 3×A + МАХ B.
+	 * `A/A` — ровно два одинаковых подхода. Три и больше — как есть.
+	 */
+	internal fun expandRepsShorthand(reps: List<Int>): List<Int> {
+		if (reps.size == 2 && reps[0] != reps[1]) {
+			val working = reps[0]
+			val maxReps = reps[1]
+			return listOf(working, working, working, maxReps)
+		}
+		return reps
 	}
 
 	private fun parseNumberList(raw: String): List<Int> =

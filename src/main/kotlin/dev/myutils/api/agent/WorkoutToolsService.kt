@@ -540,7 +540,7 @@ class WorkoutToolsService(
 	private fun resolveLogNotation(toolArgs: Map<String, String?>): String {
 		toolArgs.optional("notation")?.let { return it }
 		val weight = toolArgs.optionalInt("weight_kg")
-			?: throw IllegalArgumentException("Нужно поле notation (например 70 3*10/12 или 70 8/12)")
+			?: throw IllegalArgumentException("Нужно поле notation (например 70 3*10/12 или 70 10/12)")
 		toolArgs.optional("set_reps")?.let { setReps ->
 			return "$weight $setReps"
 		}

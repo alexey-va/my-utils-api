@@ -13,10 +13,17 @@ class WorkoutNotationParserTest {
 	}
 
 	@Test
-	fun `parses two sets without classic format`() {
-		val parsed = WorkoutNotationParser.parse("70 8/12")
-		assertEquals(listOf(8, 12), parsed.reps)
-		assertEquals("70 кг 8/12", WorkoutSetReps.displayRu(parsed.weightKg, parsed.reps))
+	fun `parses A slash B shorthand as 3 working plus max`() {
+		val parsed = WorkoutNotationParser.parse("70 10/12")
+		assertEquals(listOf(10, 10, 10, 12), parsed.reps)
+		assertEquals("70 кг 3*10/12", WorkoutSetReps.displayRu(parsed.weightKg, parsed.reps))
+	}
+
+	@Test
+	fun `parses equal two sets literally`() {
+		val parsed = WorkoutNotationParser.parse("70 10/10")
+		assertEquals(listOf(10, 10), parsed.reps)
+		assertEquals("70 кг 10/10", WorkoutSetReps.displayRu(parsed.weightKg, parsed.reps))
 	}
 
 	@Test

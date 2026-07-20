@@ -80,12 +80,12 @@ class WorkoutToolsServiceTest {
 	}
 
 	@Test
-	fun `log_workout parses two-set notation`() {
+	fun `log_workout passes A slash B notation through`() {
 		whenever(
 			facade.logWorkout(
 				exerciseName = "Жим грудь",
 				performedOn = LocalDate.parse("2026-07-11"),
-				notation = "70 8/12",
+				notation = "70 10/12",
 			),
 		).thenReturn("Записано: Жим грудь")
 		val service = service()
@@ -96,7 +96,7 @@ class WorkoutToolsServiceTest {
 				args =
 					mapOf(
 						"exerciseName" to "Жим грудь",
-						"notation" to "70 8/12",
+						"notation" to "70 10/12",
 						"date" to "2026-07-11",
 					),
 			)
