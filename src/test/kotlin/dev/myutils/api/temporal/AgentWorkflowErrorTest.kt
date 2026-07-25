@@ -10,13 +10,11 @@ import dev.myutils.api.temporal.agent.WorkoutAgentWorkflow
 import dev.myutils.api.temporal.agent.WorkoutAgentWorkflowImpl
 import dev.myutils.api.temporal.agent.WorkoutToolActivities
 import dev.myutils.api.temporal.telegram.TelegramActivities
-import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowOptions
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import java.time.Duration
 
 class AgentWorkflowErrorTest {
 	private lateinit var testEnv: io.temporal.testing.TestWorkflowEnvironment
@@ -93,8 +91,7 @@ class AgentWorkflowErrorTest {
 					.setWorkflowId("test-agent-error-notify")
 					.build(),
 			)
-		WorkflowClient.start(stub::handleTurn, input)
-		testEnv.sleep(Duration.ofSeconds(10))
+		stub.handleTurn(input)
 
 		assertTrue(sentMessages.any { it.contains("❌ Не удалось обработать запрос") })
 	}

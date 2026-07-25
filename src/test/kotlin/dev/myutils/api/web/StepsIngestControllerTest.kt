@@ -1,6 +1,7 @@
 package dev.myutils.api.web
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.testkit.IntegrationTestBase
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -10,6 +11,8 @@ import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMock
 import org.springframework.http.MediaType
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.post
+import java.time.LocalDate
+import java.time.ZoneId
 
 @AutoConfigureMockMvc
 class StepsIngestControllerTest : IntegrationTestBase() {
@@ -46,6 +49,7 @@ class StepsIngestControllerTest : IntegrationTestBase() {
 	@Test
 	fun `parses apple shortcut multiline payload`() {
 		val payload = mapOf("" to "5780\n4464\n8065")
+		val expectedToday = LocalDate.now(ZoneId.of(AppProperties.TEMPORAL_ZONE_ID.get()))
 
 		val response =
 			mockMvc
@@ -58,7 +62,7 @@ class StepsIngestControllerTest : IntegrationTestBase() {
 		assertEquals(200, response.status)
 		assertTrue(response.contentAsString.contains("\"source\":\"apple-shortcut-multiline\""))
 		assertTrue(response.contentAsString.contains("\"todaySteps\":8065"))
-		assertTrue(response.contentAsString.contains("\"date\":\"2026-07-14\""))
+		assertTrue(response.contentAsString.contains("\"date\":\"$expectedToday\""))
 		assertTrue(response.contentAsString.contains("\"savedDays\""))
 	}
 }

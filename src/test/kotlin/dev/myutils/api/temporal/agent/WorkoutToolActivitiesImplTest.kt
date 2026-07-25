@@ -22,8 +22,9 @@ class WorkoutToolActivitiesImplTest {
 	private val toolsService = mock<WorkoutToolsService>()
 	private val openTelemetryProvider = mock<ObjectProvider<OpenTelemetry>>()
 	private val genAiTracing =
-		GenAiTracing(openTelemetryProvider).also {
-			whenever(openTelemetryProvider.getIfAvailable()).thenReturn(OpenTelemetry.noop())
+		run {
+			whenever(openTelemetryProvider.getIfAvailable(any())).thenReturn(OpenTelemetry.noop())
+			GenAiTracing(openTelemetryProvider)
 		}
 	private val activities =
 		WorkoutToolActivitiesImpl(
