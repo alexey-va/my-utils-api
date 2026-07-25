@@ -2,7 +2,9 @@
 
 Kotlin/Spring Boot REST API for [my-utils](https://github.com/alexey-va/my-utils).
 
-**Для агентов / разработки:** [AGENTS.md](AGENTS.md) · **Схема:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (кратко).
+**Для разработки:** [AGENTS.md](AGENTS.md) ·
+**Документация:** [docs/README.md](docs/README.md) ·
+**Архитектура:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Stack
 
@@ -64,11 +66,18 @@ Workers and workflows live in `dev.myutils.api.temporal`. Task queue: `myutils-m
 | `MYUTILS_TEMPORAL_ENABLED` | `true` | Connect workers to Temporal |
 | `TEMPORAL_TARGET` | `temporal:7233` | Temporal frontend address |
 
-Evening reminder, model, TTL — **runtime settings** in Postgres (`PUT /api/admin/settings/{key}`, JWT). See `docs/ARCHITECTURE.md`.
+Evening reminder, model, TTL — **runtime settings** in Postgres
+(`PUT /api/admin/settings/{key}`). Текущая политика доступа описана в
+`docs/ARCHITECTURE.md`; не предполагайте JWT-защиту без проверки
+`SecurityConfig`.
 
 **Host dev** (`./gradlew bootRun`): infra + Temporal via `docker compose -f docker-compose.dev.yml up -d`, set `TEMPORAL_TARGET=127.0.0.1:7233` in `.env`.
 
-**Jenkins** deploy starts Temporal + UI (`127.0.0.1:17233` gRPC, `127.0.0.1:18233` UI) with workers enabled. Agent tools: `send_notification`, `schedule_notification`, `cancel_notification`.
+Production compose topology starts Temporal + UI
+(`127.0.0.1:17233` gRPC, `127.0.0.1:18233` UI) with workers enabled. Файл
+сохраняет историческое имя `docker-compose.jenkins.yml`, но deployment
+запускается Woodpecker pipeline из `.woodpecker.yml`. Agent tools:
+`send_notification`, `schedule_notification`, `cancel_notification`.
 
 ## Local development (Gradle on host)
 
@@ -100,6 +109,15 @@ Requires Postgres + Redis on localhost (use either compose file):
 docker compose -f docker-compose.dev.yml up -d
 ./gradlew test
 ```
+
+Перед завершением изменения также выполните:
+
+```bash
+git diff --check
+```
+
+Тесты используют профиль `testing` и локальные PostgreSQL/Redis. Внешние
+запросы к Telegram и OpenRouter заменяются тестовыми клиентами.
 
 ## Dev login
 
@@ -141,3 +159,21 @@ Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, and `OPENROUTER_API_KEY` 
 Example message: `bench 80kg 3x5` or `сегодня присед 100 на 5х5`.
 
 **Get your Telegram user id:** message [@userinfobot](https://t.me/userinfobot).
+
+## Deployment
+
+Push в `main` запускает Woodpecker pipeline, который вызывает серверный
+`deploy-my-utils-api.sh`. Push является production-действием и не заменяет
+локальные тесты.
+
+Compose-файлы:
+
+| File | Purpose |
+| --- | --- |
+| `docker-compose.yml` | полный локальный stack |
+| `docker-compose.dev.yml` | инфраструктура для запуска API через Gradle |
+| `docker-compose.jenkins.yml` | production topology; имя сохранено исторически |
+| `docker-compose.bundled.yml` | bundled deployment variant |
+| `docker-compose.utils.yml` | shared/utility deployment variant |
+
+Не изменяйте production secrets или серверные файлы через документацию.

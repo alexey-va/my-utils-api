@@ -1,41 +1,75 @@
-# AGENTS.md — utils (monorepo)
+# my-utils frontend/backend contract
 
-Два репозитория под `utils/`: **SPA** + **API**. Деплой на `utils.alexeyav.ru` через **Woodpecker CI** (`git push origin main`).
+`my-utils` и `my-utils-api` образуют один продукт, но находятся в независимых
+Git-репозиториях. Этот документ описывает границу между ними; внутренняя
+архитектура backend находится в [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-## Репозитории
+## Ownership
 
-| Путь | GitHub | Назначение |
-|------|--------|------------|
-| `my-utils/` | alexey-va/my-utils | Vite + React + Refine, порт 13082 |
-| `my-utils-api/` | alexey-va/my-utils-api | Kotlin Spring Boot, порт 18080 |
-| `jenkins/` | в my-utils-api или локально | nginx, job XML, DEPLOY-alexeyav.md |
-| `observability/` | в my-utils-api | Loki/Promtail/Grafana configs |
+| Concern | Frontend (`my-utils`) | Backend (`my-utils-api`) |
+| --- | --- | --- |
+| UI routes and tabs | `src/config/featureCatalog.tsx` | — |
+| REST paths | `src/api/endpoints.ts` | `web/*Controller.kt` |
+| Client payload types | `src/api/types.ts`, feature API modules | `web/dto/` |
+| Authentication state | `src/auth/session.ts` | JWT + Redis session |
+| Workout UI/data fetching | `src/features/workout/` | `WorkoutController`, `WorkoutService` |
+| Runtime settings UI | `src/features/properties/` | `AdminSettingsController` |
+| Agent-memory UI | `src/features/agents/` | `AdminAgentMemoryController` |
+| Grafana/Temporal embeds | `src/config/grafana.ts`, `temporal.ts` | production infrastructure |
 
-**Читай модульный AGENTS.md** — там детали разработки. Этот файл — только карта.
+## Stable production paths
 
-## Прод
+| Browser path | Destination |
+| --- | --- |
+| `/` | SPA workout page |
+| `/api/**` | Spring Boot API |
+| `/grafana/**` | Grafana |
+| `/temporal/**` | Temporal UI |
+| `/workflows` | SPA page embedding `/temporal/` |
 
-| URL | Что |
-|-----|-----|
-| https://utils.alexeyav.ru | UI + `/api` |
-| https://temporal.alexeyav.ru | Temporal UI |
-| https://utils.alexeyav.ru/grafana/ | Grafana (логи API в Loki) |
+Frontend endpoint constants already begin with `/api/`. In production use an
+empty `VITE_API_BASE_URL`; a value ending in `/api` produces duplicated
+`/api/api/...` paths.
 
-Woodpecker: `.woodpecker.yml` в каждом репо. Сервер: SSH host `Timeweb`.
+## Access model
 
-## Типичные задачи
+- `requiresTabPassword` is a client-side gate.
+- `requiresAuth` controls the frontend login flow.
+- Only `SecurityConfig.kt` determines backend authorization.
+- Current public/protected paths are documented in `ARCHITECTURE.md`.
 
-| Задача | Где |
-|--------|-----|
-| Новая вкладка UI | `my-utils/AGENTS.md` → `config/features.tsx` |
-| REST endpoint | `my-utils-api/AGENTS.md` → web + service + Flyway |
-| Telegram / агент | `my-utils-api` → `agent/`, `temporal/agent/` |
-| Тесты API | `@MyUtilsSpringTest(environment = TESTING)` + testkit |
-| Логи в Grafana | Loki `{app="my-utils-api"}`, дашборд `myutils-api-logs` |
-| Деплой | `git push origin main` → Woodpecker |
+Do not describe a route as protected based only on the sidebar or page wrapper.
 
-## Не путать
+## Cross-repo change workflow
 
-- **Логи** → Loki (Promtail собирает stdout Docker). **Метрики** → Prometheus.
-- **Temporal tool loop**: отдельные activities (`llmStep`, `executeTool`), не один `runAgent`.
-- **LangChain4j tool names**: camelCase (`logWorkout`); `WorkoutToolsService.runTool` нормализует в snake_case.
+1. Define the backend path and DTO.
+2. Implement service/controller changes and a focused backend test.
+3. Update `src/api/endpoints.ts` and frontend types.
+4. Update the consuming page or hook.
+5. Run `./gradlew test` in backend and `npm run build` in frontend.
+6. Review and commit each repository separately.
+
+## Local development
+
+```bash
+# backend
+cd utils/my-utils-api
+docker compose up -d --build
+
+# frontend, separate terminal
+cd utils/my-utils
+npm run dev
+```
+
+The frontend dev server proxies `/api` to `http://localhost:8080`.
+
+## Deployment
+
+Each repository owns its `.woodpecker.yml`. Push to `main` deploys only that
+repository:
+
+- frontend push rebuilds and deploys the SPA;
+- backend push rebuilds and deploys API/runtime services.
+
+If a feature changes both sides, verify both locally before either production
+push. A successful push is not proof that the sibling repository was deployed.

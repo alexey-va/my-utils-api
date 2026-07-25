@@ -6,14 +6,19 @@
 
 Kotlin 2.1 · Spring Boot 3.4 · Postgres 16 · Redis 7 · Temporal 1.30 · LangChain4j → OpenRouter · Telegram long polling.
 
-## Deploy
+## Runtime and deployment
 
 ```bash
 docker compose up -d --build          # local :8080
-# Jenkins: jenkins-deploy.sh + docker-compose.jenkins.yml → :18080
+# production topology: docker-compose.jenkins.yml → :18080
 ```
 
-| Service | Local | Jenkins (127.0.0.1) |
+Push в `main` запускает `.woodpecker.yml`, который вызывает серверный deploy
+script. `docker-compose.jenkins.yml` сохраняет историческое имя и описывает
+production topology; наличие этого имени не означает, что Jenkins является
+текущим CI.
+
+| Service | Local | Production host (127.0.0.1) |
 |---------|-------|---------------------|
 | api | 8080 | 18080 |
 | postgres | 5432 | 15432 |
@@ -36,8 +41,15 @@ Prod UI: https://utils.alexeyav.ru · Temporal: https://temporal.alexeyav.ru · 
 |------|--------|
 | `/api/health`, `/api/auth/login` | public |
 | `/api/workouts/**` | public (личный инстанс) |
+| `/api/health/steps`, `/api/health/weight` | public GET/POST |
+| `/api/admin/settings/**` | currently public |
+| `/api/admin/agent-memory/**` | currently public |
 | `/api/auth/**` (else) | JWT + Redis session |
 | rest | deny |
+
+Таб-пароль во frontend — только клиентский visibility gate. Источник истины
+для серверного доступа: `infra/security/SecurityConfig.kt`. Если политика
+меняется, нужно синхронно обновить эту таблицу, frontend flow и тесты.
 
 ## Telegram → agent
 
@@ -63,7 +75,9 @@ Task queue: `myutils-main`. Kotlin DTOs need `TemporalDataConverterConfiguration
 
 ## Runtime settings
 
-`properties/Properties.kt` — keys in `app_settings`, reload ~1 min. Admin: `PUT /api/admin/settings/{key}` (JWT). Evening reminder toggles reschedule Temporal workflows on apply.
+`properties/Properties.kt` — keys in `app_settings`, reload ~1 min. Admin:
+`PUT /api/admin/settings/{key}`; current access policy is listed above.
+Evening reminder toggles reschedule Temporal workflows on apply.
 
 ## Dev
 

@@ -2,6 +2,9 @@
 
 Kotlin **Spring Boot 3.4**, JVM 21. Postgres + Redis + Temporal + LangChain4j (OpenRouter). **Docker-first.**
 
+This is an independent Git repository. Frontend changes belong in
+`../my-utils` and must be committed and verified separately.
+
 ## Layout
 
 ```
@@ -31,7 +34,7 @@ Flyway: `src/main/resources/db/migration/`. Tests: `src/test/kotlin/.../testkit/
 | Rebuild API | `docker compose up -d --build api` |
 | Infra only | `docker compose -f docker-compose.dev.yml up -d` then `./gradlew bootRun` |
 | Tests | `./gradlew test` (needs Docker Postgres+Redis) |
-| Prod ports | `docker-compose.jenkins.yml` — API `18080`, Loki via Promtail labels |
+| Prod topology | `docker-compose.jenkins.yml` — API `18080`, Loki via Promtail labels; filename is historical |
 
 ## Telegram agent flow
 
@@ -52,7 +55,12 @@ Flyway: `src/main/resources/db/migration/`. Tests: `src/test/kotlin/.../testkit/
 ## Key conventions
 
 - Workout diary user: fixed `local@workout` (`WorkoutService.LOCAL_WORKOUT_EMAIL`)
-- `GET /api/workouts/**` — permitAll; `/api/auth/**` needs JWT + Redis session
+- `/api/workouts/**`, health steps/weight, admin settings, and admin
+  agent-memory are currently `permitAll`
+- `/api/auth/**` except login needs JWT + Redis session
+- Client-side tab passwords are not backend authorization. Check
+  `infra/security/SecurityConfig.kt` before documenting an endpoint as
+  protected.
 - Bot beans: `@ConditionalOnTelegramBot` (needs `TELEGRAM_BOT_TOKEN`)
 - Temporal beans: `@ConditionalOnProperty(myutils.temporal.enabled=true)`
 - Runtime tunables: `properties/Properties.kt` → `AppProperties.*`, admin API `PUT /api/admin/settings/{key}`
@@ -78,6 +86,9 @@ class MyTest : TestingIntegrationTestBase() { ... }
 4. Mirror path in `../my-utils/src/api/endpoints.ts` if UI needs it
 5. `./gradlew test` then `docker compose up -d --build api`
 
+Frontend consumers must be updated separately in
+`../my-utils/src/api/endpoints.ts` and its API types.
+
 ## Add an agent tool
 
 1. Method on `WorkoutLangChainTools` with `@Tool`
@@ -92,3 +103,20 @@ class MyTest : TestingIntegrationTestBase() { ... }
 - Sync server configs: `observability/sync-to-server.sh`
 
 Human-readable details: `docs/ARCHITECTURE.md` (keep in sync when changing flows).
+
+## Verification and deployment
+
+Minimum local gate:
+
+```bash
+./gradlew test
+git diff --check
+```
+
+Tests require local PostgreSQL and Redis; use `docker-compose.dev.yml`. Testing
+beans replace Telegram/OpenRouter clients, so tests must not make real external
+calls.
+
+Push to `main` triggers the Woodpecker production pipeline. Do not push merely
+to verify a change. Production restarts, secret changes, firewall changes, and
+observability syncs are separate operational actions.
