@@ -34,14 +34,15 @@ class SecurityConfig(
 					.requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
 					.requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
 					.requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+					.requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
 					.requestMatchers("/api/workouts/**").permitAll()
 					.requestMatchers(
 						AntPathRequestMatcher("/api/admin/settings"),
 						AntPathRequestMatcher("/api/admin/settings/**"),
 						AntPathRequestMatcher("/api/admin/agent-memory"),
 						AntPathRequestMatcher("/api/admin/agent-memory/**"),
-					).permitAll()
-					.requestMatchers("/api/admin/**").authenticated()
+					).hasRole("ADMIN")
+					.requestMatchers("/api/admin/**").hasRole("ADMIN")
 					.requestMatchers("/api/auth/**").authenticated()
 					.anyRequest().denyAll()
 			}

@@ -21,10 +21,11 @@ import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import java.time.Duration
+import java.util.concurrent.CopyOnWriteArrayList
 
 class ParallelToolWorkflowTest {
 	private lateinit var testEnv: io.temporal.testing.TestWorkflowEnvironment
-	private val toolCalls = mutableListOf<ToolCallInput>()
+	private val toolCalls = CopyOnWriteArrayList<ToolCallInput>()
 
 	@BeforeEach
 	fun setUp() {

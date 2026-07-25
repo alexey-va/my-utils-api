@@ -19,7 +19,7 @@ class OneRepMaxEstimatorTest {
 		val session = OneRepMaxEstimator.estimateSession(entry)
 		val epley = session.formulas.first { it.name == "Эпли" }.oneRmKg
 		assertEquals(116.7, epley, 0.1)
-		assertEquals(100, session.bestSet.weightKg)
+		assertEquals(100.0, session.bestSet.weightKg)
 		assertEquals(5, session.bestSet.reps)
 	}
 
@@ -38,7 +38,7 @@ class OneRepMaxEstimatorTest {
 				user = user,
 				exercise = exercise,
 				performedOn = LocalDate.of(2026, 6, 1),
-				weightKg = 70,
+				weightKg = 70.0,
 				setCount = 3,
 				repsPerSet = 8,
 				maxReps = 10,
@@ -46,7 +46,7 @@ class OneRepMaxEstimatorTest {
 				setWeights = "70,75,75",
 			)
 		val session = OneRepMaxEstimator.estimateSession(entry)
-		assertEquals(75, session.bestSet.weightKg)
+		assertEquals(75.0, session.bestSet.weightKg)
 		assertEquals(10, session.bestSet.reps)
 	}
 
@@ -80,7 +80,7 @@ class OneRepMaxEstimatorTest {
 					OneRepMaxEstimator.SessionEstimate(
 						date = LocalDate.of(2026, 6, 15),
 						notation = "75 кг 3*10/12",
-						bestSet = OneRepMaxEstimator.SetSample(75, 12),
+						bestSet = OneRepMaxEstimator.SetSample(75.0, 12),
 						formulas = listOf(OneRepMaxEstimator.FormulaEstimate("Эпли", 105.0)),
 						consensusKg = 107.5,
 						confidence = OneRepMaxEstimator.Confidence.MEDIUM,
@@ -107,7 +107,7 @@ class OneRepMaxEstimatorTest {
 			user = user,
 			exercise = exercise,
 			performedOn = date,
-			weightKg = weight,
+				weightKg = weight.toDouble(),
 			setCount = setCount,
 			repsPerSet = repsPerSet,
 			maxReps = maxReps,

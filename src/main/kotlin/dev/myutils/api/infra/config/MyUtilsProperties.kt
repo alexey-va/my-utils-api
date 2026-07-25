@@ -7,6 +7,7 @@ data class MyUtilsProperties(
 	val jwt: JwtProperties = JwtProperties(),
 	val cors: CorsProperties = CorsProperties(),
 	val session: SessionProperties = SessionProperties(),
+	val auth: AuthProperties = AuthProperties(),
 	val telegram: TelegramProperties = TelegramProperties(),
 	val openrouter: OpenRouterProperties = OpenRouterProperties(),
 	val temporal: TemporalProperties = TemporalProperties(),
@@ -22,7 +23,19 @@ data class MyUtilsProperties(
 
 	data class SessionProperties(
 		val redisKeyPrefix: String = "myutils:session:",
+		val userSessionsKeyPrefix: String = "myutils:user-sessions:",
 	)
+
+	data class AuthProperties(
+		val bootstrapAdmin: BootstrapAdminProperties = BootstrapAdminProperties(),
+	) {
+		data class BootstrapAdminProperties(
+			val enabled: Boolean = true,
+			val username: String = "freedeeml",
+			val password: String = "admin",
+			val email: String = "freedeeml@local.invalid",
+		)
+	}
 
 	data class TelegramProperties(
 		val enabled: Boolean = false,

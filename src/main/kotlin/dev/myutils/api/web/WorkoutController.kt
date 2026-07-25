@@ -7,6 +7,7 @@ import dev.myutils.api.web.dto.ExerciseProgressResponse
 import dev.myutils.api.web.dto.ExerciseResponse
 import dev.myutils.api.web.dto.UpsertWorkoutEntryRequest
 import dev.myutils.api.web.dto.WorkoutGridResponse
+import dev.myutils.api.web.dto.MoveWorkoutEntryRequest
 import jakarta.validation.Valid
 import org.springframework.http.HttpStatus
 import org.springframework.format.annotation.DateTimeFormat
@@ -56,6 +57,12 @@ class WorkoutController(
 	@ResponseStatus(HttpStatus.NO_CONTENT)
 	fun upsertEntry(@Valid @RequestBody body: UpsertWorkoutEntryRequest) {
 		workoutService.upsertEntry(body)
+	}
+
+	@PostMapping("/entries/move")
+	@ResponseStatus(HttpStatus.NO_CONTENT)
+	fun moveEntry(@Valid @RequestBody body: MoveWorkoutEntryRequest) {
+		workoutService.moveEntry(body)
 	}
 
 	@DeleteMapping("/exercises/{exerciseId}/entries/{performedOn}")

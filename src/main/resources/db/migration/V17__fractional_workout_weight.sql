@@ -1,0 +1,3 @@
+ALTER TABLE workout_entries
+    ALTER COLUMN weight_kg TYPE DOUBLE PRECISION
+    USING weight_kg::DOUBLE PRECISION;

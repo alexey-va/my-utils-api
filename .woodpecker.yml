@@ -2,7 +2,29 @@ when:
   - event: [push, manual]
     branch: main
 
+services:
+  - name: postgres
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: myutils
+      POSTGRES_USER: myutils
+      POSTGRES_PASSWORD: myutils
+
+  - name: redis
+    image: redis:7-alpine
+
 steps:
+  - name: verify
+    image: gradle:8.13-jdk21
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/myutils
+      SPRING_DATASOURCE_USERNAME: myutils
+      SPRING_DATASOURCE_PASSWORD: myutils
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+    commands:
+      - ./gradlew test
+
   - name: deploy
     image: docker:27-cli
     network_mode: host

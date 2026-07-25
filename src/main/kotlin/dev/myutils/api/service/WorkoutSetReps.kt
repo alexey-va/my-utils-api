@@ -101,26 +101,26 @@ object WorkoutSetReps {
 	}
 
 	fun volume(
-		weightKg: Int,
+		weightKg: Number,
 		reps: List<Int>,
 		weights: List<Int>? = null,
-	): Int =
+	): Double =
 		if (!weights.isNullOrEmpty() && weights.size == reps.size) {
-			weights.indices.sumOf { index -> weights[index] * reps[index] }
+			weights.indices.sumOf { index -> weights[index].toDouble() * reps[index] }
 		} else {
-			weightKg * reps.sum()
+			weightKg.toDouble() * reps.sum()
 		}
 
-	fun volume(entry: WorkoutEntry): Int =
+	fun volume(entry: WorkoutEntry): Double =
 		volume(entry.weightKg, effectiveReps(entry), effectiveWeights(entry))
 
 	fun display(
-		weightKg: Int,
+		weightKg: Number,
 		entry: WorkoutEntry,
 	): String = display(weightKg, effectiveReps(entry), effectiveWeights(entry))
 
 	fun display(
-		weightKg: Int,
+		weightKg: Number,
 		reps: List<Int>,
 		weights: List<Int>? = null,
 	): String {
@@ -128,17 +128,17 @@ object WorkoutSetReps {
 			return "${weights.joinToString("/")}  ${reps.joinToString("/")}"
 		}
 		if (reps.isEmpty()) {
-			return "$weightKg"
+			return formatWeight(weightKg)
 		}
 		val classic = classicTrainerDisplay(reps)
 		if (classic != null) {
-			return "$weightKg  $classic"
+			return "${formatWeight(weightKg)}  $classic"
 		}
-		return "$weightKg  ${reps.joinToString("/")}"
+		return "${formatWeight(weightKg)}  ${reps.joinToString("/")}"
 	}
 
 	fun displayRu(
-		weightKg: Int,
+		weightKg: Number,
 		reps: List<Int>,
 		weights: List<Int>? = null,
 	): String {
@@ -146,14 +146,23 @@ object WorkoutSetReps {
 			return "${weights.joinToString("/")} кг ${reps.joinToString("/")}"
 		}
 		if (reps.isEmpty()) {
-			return "$weightKg кг"
+			return "${formatWeight(weightKg)} кг"
 		}
 		val classic = classicTrainerDisplay(reps)
 		if (classic != null) {
 			val working = reps.dropLast(1)
-			return "$weightKg кг ${working.size}*${working.first()}/${reps.last()}"
+			return "${formatWeight(weightKg)} кг ${working.size}*${working.first()}/${reps.last()}"
 		}
-		return "$weightKg кг ${reps.joinToString("/")}"
+		return "${formatWeight(weightKg)} кг ${reps.joinToString("/")}"
+	}
+
+	fun formatWeight(weightKg: Number): String {
+		val value = weightKg.toDouble()
+		return if (value % 1.0 == 0.0) {
+			value.toLong().toString()
+		} else {
+			java.math.BigDecimal.valueOf(value).stripTrailingZeros().toPlainString()
+		}
 	}
 
 	private fun classicTrainerDisplay(reps: List<Int>): String? {

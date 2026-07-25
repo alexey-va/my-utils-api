@@ -1,13 +1,18 @@
 package dev.myutils.api.web
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.myutils.api.domain.User
+import dev.myutils.api.domain.UserRepository
+import dev.myutils.api.domain.UserRole
 import dev.myutils.api.testkit.IntegrationTestBase
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc
 import org.springframework.http.MediaType
+import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.test.web.servlet.MockMvc
 import org.springframework.test.web.servlet.get
+import org.springframework.test.web.servlet.post
 import org.springframework.test.web.servlet.put
 import kotlin.test.assertEquals
 
@@ -19,10 +24,39 @@ class AdminSettingsControllerTest : IntegrationTestBase() {
 	@Autowired
 	private lateinit var objectMapper: ObjectMapper
 
+	@Autowired
+	private lateinit var userRepository: UserRepository
+
+	@Autowired
+	private lateinit var passwordEncoder: PasswordEncoder
+
 	@Test
-	fun `update runtime property without auth`() {
+	fun `admin can update runtime property`() {
+		val username = "settings-admin-${java.util.UUID.randomUUID().toString().take(8)}"
+		userRepository.save(
+			User(
+				username = username,
+				email = "$username@example.com",
+				passwordHash = passwordEncoder.encode("password-123"),
+				role = UserRole.ADMIN,
+			),
+		)
+		val login =
+			mockMvc
+				.post("/api/auth/login") {
+					contentType = MediaType.APPLICATION_JSON
+					content =
+						objectMapper.writeValueAsString(
+							mapOf("login" to username, "password" to "password-123"),
+						)
+				}.andExpect {
+					status { isOk() }
+				}.andReturn()
+		val token = objectMapper.readTree(login.response.contentAsString).get("token").asText()
+
 		mockMvc
 			.put("/api/admin/settings/openrouter.max-tool-iterations") {
+				header("Authorization", "Bearer $token")
 				contentType = MediaType.APPLICATION_JSON
 				content = objectMapper.writeValueAsString(mapOf("value" to 15))
 			}.andExpect {
@@ -32,7 +66,9 @@ class AdminSettingsControllerTest : IntegrationTestBase() {
 
 		val body =
 			mockMvc
-				.get("/api/admin/settings/openrouter.max-tool-iterations")
+				.get("/api/admin/settings/openrouter.max-tool-iterations") {
+					header("Authorization", "Bearer $token")
+				}
 				.andExpect {
 					status { isOk() }
 				}.andReturn()

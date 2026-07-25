@@ -16,7 +16,7 @@ class WorkoutOneRmCardRendererTest {
 					OneRepMaxEstimator.SessionEstimate(
 						date = LocalDate.of(2026, 6, 15),
 						notation = "75 кг 3*10/12",
-						bestSet = OneRepMaxEstimator.SetSample(75, 12),
+						bestSet = OneRepMaxEstimator.SetSample(75.0, 12),
 						formulas =
 							listOf(
 								OneRepMaxEstimator.FormulaEstimate("Эпли", 105.0),

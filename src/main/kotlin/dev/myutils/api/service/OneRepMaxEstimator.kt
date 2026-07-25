@@ -8,7 +8,7 @@ import kotlin.math.round
 /** Оценка одноповторного максимума (1ПМ) по подходам из дневника. */
 object OneRepMaxEstimator {
 	data class SetSample(
-		val weightKg: Int,
+		val weightKg: Double,
 		val reps: Int,
 	)
 
@@ -89,7 +89,7 @@ object OneRepMaxEstimator {
 		val weights = WorkoutSetReps.effectiveWeights(entry)
 		return reps.indices.map { index ->
 			SetSample(
-				weightKg = weights?.getOrNull(index) ?: entry.weightKg,
+				weightKg = weights?.getOrNull(index)?.toDouble() ?: entry.weightKg,
 				reps = reps[index],
 			)
 		}
@@ -100,7 +100,7 @@ object OneRepMaxEstimator {
 			return emptyList()
 		}
 		if (set.reps == 1) {
-			return listOf(FormulaEstimate("Факт", set.weightKg.toDouble()))
+			return listOf(FormulaEstimate("Факт", set.weightKg))
 		}
 		val estimates = mutableListOf<FormulaEstimate>()
 		estimates.add(FormulaEstimate("Эпли", epley(set.weightKg, set.reps)))
@@ -135,12 +135,12 @@ object OneRepMaxEstimator {
 		}
 
 	private fun epley(
-		weightKg: Int,
+		weightKg: Double,
 		reps: Int,
 	): Double = weightKg * (1.0 + reps / 30.0)
 
 	private fun brzycki(
-		weightKg: Int,
+		weightKg: Double,
 		reps: Int,
 	): Double? {
 		if (reps < 2 || reps >= 37) {
@@ -150,12 +150,12 @@ object OneRepMaxEstimator {
 	}
 
 	private fun lombardi(
-		weightKg: Int,
+		weightKg: Double,
 		reps: Int,
 	): Double = weightKg * reps.toDouble().pow(0.10)
 
 	private fun wathan(
-		weightKg: Int,
+		weightKg: Double,
 		reps: Int,
 	): Double? {
 		if (reps < 1) {
@@ -198,7 +198,7 @@ object OneRepMaxEstimator {
 			appendLine("Карточка 1ПМ отправлена в чат. Показано пользователю:")
 			appendLine("• ${report.exerciseName}, сессия ${session.date.format(java.time.format.DateTimeFormatter.ofPattern("dd.MM.yy"))} — ${session.notation}")
 			appendLine("• Оценка 1ПМ: ${formatWeightKg(session.consensusKg)} кг (${confidenceRu(session.confidence)})")
-			appendLine("• Подход для расчёта: ${set.weightKg}×${set.reps}")
+			appendLine("• Подход для расчёта: ${formatWeightKg(set.weightKg)}×${set.reps}")
 			appendLine("• Формулы: $formulas")
 			appendLine("• Рабочие зоны: $zones")
 			appendLine("• $historyLine")

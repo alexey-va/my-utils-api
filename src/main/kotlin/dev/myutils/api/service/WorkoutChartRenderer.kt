@@ -28,7 +28,7 @@ class WorkoutChartRenderer {
 
 	data class Point(
 		val date: LocalDate,
-		val weightKg: Int,
+		val weightKg: Double,
 		val maxReps: Int,
 	)
 
@@ -47,7 +47,7 @@ class WorkoutChartRenderer {
 
 	private fun renderPlot(sorted: List<Point>): BufferedImage {
 		val xDates = sorted.map { it.date.toChartDate() }
-		val weights = sorted.map { it.weightKg.toDouble() }
+		val weights = sorted.map { it.weightKg }
 		val maxReps = sorted.map { it.maxReps.toDouble() }
 
 		val chart: XYChart =
@@ -237,15 +237,29 @@ class WorkoutChartRenderer {
 		var cursorX = x + 32
 
 		cursorX = drawStatChip(g, cursorX, y + 14, "Вес", font, Palette.TEXT_MUTED)
-		cursorX = drawStatValue(g, cursorX + 6, y + 14, "${first.weightKg}", bold, Palette.WEIGHT)
+		cursorX = drawStatValue(g, cursorX + 6, y + 14, WorkoutSetReps.formatWeight(first.weightKg), bold, Palette.WEIGHT)
 		cursorX = drawStatValue(g, cursorX + 8, y + 14, "→", font, Palette.TEXT_MUTED)
-		cursorX = drawStatValue(g, cursorX + 8, y + 14, "${last.weightKg} кг", bold, Palette.TEXT)
+		cursorX = drawStatValue(
+			g,
+			cursorX + 8,
+			y + 14,
+			"${WorkoutSetReps.formatWeight(last.weightKg)} кг",
+			bold,
+			Palette.TEXT,
+		)
 		val deltaText = formatDelta(weightDelta, "кг")
 		cursorX = drawStatValue(g, cursorX + 10, y + 14, deltaText, bold, deltaColor(weightDelta))
 
 		cursorX += 28
 		cursorX = drawStatChip(g, cursorX, y + 14, "Рекорд", font, Palette.TEXT_MUTED)
-		drawStatValue(g, cursorX + 6, y + 14, "$bestWeight кг / МАХ $bestMax", bold, Palette.TEXT)
+		drawStatValue(
+			g,
+			cursorX + 6,
+			y + 14,
+			"${WorkoutSetReps.formatWeight(bestWeight)} кг / МАХ $bestMax",
+			bold,
+			Palette.TEXT,
+		)
 	}
 
 	private fun drawStatChip(
@@ -291,16 +305,16 @@ class WorkoutChartRenderer {
 	}
 
 	private fun formatDelta(
-		delta: Int,
+		delta: Double,
 		unit: String,
 	): String =
 		when {
-			delta > 0 -> "(+$delta $unit)"
-			delta < 0 -> "($delta $unit)"
+			delta > 0 -> "(+${WorkoutSetReps.formatWeight(delta)} $unit)"
+			delta < 0 -> "(${WorkoutSetReps.formatWeight(delta)} $unit)"
 			else -> "(±0 $unit)"
 		}
 
-	private fun deltaColor(delta: Int): Color =
+	private fun deltaColor(delta: Double): Color =
 		when {
 			delta > 0 -> Palette.POSITIVE
 			delta < 0 -> Palette.NEGATIVE

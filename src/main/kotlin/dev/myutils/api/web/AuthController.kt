@@ -1,9 +1,12 @@
 package dev.myutils.api.web
 
+import dev.myutils.api.infra.security.AccountPrincipal
 import dev.myutils.api.infra.security.SessionPrincipal
 import dev.myutils.api.service.AuthService
 import dev.myutils.api.web.dto.LoginRequest
 import dev.myutils.api.web.dto.LoginResponse
+import dev.myutils.api.web.dto.RegisterRequest
+import dev.myutils.api.web.dto.UpdateCredentialsRequest
 import dev.myutils.api.web.dto.UserDto
 import jakarta.validation.Valid
 import org.springframework.security.core.Authentication
@@ -21,7 +24,11 @@ class AuthController(
 ) {
 	@PostMapping("/login")
 	fun login(@Valid @RequestBody body: LoginRequest): LoginResponse =
-		authService.login(body.email, body.password)
+		authService.login(body.login, body.password)
+
+	@PostMapping("/register")
+	fun register(@Valid @RequestBody body: RegisterRequest): LoginResponse =
+		authService.register(body)
 
 	@PostMapping("/logout")
 	fun logout(authentication: Authentication) {
@@ -30,5 +37,12 @@ class AuthController(
 	}
 
 	@GetMapping("/me")
-	fun me(@AuthenticationPrincipal email: String): UserDto = UserDto(email = email)
+	fun me(@AuthenticationPrincipal principal: AccountPrincipal): UserDto =
+		authService.profile(principal.userId)
+
+	@PostMapping("/credentials")
+	fun updateCredentials(
+		@AuthenticationPrincipal principal: AccountPrincipal,
+		@Valid @RequestBody body: UpdateCredentialsRequest,
+	): LoginResponse = authService.updateCredentials(principal.userId, body)
 }

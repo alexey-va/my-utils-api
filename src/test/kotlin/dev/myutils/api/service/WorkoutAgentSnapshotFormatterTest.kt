@@ -23,7 +23,7 @@ class WorkoutAgentSnapshotFormatterTest {
 					user = user,
 					exercise = bench,
 					performedOn = LocalDate.of(2026, 6, day),
-					weightKg = 60 + day,
+					weightKg = (60 + day).toDouble(),
 					setCount = 3,
 					repsPerSet = 8,
 					maxReps = 10,

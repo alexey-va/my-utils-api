@@ -1,5 +1,6 @@
 package dev.myutils.api.web.dto
 
+import jakarta.validation.constraints.DecimalMin
 import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.NotNull
@@ -25,7 +26,7 @@ data class ExerciseResponse(
 data class UpsertWorkoutEntryRequest(
 	@field:NotNull val exerciseId: UUID,
 	@field:NotNull val performedOn: LocalDate,
-	@field:Min(1) val weightKg: Int,
+	@field:DecimalMin("0.25") val weightKg: Double,
 	@field:Min(1) val setCount: Int,
 	@field:Min(1) val repsPerSet: Int,
 	@field:Min(1) val maxReps: Int,
@@ -34,7 +35,7 @@ data class UpsertWorkoutEntryRequest(
 )
 
 data class WorkoutCellDto(
-	val weightKg: Int,
+	val weightKg: Double,
 	val setCount: Int,
 	val repsPerSet: Int,
 	val maxReps: Int,
@@ -55,20 +56,27 @@ data class WorkoutGridResponse(
 
 data class ProgressPointDto(
 	val date: LocalDate,
-	val weightKg: Int,
+	val weightKg: Double,
 	val setCount: Int,
 	val repsPerSet: Int,
 	val maxReps: Int,
 	val setReps: List<Int>? = null,
-	val volume: Int,
+	val volume: Double,
 )
 
 data class ExerciseStatsDto(
 	val sessions: Int,
-	val bestWeightKg: Int?,
-	val latestWeightKg: Int?,
+	val bestWeightKg: Double?,
+	val latestWeightKg: Double?,
 	val bestMaxReps: Int?,
-	val bestVolume: Int?,
+	val bestVolume: Double?,
+)
+
+data class MoveWorkoutEntryRequest(
+	@field:NotNull val fromExerciseId: UUID,
+	@field:NotNull val fromDate: LocalDate,
+	@field:NotNull val toExerciseId: UUID,
+	@field:NotNull val toDate: LocalDate,
 )
 
 data class ExerciseProgressResponse(

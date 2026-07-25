@@ -21,21 +21,21 @@ class WorkoutEntry(
 	val user: User,
 	@ManyToOne(fetch = FetchType.LAZY, optional = false)
 	@JoinColumn(name = "exercise_id", nullable = false)
-	val exercise: Exercise,
+	var exercise: Exercise,
 	@Column(name = "performed_on", nullable = false)
-	val performedOn: LocalDate,
+	var performedOn: LocalDate,
 	@Column(name = "weight_kg", nullable = false)
-	val weightKg: Int,
+	var weightKg: Double,
 	@Column(name = "set_count", nullable = false)
-	val setCount: Int,
+	var setCount: Int,
 	@Column(name = "reps_per_set", nullable = false)
-	val repsPerSet: Int,
+	var repsPerSet: Int,
 	@Column(name = "max_reps", nullable = false)
-	val maxReps: Int,
+	var maxReps: Int,
 	@Column(name = "set_reps")
-	val setReps: String? = null,
+	var setReps: String? = null,
 	@Column(name = "set_weights")
-	val setWeights: String? = null,
+	var setWeights: String? = null,
 	@Column(name = "created_at", nullable = false)
 	val createdAt: Instant = Instant.now(),
 )

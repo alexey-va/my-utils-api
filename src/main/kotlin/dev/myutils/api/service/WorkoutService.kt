@@ -16,6 +16,7 @@ import dev.myutils.api.web.dto.ExerciseStatsDto
 import dev.myutils.api.web.dto.ProgressPointDto
 import dev.myutils.api.web.dto.WorkoutGridResponse
 import dev.myutils.api.web.dto.WorkoutGridRowDto
+import dev.myutils.api.web.dto.MoveWorkoutEntryRequest
 import org.slf4j.LoggerFactory
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
@@ -184,6 +185,7 @@ class WorkoutService(
 		)
 	}
 
+	@Transactional
 	fun upsertEntry(
 		request: UpsertWorkoutEntryRequest,
 		source: String = "api",
@@ -202,11 +204,6 @@ class WorkoutService(
 				request.performedOn,
 			)
 
-		val replacedEntryId = existing.map { it.id }.orElse(null)
-		if (existing.isPresent) {
-			workoutEntryRepository.delete(existing.get())
-		}
-
 		val normalized =
 			WorkoutSetReps.normalize(
 				setCount = request.setCount,
@@ -216,8 +213,8 @@ class WorkoutService(
 				setWeights = request.setWeights,
 			)
 
-		val saved =
-			workoutEntryRepository.save(
+		val entry =
+			existing.orElseGet {
 				WorkoutEntry(
 					user = user,
 					exercise = exercise,
@@ -228,16 +225,25 @@ class WorkoutService(
 					maxReps = normalized.maxReps,
 					setReps = normalized.setRepsStorage,
 					setWeights = normalized.setWeightsStorage,
-				),
-			)
+				)
+			}
+		val replacing = existing.isPresent
+		if (replacing) {
+			entry.weightKg = request.weightKg
+			entry.setCount = normalized.setCount
+			entry.repsPerSet = normalized.repsPerSet
+			entry.maxReps = normalized.maxReps
+			entry.setReps = normalized.setRepsStorage
+			entry.setWeights = normalized.setWeightsStorage
+		}
+		val saved = workoutEntryRepository.save(entry)
 		log.info(
-			"DB UPSERT workout_entry source={} user={} action={} entryId={} replacedEntryId={} " +
+			"DB UPSERT workout_entry source={} user={} action={} entryId={} " +
 				"exerciseId={} exerciseName={} date={} weightKg={} sets={} reps={} maxReps={} setReps={}",
 			source,
 			user.email,
-			if (replacedEntryId != null) "replace" else "insert",
+			if (replacing) "update" else "insert",
 			saved.id,
-			replacedEntryId,
 			exercise.id,
 			exercise.name,
 			request.performedOn,
@@ -246,6 +252,41 @@ class WorkoutService(
 			normalized.repsPerSet,
 			normalized.maxReps,
 			normalized.setRepsStorage,
+		)
+	}
+
+	@Transactional
+	fun moveEntry(request: MoveWorkoutEntryRequest) {
+		val user = localWorkoutUser()
+		if (request.fromExerciseId == request.toExerciseId && request.fromDate == request.toDate) {
+			return
+		}
+		val sourceExercise = findOwnedExercise(user, request.fromExerciseId)
+		val targetExercise = findOwnedExercise(user, request.toExerciseId)
+		val source =
+			workoutEntryRepository
+				.findByUserIdAndExerciseIdAndPerformedOn(user.id, sourceExercise.id, request.fromDate)
+				.orElseThrow {
+					ResponseStatusException(HttpStatus.NOT_FOUND, "Source workout entry not found")
+				}
+		if (
+			workoutEntryRepository
+				.findByUserIdAndExerciseIdAndPerformedOn(user.id, targetExercise.id, request.toDate)
+				.isPresent
+		) {
+			throw ResponseStatusException(HttpStatus.CONFLICT, "Target workout cell is not empty")
+		}
+		source.exercise = targetExercise
+		source.performedOn = request.toDate
+		workoutEntryRepository.save(source)
+		log.info(
+			"DB MOVE workout_entry user={} entryId={} fromExerciseId={} fromDate={} toExerciseId={} toDate={}",
+			user.email,
+			source.id,
+			request.fromExerciseId,
+			request.fromDate,
+			request.toExerciseId,
+			request.toDate,
 		)
 	}
 

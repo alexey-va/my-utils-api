@@ -107,6 +107,13 @@ myutils:
       - http://127.0.0.1:5173
   session:
     redis-key-prefix: "myutils:session:"
+    user-sessions-key-prefix: "myutils:user-sessions:"
+  auth:
+    bootstrap-admin:
+      enabled: ${MYUTILS_BOOTSTRAP_ADMIN_ENABLED:true}
+      username: ${MYUTILS_BOOTSTRAP_ADMIN_USERNAME:freedeeml}
+      password: ${MYUTILS_BOOTSTRAP_ADMIN_PASSWORD:admin}
+      email: ${MYUTILS_BOOTSTRAP_ADMIN_EMAIL:freedeeml@local.invalid}
   telegram:
     enabled: ${MYUTILS_TELEGRAM_ENABLED:false}
     bot-token: ${TELEGRAM_BOT_TOKEN:}

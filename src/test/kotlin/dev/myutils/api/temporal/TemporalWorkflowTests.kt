@@ -221,6 +221,18 @@ class TemporalWorkflowTests {
 		}
 
 		@Test
+		fun `default Temporal converter can replay ReminderWorkflowInput`() {
+			val defaultConverter = io.temporal.common.converter.DefaultDataConverter.newDefaultInstance()
+			val input = ReminderWorkflowInput(chatId = 303179278L, hour = 20, minute = 30)
+			val payload = defaultConverter.toPayload(input).orElseThrow()
+
+			assertEquals(
+				input,
+				defaultConverter.fromPayload(payload, ReminderWorkflowInput::class.java, ReminderWorkflowInput::class.java),
+			)
+		}
+
+		@Test
 		fun `round-trips NotificationWorkflowInput`() {
 			val input =
 				NotificationWorkflowInput(

@@ -30,7 +30,7 @@ class WorkoutSetRepsTest {
 
 	@Test
 	fun `volume sums per-set reps`() {
-		assertEquals(35 * (10 + 10 + 9 + 9), WorkoutSetReps.volume(35, listOf(10, 10, 9, 9)))
+		assertEquals(1330.0, WorkoutSetReps.volume(35, listOf(10, 10, 9, 9)))
 	}
 
 	@Test

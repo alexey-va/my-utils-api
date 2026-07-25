@@ -82,7 +82,7 @@ class WorkoutBotFacade(
 			UpsertWorkoutEntryRequest(
 				exerciseId = exercise.id,
 				performedOn = date,
-				weightKg = parsed.weightKg,
+				weightKg = parsed.weightKg.toDouble(),
 				setCount = parsed.setCount,
 				repsPerSet = parsed.repsPerSet,
 				maxReps = parsed.maxReps,

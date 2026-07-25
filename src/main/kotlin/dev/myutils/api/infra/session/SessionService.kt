@@ -4,6 +4,7 @@ import dev.myutils.api.infra.config.MyUtilsProperties
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Service
 import java.time.Duration
+import java.util.UUID
 
 @Service
 class SessionService(
@@ -14,15 +15,34 @@ class SessionService(
 
     fun store(
         sessionId: String,
-        email: String,
+        userId: UUID,
         ttl: Duration,
     ) {
-        redis.opsForValue().set(key(sessionId), email, ttl)
+        val userIdText = userId.toString()
+        redis.opsForValue().set(key(sessionId), userIdText, ttl)
+        val userSessionsKey = userSessionsKey(userId)
+        redis.opsForSet().add(userSessionsKey, sessionId)
+        redis.expire(userSessionsKey, ttl)
     }
 
-    fun exists(sessionId: String): Boolean = redis.hasKey(key(sessionId)) == true
+    fun belongsToUser(
+        sessionId: String,
+        userId: UUID,
+    ): Boolean = redis.opsForValue().get(key(sessionId)) == userId.toString()
 
     fun revoke(sessionId: String) {
         redis.delete(key(sessionId))
     }
+
+    fun revokeUserSessions(userId: UUID) {
+        val userSessionsKey = userSessionsKey(userId)
+        val sessionIds = redis.opsForSet().members(userSessionsKey).orEmpty()
+        if (sessionIds.isNotEmpty()) {
+            redis.delete(sessionIds.map(::key))
+        }
+        redis.delete(userSessionsKey)
+    }
+
+    private fun userSessionsKey(userId: UUID): String =
+        "${properties.session.userSessionsKeyPrefix}$userId"
 }

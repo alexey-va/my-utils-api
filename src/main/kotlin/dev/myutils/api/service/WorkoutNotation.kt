@@ -5,7 +5,7 @@ import dev.myutils.api.domain.WorkoutEntry
 /** Формат тренера: вес 3*X/МАХ или 35 кг 10/10/9/9. */
 object WorkoutNotation {
 	fun format(
-		weightKg: Int,
+		weightKg: Number,
 		setCount: Int,
 		repsPerSet: Int,
 		maxReps: Int,
