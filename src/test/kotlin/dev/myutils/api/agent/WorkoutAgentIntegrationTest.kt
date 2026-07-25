@@ -2,6 +2,7 @@ package dev.myutils.api.agent
 
 import dev.myutils.api.agent.langchain.WorkoutLangChain4jAgent
 import dev.myutils.api.agent.memory.AgentConversationStore
+import dev.myutils.api.agent.memory.AgentMemoryAdminService
 import dev.myutils.api.testkit.TestingIntegrationTestBase
 import dev.myutils.api.testkit.impl.InMemoryTelegramMessenger
 import dev.myutils.api.testkit.impl.StubChatModelFactory
@@ -29,8 +30,12 @@ class WorkoutAgentIntegrationTest : TestingIntegrationTestBase() {
 	@Autowired
 	private lateinit var conversationStore: AgentConversationStore
 
+	@Autowired
+	private lateinit var memoryAdmin: AgentMemoryAdminService
+
 	@BeforeEach
 	fun resetFakes() {
+		listOf(1L, 2L, 42L, 43L, 99L).forEach(memoryAdmin::clearDialog)
 		telegram.clear()
 		chatModelFactory.model.resetResponses("Записал подход.", "Второй ответ.")
 	}

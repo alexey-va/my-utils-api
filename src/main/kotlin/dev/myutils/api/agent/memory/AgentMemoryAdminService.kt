@@ -218,8 +218,8 @@ class AgentMemoryAdminService(
 
 	@Transactional
 	fun clearDialog(chatId: Long) {
-		summaryRepository.deleteByChatId(chatId)
 		messageRepository.deleteByChatId(chatId)
+		summaryRepository.deleteByChatId(chatId)
 	}
 
 	private fun compactionPreview(chatId: Long): AgentMemoryCompactionPreview {
