@@ -38,7 +38,7 @@ interface AgentConversationMessageRepository : JpaRepository<AgentConversationMe
 	@Query(
 		"""
 		UPDATE AgentConversationMessage m
-		SET m.compactedIntoSummaryId = NULL
+		SET m.compactedIntoSummaryId = NULL, m.isCompacted = false
 		WHERE m.compactedIntoSummaryId = :summaryId
 		""",
 	)

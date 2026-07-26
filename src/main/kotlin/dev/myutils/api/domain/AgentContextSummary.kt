@@ -15,15 +15,15 @@ class AgentContextSummary(
 	@Column(name = "chat_id", nullable = false)
 	val chatId: Long,
 	@Column(nullable = false)
-	val sequence: Int,
+	var sequence: Int,
 	@Column(name = "summary_text", nullable = false, columnDefinition = "text")
 	var summaryText: String,
 	@Column(name = "covers_message_id_from", nullable = false)
-	val coversMessageIdFrom: Long,
+	var coversMessageIdFrom: Long,
 	@Column(name = "covers_message_id_to", nullable = false)
-	val coversMessageIdTo: Long,
+	var coversMessageIdTo: Long,
 	@Column(name = "source_message_count", nullable = false)
-	val sourceMessageCount: Int,
+	var sourceMessageCount: Int,
 	@Column(length = 200)
 	var model: String? = null,
 	@Column(name = "tokens_before")

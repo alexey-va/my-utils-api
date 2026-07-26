@@ -48,7 +48,7 @@ Admin-grade agent memory: Postgres dialog history, hybrid context compacting, us
 ### LLM context assembly
 
 1. System: prompt + workout snapshot + facts (unchanged)
-2. Summary blocks from `agent_context_summaries` (ordered by `sequence`)
+2. One rolling summary from `agent_context_summaries`
 3. Recent raw messages: not excluded, `compacted_into_summary_id IS NULL`, last K = `agent.memory.recent-messages`
 4. New user message
 
@@ -60,6 +60,8 @@ Admin-grade agent memory: Postgres dialog history, hybrid context compacting, us
 - `agent.memory.compact-model` (optional, default agent model)
 
 **Auto:** after message append, if compactable raw count > threshold → async compact job.
+Compactions for the same chat are serialized with a PostgreSQL advisory
+transaction lock, so concurrent append hooks cannot create duplicate summaries.
 
 **Manual:** `POST /api/admin/agent-memory/chats/{chatId}/compact`
 
@@ -67,9 +69,17 @@ Admin-grade agent memory: Postgres dialog history, hybrid context compacting, us
 
 1. Select oldest compactable raw messages; keep tail K untouched
 2. LLM summarizes (structured: topics, decisions, numbers; do not duplicate facts table)
-3. Insert summary row; set `compacted_into_summary_id` on covered messages
+3. Create the chat summary on the first run; on later runs merge the existing
+   summary with the new raw messages and update that same row
+4. Set `compacted_into_summary_id` on covered messages
 
-**Reset:** delete summaries + clear `compacted_into_summary_id` on messages.
+There is a database uniqueness constraint on `agent_context_summaries.chat_id`.
+Migration V18 rolls older active summary blocks into one row per chat and removes
+orphan rows that are not referenced by any message.
+
+**Reset/delete summary:** delete the summary, clear
+`compacted_into_summary_id`, and set covered messages back to
+`is_compacted = false` so they can be compacted again.
 
 ### Admin API
 
