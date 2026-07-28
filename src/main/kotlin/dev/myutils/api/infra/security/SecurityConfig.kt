@@ -35,6 +35,7 @@ class SecurityConfig(
 					.requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()
 					.requestMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
 					.requestMatchers(HttpMethod.POST, "/api/auth/register").permitAll()
+					.requestMatchers(HttpMethod.POST, "/api/client-events").permitAll()
 					.requestMatchers("/api/workouts/**").permitAll()
 					.requestMatchers(
 						AntPathRequestMatcher("/api/admin/settings"),

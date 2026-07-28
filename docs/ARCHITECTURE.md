@@ -42,8 +42,9 @@ Prod UI: https://utils.alexeyav.ru · Temporal: https://temporal.alexeyav.ru · 
 | `/api/health`, `/api/auth/login` | public |
 | `/api/workouts/**` | public (личный инстанс) |
 | `/api/health/steps`, `/api/health/weight` | public GET/POST |
-| `/api/admin/settings/**` | currently public |
-| `/api/admin/agent-memory/**` | currently public |
+| `POST /api/client-events` | public, normalized browser telemetry |
+| `/api/admin/settings/**` | `ADMIN` |
+| `/api/admin/agent-memory/**` | `ADMIN` |
 | `/api/auth/**` (else) | JWT + Redis session |
 | rest | deny |
 

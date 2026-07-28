@@ -57,6 +57,11 @@ docker compose down
 
 Health: `GET http://localhost:8080/api/health`
 
+Route Planner sends privacy-minimized browser activity batches to
+`POST /api/client-events`. The endpoint is public, accepts `text/plain` JSON,
+returns `204` even for malformed input, and writes normalized `client_event`
+records to the application log. It never persists raw form values.
+
 ### Temporal
 
 Workers and workflows live in `dev.myutils.api.temporal`. Task queue: `myutils-main`.

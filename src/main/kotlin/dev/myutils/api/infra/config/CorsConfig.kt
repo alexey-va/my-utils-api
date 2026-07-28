@@ -12,15 +12,27 @@ class CorsConfig(
 ) {
 	@Bean
 	fun corsConfigurationSource(): CorsConfigurationSource {
-		val config = CorsConfiguration().apply {
+		val defaultConfig = CorsConfiguration().apply {
 			allowedOrigins = properties.cors.allowedOrigins
 			allowedMethods = listOf("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS")
 			allowedHeaders = listOf("*")
 			allowCredentials = true
 			maxAge = 3600
 		}
-		return UrlBasedCorsConfigurationSource().apply {
-			registerCorsConfiguration("/api/**", config)
+		val clientEventsConfig = CorsConfiguration().apply {
+			allowedOrigins = listOf(ROUTE_PLANNER_ORIGIN)
+			allowedMethods = listOf("POST", "OPTIONS")
+			allowedHeaders = listOf("Content-Type")
+			allowCredentials = false
+			maxAge = 3600
 		}
+		return UrlBasedCorsConfigurationSource().apply {
+			registerCorsConfiguration("/api/client-events", clientEventsConfig)
+			registerCorsConfiguration("/api/**", defaultConfig)
+		}
+	}
+
+	private companion object {
+		const val ROUTE_PLANNER_ORIGIN = "https://route.alexeyav.ru"
 	}
 }
