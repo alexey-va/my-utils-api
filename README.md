@@ -60,7 +60,10 @@ Health: `GET http://localhost:8080/api/health`
 Route Planner sends privacy-minimized browser activity batches to
 `POST /api/client-events`. The endpoint is public, accepts `text/plain` JSON,
 returns `204` even for malformed input, and writes normalized `client_event`
-records to the application log. It never persists raw form values.
+records to the application log. The server adds the nginx-verified client IP,
+User-Agent and Client Hints; the browser adds session/page-view IDs, action
+sequence, focus duration and a random stable browser ID. Raw form values,
+addresses and passwords are never sent or persisted.
 
 ### Temporal
 
