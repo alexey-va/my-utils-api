@@ -65,4 +65,17 @@ class StepsIngestControllerTest : IntegrationTestBase() {
 		assertTrue(response.contentAsString.contains("\"date\":\"$expectedToday\""))
 		assertTrue(response.contentAsString.contains("\"savedDays\""))
 	}
+
+	@Test
+	fun `rejects structured payload with blank date`() {
+		val response =
+			mockMvc
+				.post("/api/health/steps") {
+					contentType = MediaType.APPLICATION_JSON
+					content = """{"steps":8564,"date":""}"""
+				}.andReturn()
+				.response
+
+		assertEquals(400, response.status)
+	}
 }

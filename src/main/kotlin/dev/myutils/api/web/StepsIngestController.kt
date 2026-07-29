@@ -9,12 +9,14 @@ import dev.myutils.api.web.dto.StepsIngestResponse
 import dev.myutils.api.web.dto.StepsParsedDto
 import jakarta.servlet.http.HttpServletRequest
 import org.slf4j.LoggerFactory
+import org.springframework.http.HttpStatus
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import org.springframework.web.server.ResponseStatusException
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -46,15 +48,21 @@ class StepsIngestController(
 
 		val today = LocalDate.now(ZoneId.of(AppProperties.TEMPORAL_ZONE_ID.get()))
 		val parsed =
-			runCatching { AppleHealthStepsParser.parse(body, today) }
-				.onFailure { error ->
-					log.warn(
-						"Steps ingest parse failed from={} body={}",
-						request.remoteAddr,
-						body,
-						error,
-					)
-				}.getOrNull()
+			try {
+				AppleHealthStepsParser.parse(body, today)
+			} catch (error: RuntimeException) {
+				log.warn(
+					"Steps ingest parse failed from={} body={}",
+					request.remoteAddr,
+					body,
+					error,
+				)
+				throw ResponseStatusException(
+					HttpStatus.BAD_REQUEST,
+					"Неверные данные шагов",
+					error,
+				)
+			}
 
 		val savedDays = parsed?.let { healthStepsService.upsertParsed(it) }
 

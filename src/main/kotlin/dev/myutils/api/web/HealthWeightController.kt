@@ -37,11 +37,22 @@ class HealthWeightController(
 	): UpsertBodyWeightResponse {
 		val today = LocalDate.now(ZoneId.of(AppProperties.TEMPORAL_ZONE_ID.get()))
 		val date =
-			try {
-				request.date?.trim()?.takeIf { it.isNotEmpty() }?.let { LocalDate.parse(it) } ?: today
-			} catch (_: DateTimeParseException) {
-				throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Неверная дата date (YYYY-MM-DD)")
-			}
+			request.date?.let { rawDate ->
+				val normalizedDate =
+					rawDate.trim().takeIf { it.isNotEmpty() }
+						?: throw invalidDate()
+				try {
+					LocalDate.parse(normalizedDate)
+				} catch (_: DateTimeParseException) {
+					throw invalidDate()
+				}
+			} ?: today
 		return healthBodyWeightService.upsert(request.weightKg, date)
 	}
+
+	private fun invalidDate(): ResponseStatusException =
+		ResponseStatusException(
+			HttpStatus.BAD_REQUEST,
+			"Неверная дата date (YYYY-MM-DD)",
+		)
 }
