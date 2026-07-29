@@ -32,6 +32,7 @@ services:
       - /var/log:/var/log:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
       - ./config/promtail:/etc/promtail
+      - ./data/promtail:/var/lib/promtail
     command: -config.file=/etc/promtail/promtail-config.yml
     restart: unless-stopped
     network_mode: host

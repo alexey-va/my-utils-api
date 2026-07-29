@@ -18,6 +18,10 @@ rsync -avz \
 echo "Ensure Promtail can read Docker logs..."
 ssh "${HOST}" "grep -q 'docker.sock' ${REMOTE_DIR}/docker-compose.yml || sed -i '/\\/var\\/log:\\/var\\/log/a\\      - /var/run/docker.sock:/var/run/docker.sock:ro' ${REMOTE_DIR}/docker-compose.yml"
 
+echo "Ensure Promtail positions survive container restarts..."
+ssh "${HOST}" "mkdir -p ${REMOTE_DIR}/data/promtail"
+ssh "${HOST}" "grep -q './data/promtail:/var/lib/promtail' ${REMOTE_DIR}/docker-compose.yml || sed -i '/\\.\\/config\\/promtail:\\/etc\\/promtail/a\\      - ./data/promtail:/var/lib/promtail' ${REMOTE_DIR}/docker-compose.yml"
+
 echo "Ensure Tempo service exists in docker-compose.yml..."
 ssh "${HOST}" "grep -q '^  tempo:' ${REMOTE_DIR}/docker-compose.yml" || ssh "${HOST}" "REMOTE_DIR='${REMOTE_DIR}' python3 - <<'PY'
 import os
