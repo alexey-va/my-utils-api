@@ -50,8 +50,6 @@ scrape_configs:
             - labels:
                 level:
                 logger:
-            - output:
-                source: message
       - match:
           selector: '{app!="my-utils-api"}'
           stages:

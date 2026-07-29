@@ -27,6 +27,8 @@ production topology; наличие этого имени не означает,
 | temporal-ui | 8233 | 18233 |
 
 Prod UI: https://utils.alexeyav.ru · Temporal: https://temporal.alexeyav.ru · Logs: Grafana `/grafana/` → Loki `{app="my-utils-api"}`.
+Promtail сохраняет исходную JSON-строку приложения; поля route telemetry
+доступны через `{app="my-utils-api"} | json | event_type="client_event"`.
 
 ## Data
 

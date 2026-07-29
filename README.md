@@ -65,6 +65,13 @@ User-Agent and Client Hints; the browser adds session/page-view IDs, action
 sequence, focus duration and a random stable browser ID. Raw form values,
 addresses and passwords are never sent or persisted.
 
+Promtail keeps the complete application JSON line in Loki, so structured event
+fields remain queryable after API container restarts:
+
+```logql
+{app="my-utils-api"} | json | event_type="client_event"
+```
+
 ### Temporal
 
 Workers and workflows live in `dev.myutils.api.temporal`. Task queue: `myutils-main`.
