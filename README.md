@@ -175,6 +175,7 @@ Log workouts by messaging a Telegram bot. Messages are parsed by an OpenRouter m
 |----------|-------------|
 | `TELEGRAM_BOT_TOKEN` | From [@BotFather](https://t.me/BotFather) — bot starts when this is set |
 | `TELEGRAM_ALLOWED_USER_IDS` | Your Telegram user id (comma-separated) |
+| `TELEGRAM_FILE_UPLOAD_TOKEN` | Optional secret override for file delivery |
 | `OPENROUTER_API_KEY` | [OpenRouter](https://openrouter.ai/) API key |
 | `OPENROUTER_PROXY_*` | Optional HTTP proxy for Telegram + OpenRouter (see `.env.example`) |
 
@@ -183,6 +184,22 @@ Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, and `OPENROUTER_API_KEY` 
 Example message: `bench 80kg 3x5` or `сегодня присед 100 на 5х5`.
 
 **Get your Telegram user id:** message [@userinfobot](https://t.me/userinfobot).
+
+### Send a file through the bot
+
+`POST /api/telegram/files` accepts a multipart `file` and optional `caption`,
+then sends the document to every configured `TELEGRAM_ALLOWED_USER_IDS` chat.
+The request is rejected unless `X-Telegram-File-Token` matches
+`TELEGRAM_FILE_UPLOAD_TOKEN`. If the override is empty, the expected token is
+the SHA-256 hex digest of `my-utils-file-upload:` followed by
+`TELEGRAM_BOT_TOKEN`. Files are limited to 20 MB.
+
+```bash
+curl -X POST https://utils.alexeyav.ru/api/telegram/files \
+  -H "X-Telegram-File-Token: $TELEGRAM_FILE_UPLOAD_TOKEN" \
+  -F "file=@report.pdf" \
+  -F "caption=Weekly report"
+```
 
 ## Deployment
 

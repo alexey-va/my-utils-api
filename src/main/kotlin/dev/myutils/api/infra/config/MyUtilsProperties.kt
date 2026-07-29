@@ -40,6 +40,7 @@ data class MyUtilsProperties(
 	data class TelegramProperties(
 		val enabled: Boolean = false,
 		val botToken: String = "",
+		val fileUploadToken: String = "",
 		val pollingEnabled: Boolean = true,
 		/** Comma-separated Telegram user IDs allowed to use the bot. */
 		val allowedUserIds: String = "",

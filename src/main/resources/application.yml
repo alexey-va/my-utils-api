@@ -58,6 +58,10 @@ logging:
 spring:
   config:
     import: optional:file:.env[.properties]
+  servlet:
+    multipart:
+      max-file-size: 20MB
+      max-request-size: 21MB
   application:
     name: my-utils-api
   datasource:
@@ -117,6 +121,7 @@ myutils:
   telegram:
     enabled: ${MYUTILS_TELEGRAM_ENABLED:false}
     bot-token: ${TELEGRAM_BOT_TOKEN:}
+    file-upload-token: ${TELEGRAM_FILE_UPLOAD_TOKEN:}
     allowed-user-ids: ${TELEGRAM_ALLOWED_USER_IDS:}
   temporal:
     enabled: ${MYUTILS_TEMPORAL_ENABLED:false}

@@ -44,6 +44,7 @@ Promtail сохраняет исходную JSON-строку приложен�
 | `/api/health`, `/api/auth/login` | public |
 | `/api/workouts/**` | public (личный инстанс) |
 | `/api/health/steps`, `/api/health/weight` | public GET/POST |
+| `POST /api/telegram/files` | public security route + mandatory `X-Telegram-File-Token` application check |
 | `POST /api/client-events` | public, normalized browser telemetry with request IP/User-Agent; no raw form values |
 | `/api/admin/settings/**` | `ADMIN` |
 | `/api/admin/agent-memory/**` | `ADMIN` |

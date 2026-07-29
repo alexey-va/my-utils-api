@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap
 class InMemoryTelegramMessenger : TelegramMessenger {
 	private val messages = ConcurrentHashMap<Long, MutableList<SentMessage>>()
 	private val photos = ConcurrentHashMap<Long, MutableList<SentPhoto>>()
+	private val documents = ConcurrentHashMap<Long, MutableList<SentDocument>>()
 	private val typingCounts = ConcurrentHashMap<Long, Int>()
 	private val callbackAnswers = mutableListOf<CallbackAnswer>()
 
@@ -29,6 +30,13 @@ class InMemoryTelegramMessenger : TelegramMessenger {
 
 	data class SentPhoto(
 		val png: ByteArray,
+		val caption: String?,
+	)
+
+	data class SentDocument(
+		val bytes: ByteArray,
+		val fileName: String,
+		val contentType: String?,
 		val caption: String?,
 	)
 
@@ -81,6 +89,19 @@ class InMemoryTelegramMessenger : TelegramMessenger {
 		photos.computeIfAbsent(chatId) { mutableListOf() }.add(SentPhoto(png, caption))
 	}
 
+	override fun sendDocument(
+		chatId: Long,
+		bytes: ByteArray,
+		fileName: String,
+		contentType: String?,
+		caption: String?,
+	): Boolean {
+		documents
+			.computeIfAbsent(chatId) { mutableListOf() }
+			.add(SentDocument(bytes, fileName, contentType, caption))
+		return true
+	}
+
 	override fun answerCallback(
 		callbackQueryId: String,
 		text: String?,
@@ -92,11 +113,14 @@ class InMemoryTelegramMessenger : TelegramMessenger {
 
 	fun photosFor(chatId: Long): List<SentPhoto> = photos[chatId]?.toList() ?: emptyList()
 
+	fun documentsFor(chatId: Long): List<SentDocument> = documents[chatId]?.toList() ?: emptyList()
+
 	fun typingCount(chatId: Long): Int = typingCounts[chatId] ?: 0
 
 	fun clear() {
 		messages.clear()
 		photos.clear()
+		documents.clear()
 		typingCounts.clear()
 		callbackAnswers.clear()
 	}

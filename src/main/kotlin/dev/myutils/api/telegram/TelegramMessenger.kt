@@ -8,6 +8,7 @@ import com.pengrad.telegrambot.request.AnswerCallbackQuery
 import com.pengrad.telegrambot.request.DeleteMessage
 import com.pengrad.telegrambot.request.EditMessageText
 import com.pengrad.telegrambot.request.SendChatAction
+import com.pengrad.telegrambot.request.SendDocument
 import com.pengrad.telegrambot.request.SendMessage
 import com.pengrad.telegrambot.request.SendPhoto
 import com.pengrad.telegrambot.response.BaseResponse
@@ -42,6 +43,14 @@ interface TelegramMessenger {
 		png: ByteArray,
 		caption: String? = null,
 	)
+
+	fun sendDocument(
+		chatId: Long,
+		bytes: ByteArray,
+		fileName: String,
+		contentType: String?,
+		caption: String?,
+	): Boolean = false
 
 	fun answerCallback(
 		callbackQueryId: String,
@@ -121,6 +130,29 @@ class PengradTelegramMessenger(
 		} else {
 			log.warnTelegramFailed("sendPhoto", response, " chatId=$chatId")
 		}
+	}
+
+	override fun sendDocument(
+		chatId: Long,
+		bytes: ByteArray,
+		fileName: String,
+		contentType: String?,
+		caption: String?,
+	): Boolean {
+		val request =
+			SendDocument(chatId, bytes)
+				.fileName(fileName)
+				.contentType(contentType ?: "application/octet-stream")
+		if (!caption.isNullOrBlank()) {
+			request.caption(caption.take(TelegramLimits.CAPTION_MAX_LENGTH))
+		}
+		val response = bot.execute(request)
+		if (response.isOk) {
+			log.info("Telegram document ok chatId={} fileName={} bytes={}", chatId, fileName, bytes.size)
+			return true
+		}
+		log.warnTelegramFailed("sendDocument", response, " chatId=$chatId fileName=$fileName")
+		return false
 	}
 
 	override fun answerCallback(
