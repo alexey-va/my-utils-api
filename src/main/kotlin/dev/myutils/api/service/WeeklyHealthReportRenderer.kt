@@ -37,13 +37,16 @@ class WeeklyHealthReportRenderer {
 		from: LocalDate,
 		to: LocalDate,
 	): ByteArray {
-		val sorted = points.sortedBy { it.date }
+		val sorted = points.filter { it.date in from..to }.sortedBy { it.date }
+		val chartFrom = sorted.firstOrNull()?.date ?: from
+		val chartTo = sorted.lastOrNull()?.date ?: to
+		val periodDays = (chartTo.toEpochDay() - chartFrom.toEpochDay() + 1).coerceAtLeast(1)
 		val image = canvas()
 		val g = image.cleanGraphics()
 		drawHeader(
 			g = g,
 			title = "Шаги",
-			subtitle = periodSubtitle(from, to, sorted.size, "дней с данными"),
+			subtitle = "${shortDate(chartFrom)} — ${shortDate(chartTo)}  ·  данные за ${sorted.size} из $periodDays дней",
 			hero = sorted.lastOrNull()?.steps?.let(::formatInteger) ?: "—",
 			heroLabel = sorted.lastOrNull()?.date?.let(::shortDate) ?: "нет данных",
 			accent = Palette.STEPS,
@@ -51,7 +54,7 @@ class WeeklyHealthReportRenderer {
 		if (sorted.isEmpty()) {
 			drawEmpty(g, "Шаги за этот период ещё не загружены")
 		} else {
-			drawStepsHistogram(g, sorted)
+			drawStepsHistogram(g, sorted, chartFrom, chartTo)
 			drawStats(g, stepsStats(sorted))
 		}
 		g.dispose()
@@ -111,6 +114,8 @@ class WeeklyHealthReportRenderer {
 	private fun drawStepsHistogram(
 		g: Graphics2D,
 		points: List<StepPoint>,
+		from: LocalDate,
+		to: LocalDate,
 	) {
 		val maxValue = max(points.maxOf { it.steps }, STEP_TARGET)
 		val axisMax = max(5_000, ceil(maxValue / 5_000.0).toInt() * 5_000)
@@ -118,48 +123,47 @@ class WeeklyHealthReportRenderer {
 			g = g,
 			min = 0.0,
 			max = axisMax.toDouble(),
-			formatter = ::compactInteger,
+			formatter = { formatInteger(it.roundToInt()) },
 		)
 
 		val targetY = yFor(STEP_TARGET.toDouble(), 0.0, axisMax.toDouble())
 		g.color = Palette.TARGET_LINE
 		g.stroke = dashedStroke(1.5f, 7f, 7f)
 		g.drawLine(PLOT_LEFT, targetY, PLOT_RIGHT, targetY)
-		drawPill(g, "цель 10 000", PLOT_RIGHT - 116, targetY - 27, Palette.TARGET, Palette.PILL_DARK)
+		g.font = font(Font.BOLD, 12f)
+		g.color = Palette.TARGET
+		g.drawString("цель", PLOT_RIGHT + 10, targetY + 4)
 
-		val slot = PLOT_WIDTH.toDouble() / points.size
-		val gap = (slot * 0.28).coerceIn(2.5, 8.0)
-		val width = (slot - gap).coerceAtLeast(4.0)
-		points.forEachIndexed { index, point ->
-			val x = PLOT_LEFT + index * slot + gap / 2.0
-			val top = yFor(point.steps.toDouble(), 0.0, axisMax.toDouble()).toDouble()
-			val height = (PLOT_BOTTOM - top).coerceAtLeast(2.0)
-			g.paint =
-				GradientPaint(
-					0f,
-					top.toFloat(),
-					if (point.steps >= STEP_TARGET) Palette.STEPS_HIGH else Palette.STEPS,
-					0f,
-					PLOT_BOTTOM.toFloat(),
-					Palette.STEPS_BOTTOM,
+		val dayCount = (to.toEpochDay() - from.toEpochDay() + 1).coerceAtLeast(1)
+		val slot = PLOT_WIDTH.toDouble() / dayCount
+		val width = (slot * 0.66).coerceIn(3.0, 11.0)
+		val latestDate = points.last().date
+		points
+			.filter { it.date in from..to }
+			.forEach { point ->
+				val dayIndex = point.date.toEpochDay() - from.toEpochDay()
+				val x = PLOT_LEFT + dayIndex * slot + (slot - width) / 2.0
+				val top = yFor(point.steps.toDouble(), 0.0, axisMax.toDouble()).toDouble()
+				val height = (PLOT_BOTTOM - top).coerceAtLeast(2.0)
+				g.color =
+					when {
+						point.date == latestDate -> Palette.STEPS_LATEST
+						point.steps >= STEP_TARGET -> Palette.STEPS_HIGH
+						else -> Palette.STEPS_MUTED
+					}
+				g.fill(
+					RoundRectangle2D.Double(
+						x,
+						top,
+						width,
+						height,
+						minOf(5.0, width),
+						minOf(5.0, width),
+					),
 				)
-			g.fill(
-				RoundRectangle2D.Double(
-					x,
-					top,
-					width,
-					height,
-					minOf(9.0, width),
-					minOf(9.0, width),
-				),
-			)
-		}
+			}
 
-		drawDateLabels(
-			g,
-			points.map { it.date },
-			points.indices.map { index -> PLOT_LEFT + (index + 0.5) * slot },
-		)
+		drawCalendarDateLabels(g, from, to)
 	}
 
 	private fun drawWeightTrend(
@@ -279,6 +283,23 @@ class WeeklyHealthReportRenderer {
 			val x = centered.coerceIn(PLOT_LEFT, PLOT_RIGHT - width)
 			g.drawString(label, x, PLOT_BOTTOM + 28)
 		}
+	}
+
+	private fun drawCalendarDateLabels(
+		g: Graphics2D,
+		from: LocalDate,
+		to: LocalDate,
+	) {
+		val dayRange = (to.toEpochDay() - from.toEpochDay()).coerceAtLeast(1)
+		val dates =
+			(0..4).map { index ->
+				from.plusDays((dayRange * index / 4.0).roundToInt().toLong())
+			}
+		val xPositions =
+			(0..4).map { index ->
+				PLOT_LEFT + PLOT_WIDTH * index / 4.0
+			}
+		drawDateLabels(g, dates, xPositions)
 	}
 
 	private fun drawStats(
@@ -431,12 +452,6 @@ class WeeklyHealthReportRenderer {
 	private fun formatInteger(value: Number): String =
 		"%,d".format(java.util.Locale.US, value.toLong()).replace(',', ' ')
 
-	private fun compactInteger(value: Double): String =
-		when {
-			value >= 1_000 -> "${(value / 1_000).roundToInt()}k"
-			else -> value.roundToInt().toString()
-		}
-
 	private fun formatDecimal(value: Double): String =
 		"%.1f".format(java.util.Locale.US, value).replace('.', ',')
 
@@ -502,8 +517,9 @@ class WeeklyHealthReportRenderer {
 		val SEPARATOR = Color(71, 85, 105, 90)
 		val PILL_DARK = Color(13, 25, 42, 230)
 		val STEPS = Color(45, 196, 154)
-		val STEPS_HIGH = Color(88, 226, 177)
-		val STEPS_BOTTOM = Color(13, 88, 82)
+		val STEPS_MUTED = Color(32, 137, 119)
+		val STEPS_HIGH = Color(53, 190, 151)
+		val STEPS_LATEST = Color(103, 232, 190)
 		val TARGET = Color(250, 204, 21)
 		val TARGET_LINE = Color(250, 204, 21, 150)
 		val WEIGHT_LINE = Color(244, 176, 62)
@@ -523,7 +539,7 @@ class WeeklyHealthReportRenderer {
 		const val CONTENT_LEFT = 54
 		const val CONTENT_RIGHT = 1146
 		const val PLOT_LEFT = 72
-		const val PLOT_RIGHT = 1146
+		const val PLOT_RIGHT = 1098
 		const val PLOT_TOP = 122
 		const val PLOT_BOTTOM = 610
 		const val PLOT_WIDTH = PLOT_RIGHT - PLOT_LEFT
