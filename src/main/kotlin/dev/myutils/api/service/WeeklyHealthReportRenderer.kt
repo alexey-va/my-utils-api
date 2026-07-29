@@ -1,11 +1,5 @@
 package dev.myutils.api.service
 
-import org.knowm.xchart.BitmapEncoder
-import org.knowm.xchart.XYChart
-import org.knowm.xchart.XYChartBuilder
-import org.knowm.xchart.XYSeries
-import org.knowm.xchart.style.Styler
-import org.knowm.xchart.style.markers.SeriesMarkers
 import org.springframework.stereotype.Service
 import java.awt.BasicStroke
 import java.awt.Color
@@ -13,16 +7,19 @@ import java.awt.Font
 import java.awt.GradientPaint
 import java.awt.Graphics2D
 import java.awt.RenderingHints
+import java.awt.geom.Ellipse2D
+import java.awt.geom.Path2D
+import java.awt.geom.RoundRectangle2D
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.time.LocalDate
-import java.time.ZoneOffset
-import java.time.format.DateTimeFormatter
-import java.util.Date
 import javax.imageio.ImageIO
+import kotlin.math.ceil
+import kotlin.math.floor
+import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** Detailed weekly snapshots of the public Workout health charts. */
+/** Clean Telegram-ready weekly snapshots of the public Workout health charts. */
 @Service
 class WeeklyHealthReportRenderer {
 	data class StepPoint(
@@ -41,27 +38,24 @@ class WeeklyHealthReportRenderer {
 		to: LocalDate,
 	): ByteArray {
 		val sorted = points.sortedBy { it.date }
-		val chart =
-			if (sorted.isEmpty()) {
-				emptyPlot("За выбранный период шаги не загружены")
-			} else {
-				stepsPlot(sorted)
-			}
-		val stats =
-			if (sorted.isEmpty()) {
-				listOf(Stat("Данные", "пока пусто", Palette.TEXT_MUTED))
-			} else {
-				stepsStats(sorted)
-			}
-		return encode(
-			composeFrame(
-				title = "Шаги",
-				subtitle = "Динамика активности · ${dateFmt.format(from)} — ${dateFmt.format(to)}",
-				plot = chart,
-				stats = stats,
-				accent = Palette.STEPS,
-			),
+		val image = canvas()
+		val g = image.cleanGraphics()
+		drawHeader(
+			g = g,
+			title = "Шаги",
+			subtitle = periodSubtitle(from, to, sorted.size, "дней с данными"),
+			hero = sorted.lastOrNull()?.steps?.let(::formatInteger) ?: "—",
+			heroLabel = sorted.lastOrNull()?.date?.let(::shortDate) ?: "нет данных",
+			accent = Palette.STEPS,
 		)
+		if (sorted.isEmpty()) {
+			drawEmpty(g, "Шаги за этот период ещё не загружены")
+		} else {
+			drawStepsHistogram(g, sorted)
+			drawStats(g, stepsStats(sorted))
+		}
+		g.dispose()
+		return encode(image)
 	}
 
 	fun renderWeight(
@@ -70,240 +64,281 @@ class WeeklyHealthReportRenderer {
 		to: LocalDate,
 	): ByteArray {
 		val sorted = points.sortedBy { it.date }
-		val chart =
-			if (sorted.isEmpty()) {
-				emptyPlot("За выбранный период вес не записывали")
-			} else {
-				weightPlot(sorted)
-			}
-		val stats =
-			if (sorted.isEmpty()) {
-				listOf(Stat("Данные", "пока пусто", Palette.TEXT_MUTED))
-			} else {
-				weightStats(sorted)
-			}
-		return encode(
-			composeFrame(
-				title = "Вес тела",
-				subtitle = "Тренд и диапазон · ${dateFmt.format(from)} — ${dateFmt.format(to)}",
-				plot = chart,
-				stats = stats,
-				accent = Palette.WEIGHT,
-			),
+		val image = canvas()
+		val g = image.cleanGraphics()
+		drawHeader(
+			g = g,
+			title = "Вес",
+			subtitle = periodSubtitle(from, to, sorted.size, "замера"),
+			hero = sorted.lastOrNull()?.let { "${formatDecimal(it.weightKg)} кг" } ?: "—",
+			heroLabel = sorted.lastOrNull()?.date?.let(::shortDate) ?: "нет данных",
+			accent = Palette.WEIGHT_LINE,
+		)
+		if (sorted.isEmpty()) {
+			drawEmpty(g, "Вес за этот период ещё не записывали")
+		} else {
+			drawWeightTrend(g, sorted)
+			drawStats(g, weightStats(sorted))
+		}
+		g.dispose()
+		return encode(image)
+	}
+
+	private fun drawHeader(
+		g: Graphics2D,
+		title: String,
+		subtitle: String,
+		hero: String,
+		heroLabel: String,
+		accent: Color,
+	) {
+		g.font = font(Font.BOLD, 34f)
+		g.color = Palette.TEXT
+		g.drawString(title, CONTENT_LEFT, 54)
+
+		g.font = font(Font.PLAIN, 15f)
+		g.color = Palette.TEXT_MUTED
+		g.drawString(subtitle, CONTENT_LEFT, 82)
+
+		g.font = font(Font.BOLD, 32f)
+		g.color = accent
+		drawRight(g, hero, CONTENT_RIGHT, 52)
+		g.font = font(Font.PLAIN, 13f)
+		g.color = Palette.TEXT_MUTED
+		drawRight(g, heroLabel, CONTENT_RIGHT, 78)
+	}
+
+	private fun drawStepsHistogram(
+		g: Graphics2D,
+		points: List<StepPoint>,
+	) {
+		val maxValue = max(points.maxOf { it.steps }, STEP_TARGET)
+		val axisMax = max(5_000, ceil(maxValue / 5_000.0).toInt() * 5_000)
+		drawGrid(
+			g = g,
+			min = 0.0,
+			max = axisMax.toDouble(),
+			formatter = ::compactInteger,
+		)
+
+		val targetY = yFor(STEP_TARGET.toDouble(), 0.0, axisMax.toDouble())
+		g.color = Palette.TARGET_LINE
+		g.stroke = dashedStroke(1.5f, 7f, 7f)
+		g.drawLine(PLOT_LEFT, targetY, PLOT_RIGHT, targetY)
+		drawPill(g, "цель 10 000", PLOT_RIGHT - 116, targetY - 27, Palette.TARGET, Palette.PILL_DARK)
+
+		val slot = PLOT_WIDTH.toDouble() / points.size
+		val gap = (slot * 0.28).coerceIn(2.5, 8.0)
+		val width = (slot - gap).coerceAtLeast(4.0)
+		points.forEachIndexed { index, point ->
+			val x = PLOT_LEFT + index * slot + gap / 2.0
+			val top = yFor(point.steps.toDouble(), 0.0, axisMax.toDouble()).toDouble()
+			val height = (PLOT_BOTTOM - top).coerceAtLeast(2.0)
+			g.paint =
+				GradientPaint(
+					0f,
+					top.toFloat(),
+					if (point.steps >= STEP_TARGET) Palette.STEPS_HIGH else Palette.STEPS,
+					0f,
+					PLOT_BOTTOM.toFloat(),
+					Palette.STEPS_BOTTOM,
+				)
+			g.fill(
+				RoundRectangle2D.Double(
+					x,
+					top,
+					width,
+					height,
+					minOf(9.0, width),
+					minOf(9.0, width),
+				),
+			)
+		}
+
+		drawDateLabels(
+			g,
+			points.map { it.date },
+			points.indices.map { index -> PLOT_LEFT + (index + 0.5) * slot },
 		)
 	}
 
-	private fun stepsPlot(points: List<StepPoint>): BufferedImage {
-		val dates = points.map { it.date.toChartDate() }
-		val values = points.map { it.steps.toDouble() }
-		val chart = baseChart("Шаги")
-		chart.styler.apply {
-			setSeriesColors(arrayOf(Palette.STEPS, Palette.TARGET))
-			isLegendVisible = true
-		}
-		chart
-			.addSeries("Шаги", dates, values)
-			.apply {
-				xySeriesRenderStyle = XYSeries.XYSeriesRenderStyle.Area
-				fillColor = Palette.STEPS_FILL
-				lineColor = Palette.STEPS
-				lineWidth = 2.5f
-				lineStyle = BasicStroke(2.5f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-				marker = SeriesMarkers.CIRCLE
-				markerColor = Palette.STEPS
-			}
-		chart
-			.addSeries("Цель 10 000", dates, List(points.size) { STEP_TARGET.toDouble() })
-			.apply {
-				xySeriesRenderStyle = XYSeries.XYSeriesRenderStyle.Line
-				lineColor = Palette.TARGET
-				lineWidth = 2f
-				lineStyle =
-					BasicStroke(
-						2f,
-						BasicStroke.CAP_ROUND,
-						BasicStroke.JOIN_ROUND,
-						1f,
-						floatArrayOf(8f, 6f),
-						0f,
-					)
-				marker = SeriesMarkers.NONE
-			}
-		return BitmapEncoder.getBufferedImage(chart)
-	}
+	private fun drawWeightTrend(
+		g: Graphics2D,
+		points: List<WeightPoint>,
+	) {
+		val rawMin = points.minOf { it.weightKg }
+		val rawMax = points.maxOf { it.weightKg }
+		val padding = ((rawMax - rawMin) * 0.45).coerceAtLeast(0.45)
+		val axisMin = floor((rawMin - padding) * 2.0) / 2.0
+		val axisMax = ceil((rawMax + padding) * 2.0) / 2.0
+		drawGrid(
+			g = g,
+			min = axisMin,
+			max = axisMax,
+			formatter = ::formatDecimal,
+		)
 
-	private fun weightPlot(points: List<WeightPoint>): BufferedImage {
-		val chart = baseChart("Вес, кг")
-		chart.styler.apply {
-			setSeriesColors(arrayOf(Palette.WEIGHT))
-			isLegendVisible = false
-		}
-		chart
-			.addSeries(
-				"Вес",
-				points.map { it.date.toChartDate() },
-				points.map { it.weightKg },
-			).apply {
-				xySeriesRenderStyle = XYSeries.XYSeriesRenderStyle.Area
-				isSmooth = true
-				lineColor = Palette.WEIGHT
-				lineWidth = 3f
-				lineStyle = BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
-				fillColor = Palette.WEIGHT_FILL
-				marker = SeriesMarkers.CIRCLE
-				markerColor = Palette.WEIGHT
-			}
-		val min = points.minOf { it.weightKg }
-		val max = points.maxOf { it.weightKg }
-		val padding = ((max - min) * 0.3).coerceAtLeast(0.7)
-		chart.styler.yAxisMin = min - padding
-		chart.styler.yAxisMax = max + padding
-		return BitmapEncoder.getBufferedImage(chart)
-	}
-
-	private fun baseChart(yAxisTitle: String): XYChart =
-		XYChartBuilder()
-			.width(PLOT_WIDTH)
-			.height(PLOT_HEIGHT)
-			.title("")
-			.xAxisTitle("")
-			.yAxisTitle(yAxisTitle)
-			.build()
-			.also { chart ->
-				chart.styler.apply {
-					isChartTitleVisible = false
-					chartBackgroundColor = Palette.CARD
-					plotBackgroundColor = Palette.PLOT
-					plotBorderColor = Palette.PLOT_BORDER
-					isPlotBorderVisible = true
-					chartFontColor = Palette.TEXT
-					setChartPadding(10)
-					setPlotMargin(12)
-					isPlotGridLinesVisible = true
-					isPlotGridVerticalLinesVisible = false
-					plotGridLinesColor = Palette.GRID
-					plotGridLinesStroke =
-						BasicStroke(
-							1f,
-							BasicStroke.CAP_ROUND,
-							BasicStroke.JOIN_ROUND,
-							1f,
-							floatArrayOf(4f, 6f),
-							0f,
-						)
-					setAxisTitleFont(chartFont().deriveFont(Font.BOLD, 14f))
-					setAxisTickLabelsFont(chartFont().deriveFont(Font.PLAIN, 12f))
-					axisTickLabelsColor = Palette.TEXT_MUTED
-					axisTickMarksColor = Palette.GRID
-					setLegendFont(chartFont().deriveFont(Font.PLAIN, 12f))
-					legendPosition = Styler.LegendPosition.InsideNW
-					legendBackgroundColor = Palette.LEGEND_BG
-					legendBorderColor = Palette.LEGEND_BORDER
-					setxAxisTickLabelsFormattingFunction { value ->
-						dateFmt.format(
-							java.time.Instant
-								.ofEpochMilli(value.toLong())
-								.atZone(ZoneOffset.UTC)
-								.toLocalDate(),
-						)
-					}
-				}
+		val firstDate = points.first().date
+		val lastDate = points.last().date
+		val dayRange = (lastDate.toEpochDay() - firstDate.toEpochDay()).coerceAtLeast(1)
+		val coordinates =
+			points.map { point ->
+				val fraction = (point.date.toEpochDay() - firstDate.toEpochDay()).toDouble() / dayRange
+				ChartPoint(
+					x = PLOT_LEFT + fraction * PLOT_WIDTH,
+					y = yFor(point.weightKg, axisMin, axisMax).toDouble(),
+				)
 			}
 
-	private fun emptyPlot(message: String): BufferedImage {
-		val image = BufferedImage(PLOT_WIDTH, PLOT_HEIGHT, BufferedImage.TYPE_INT_RGB)
-		val g = image.createGraphics()
-		g.color = Palette.PLOT
-		g.fillRect(0, 0, image.width, image.height)
-		g.font = chartFont().deriveFont(Font.BOLD, 22f)
-		g.color = Palette.TEXT_MUTED
-		val width = g.fontMetrics.stringWidth(message)
-		g.drawString(message, (image.width - width) / 2, image.height / 2)
-		g.dispose()
-		return image
-	}
+		val average = points.map { it.weightKg }.average()
+		val averageY = yFor(average, axisMin, axisMax)
+		g.color = Palette.AVERAGE_LINE
+		g.stroke = dashedStroke(1.25f, 5f, 7f)
+		g.drawLine(PLOT_LEFT, averageY, PLOT_RIGHT, averageY)
+		drawPill(
+			g,
+			"ср. ${formatDecimal(average)}",
+			PLOT_RIGHT - 82,
+			averageY - 27,
+			Palette.TEXT_MUTED,
+			Palette.PILL_DARK,
+		)
 
-	private fun composeFrame(
-		title: String,
-		subtitle: String,
-		plot: BufferedImage,
-		stats: List<Stat>,
-		accent: Color,
-	): BufferedImage {
-		val image = BufferedImage(CANVAS_WIDTH, CANVAS_HEIGHT, BufferedImage.TYPE_INT_RGB)
-		val g = image.createGraphics() as Graphics2D
-		g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
-		g.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+		val line = linePath(coordinates)
+		val fill =
+			Path2D.Double(line).apply {
+				lineTo(coordinates.last().x, PLOT_BOTTOM.toDouble())
+				lineTo(coordinates.first().x, PLOT_BOTTOM.toDouble())
+				closePath()
+			}
 		g.paint =
 			GradientPaint(
 				0f,
+				PLOT_TOP.toFloat(),
+				Palette.WEIGHT_FILL_TOP,
 				0f,
-				Palette.BG_TOP,
-				CANVAS_WIDTH.toFloat(),
-				CANVAS_HEIGHT.toFloat(),
-				Palette.BG_BOTTOM,
+				PLOT_BOTTOM.toFloat(),
+				Palette.WEIGHT_FILL_BOTTOM,
 			)
-		g.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+		g.fill(fill)
 
-		g.color = Palette.CARD
-		g.fillRoundRect(FRAME, FRAME, CANVAS_WIDTH - FRAME * 2, CANVAS_HEIGHT - FRAME * 2, 32, 32)
-		g.paint =
-			GradientPaint(
-				FRAME.toFloat(),
-				FRAME.toFloat(),
-				accent,
-				(CANVAS_WIDTH - FRAME).toFloat(),
-				FRAME.toFloat(),
-				Palette.HEADER_END,
-			)
-		g.fillRoundRect(FRAME, FRAME, CANVAS_WIDTH - FRAME * 2, HEADER_HEIGHT, 32, 32)
-		g.fillRect(FRAME, FRAME + HEADER_HEIGHT - 32, CANVAS_WIDTH - FRAME * 2, 32)
+		g.color = Palette.WEIGHT_LINE
+		g.stroke = BasicStroke(3f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND)
+		g.draw(line)
 
-		g.font = chartFont().deriveFont(Font.BOLD, 30f)
-		g.color = Color.WHITE
-		g.drawString(title, FRAME + 34, FRAME + 50)
-		g.font = chartFont().deriveFont(Font.PLAIN, 15f)
-		g.color = Palette.HEADER_SUBTITLE
-		g.drawString(subtitle, FRAME + 34, FRAME + 80)
-		g.font = chartFont().deriveFont(Font.BOLD, 13f)
-		g.drawString("ЕЖЕНЕДЕЛЬНЫЙ ОТЧЁТ", CANVAS_WIDTH - FRAME - 205, FRAME + 50)
+		coordinates.forEachIndexed { index, point ->
+			val latest = index == coordinates.lastIndex
+			val radius = if (latest) 7.0 else 4.5
+			g.color = Palette.BG
+			g.fill(Ellipse2D.Double(point.x - radius, point.y - radius, radius * 2, radius * 2))
+			g.color = if (latest) Palette.LATEST else Palette.WEIGHT_LINE
+			g.stroke = BasicStroke(if (latest) 3f else 2f)
+			g.draw(Ellipse2D.Double(point.x - radius, point.y - radius, radius * 2, radius * 2))
+		}
 
-		g.drawImage(plot, FRAME + 20, FRAME + HEADER_HEIGHT + 10, null)
-		drawStats(g, stats)
-		g.dispose()
-		return image
+		drawDateLabels(
+			g,
+			points.map { it.date },
+			coordinates.map { it.x },
+		)
+	}
+
+	private fun drawGrid(
+		g: Graphics2D,
+		min: Double,
+		max: Double,
+		formatter: (Double) -> String,
+	) {
+		g.font = font(Font.PLAIN, 12f)
+		for (index in 0..GRID_LINES) {
+			val fraction = index.toDouble() / GRID_LINES
+			val y = PLOT_BOTTOM - (PLOT_HEIGHT * fraction).roundToInt()
+			val value = min + (max - min) * fraction
+			g.color = Palette.GRID
+			g.stroke = BasicStroke(1f)
+			g.drawLine(PLOT_LEFT, y, PLOT_RIGHT, y)
+			g.color = Palette.TEXT_DIM
+			drawRight(g, formatter(value), PLOT_LEFT - 12, y + 4)
+		}
+	}
+
+	private fun drawDateLabels(
+		g: Graphics2D,
+		dates: List<LocalDate>,
+		xPositions: List<Double>,
+	) {
+		val indices =
+			listOf(0, dates.lastIndex / 4, dates.lastIndex / 2, dates.lastIndex * 3 / 4, dates.lastIndex)
+				.distinct()
+		g.font = font(Font.PLAIN, 12f)
+		g.color = Palette.TEXT_DIM
+		indices.forEach { index ->
+			val label = shortDate(dates[index])
+			val width = g.fontMetrics.stringWidth(label)
+			val centered = (xPositions[index] - width / 2.0).roundToInt()
+			val x = centered.coerceIn(PLOT_LEFT, PLOT_RIGHT - width)
+			g.drawString(label, x, PLOT_BOTTOM + 28)
+		}
 	}
 
 	private fun drawStats(
 		g: Graphics2D,
 		stats: List<Stat>,
 	) {
-		val y = CANVAS_HEIGHT - FRAME - 74
-		val x = FRAME + 26
-		val width = CANVAS_WIDTH - FRAME * 2 - 52
-		g.color = Palette.STATS_BG
-		g.fillRoundRect(x, y, width, 54, 18, 18)
+		g.color = Palette.SEPARATOR
+		g.stroke = BasicStroke(1f)
+		g.drawLine(CONTENT_LEFT, STATS_TOP, CONTENT_RIGHT, STATS_TOP)
 
-		val cellWidth = width / stats.size.coerceAtLeast(1)
+		val cellWidth = (CONTENT_RIGHT - CONTENT_LEFT) / stats.size
 		stats.forEachIndexed { index, stat ->
-			val cellX = x + index * cellWidth + 18
-			g.font = chartFont().deriveFont(Font.PLAIN, 12f)
-			g.color = Palette.TEXT_MUTED
-			g.drawString(stat.label.uppercase(), cellX, y + 20)
-			g.font = chartFont().deriveFont(Font.BOLD, 16f)
+			val x = CONTENT_LEFT + index * cellWidth
+			g.font = font(Font.PLAIN, 12f)
+			g.color = Palette.TEXT_DIM
+			g.drawString(stat.label.uppercase(), x, STATS_TOP + 26)
+			g.font = font(Font.BOLD, 19f)
 			g.color = stat.color
-			g.drawString(stat.value, cellX, y + 42)
-			if (index > 0) {
-				g.color = Palette.PLOT_BORDER
-				g.drawLine(x + index * cellWidth, y + 11, x + index * cellWidth, y + 43)
-			}
+			g.drawString(stat.value, x, STATS_TOP + 52)
 		}
+	}
+
+	private fun drawEmpty(
+		g: Graphics2D,
+		message: String,
+	) {
+		g.font = font(Font.BOLD, 22f)
+		g.color = Palette.TEXT_MUTED
+		val width = g.fontMetrics.stringWidth(message)
+		g.drawString(message, (CANVAS_WIDTH - width) / 2, (PLOT_TOP + PLOT_BOTTOM) / 2)
+	}
+
+	private fun drawPill(
+		g: Graphics2D,
+		text: String,
+		x: Int,
+		y: Int,
+		textColor: Color,
+		background: Color,
+	) {
+		g.font = font(Font.BOLD, 12f)
+		val width = g.fontMetrics.stringWidth(text) + 18
+		g.color = background
+		g.fillRoundRect(x, y, width, 23, 12, 12)
+		g.color = textColor
+		g.drawString(text, x + 9, y + 16)
+	}
+
+	private fun linePath(points: List<ChartPoint>): Path2D.Double {
+		val path = Path2D.Double()
+		path.moveTo(points.first().x, points.first().y)
+		points.drop(1).forEach { point -> path.lineTo(point.x, point.y) }
+		return path
 	}
 
 	private fun stepsStats(points: List<StepPoint>): List<Stat> {
 		val total = points.sumOf { it.steps.toLong() }
 		val average = (total.toDouble() / points.size).roundToInt()
 		val targetDays = points.count { it.steps >= STEP_TARGET }
+		val best = points.maxBy { it.steps }
 		val recent = points.takeLast(7).map { it.steps }.average()
 		val previous = points.dropLast(7).takeLast(7).map { it.steps }.average()
 		val weekDelta =
@@ -313,10 +348,10 @@ class WeeklyHealthReportRenderer {
 				formatPercent((recent - previous) / previous * 100)
 			}
 		return listOf(
-			Stat("Среднее / день", formatInteger(average), Palette.STEPS),
-			Stat("Всего", formatInteger(total), Palette.TEXT),
-			Stat("Цель 10 000", "$targetDays / ${points.size} дней", Palette.TARGET),
-			Stat("Неделя к неделе", weekDelta, deltaColor(weekDelta)),
+			Stat("Среднее", formatInteger(average), Palette.TEXT),
+			Stat("Цель", "$targetDays из ${points.size}", Palette.TARGET),
+			Stat("Лучший день", formatInteger(best.steps), Palette.STEPS),
+			Stat("Неделя", weekDelta, stepsDeltaColor(weekDelta)),
 		)
 	}
 
@@ -325,13 +360,67 @@ class WeeklyHealthReportRenderer {
 		val latest = points.last().weightKg
 		val delta = latest - first
 		return listOf(
-			Stat("Последний", "${formatDecimal(latest)} кг", Palette.WEIGHT),
-			Stat("Изменение", formatWeightDelta(delta), deltaColor(delta)),
+			Stat("Изменение", formatWeightDelta(delta), weightDeltaColor(delta)),
 			Stat("Минимум", "${formatDecimal(points.minOf { it.weightKg })} кг", Palette.TEXT),
 			Stat("Максимум", "${formatDecimal(points.maxOf { it.weightKg })} кг", Palette.TEXT),
-			Stat("Замеров", points.size.toString(), Palette.TEXT_MUTED),
+			Stat("Замеров", points.size.toString(), Palette.WEIGHT_LINE),
 		)
 	}
+
+	private fun periodSubtitle(
+		from: LocalDate,
+		to: LocalDate,
+		count: Int,
+		countLabel: String,
+	): String = "${shortDate(from)} — ${shortDate(to)}  ·  $count $countLabel"
+
+	private fun canvas(): BufferedImage =
+		BufferedImage(CANVAS_WIDTH, CANVAS_HEIGHT, BufferedImage.TYPE_INT_RGB).also { image ->
+			val g = image.createGraphics()
+			g.color = Palette.BG
+			g.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+			g.dispose()
+		}
+
+	private fun BufferedImage.cleanGraphics(): Graphics2D =
+		(createGraphics() as Graphics2D).apply {
+			setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON)
+			setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON)
+			setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY)
+			setRenderingHint(RenderingHints.KEY_STROKE_CONTROL, RenderingHints.VALUE_STROKE_PURE)
+		}
+
+	private fun yFor(
+		value: Double,
+		min: Double,
+		max: Double,
+	): Int {
+		val fraction = ((value - min) / (max - min)).coerceIn(0.0, 1.0)
+		return PLOT_BOTTOM - (PLOT_HEIGHT * fraction).roundToInt()
+	}
+
+	private fun drawRight(
+		g: Graphics2D,
+		text: String,
+		right: Int,
+		baseline: Int,
+	) {
+		g.drawString(text, right - g.fontMetrics.stringWidth(text), baseline)
+	}
+
+	private fun dashedStroke(
+		width: Float,
+		dash: Float,
+		gap: Float,
+	): BasicStroke =
+		BasicStroke(
+			width,
+			BasicStroke.CAP_ROUND,
+			BasicStroke.JOIN_ROUND,
+			1f,
+			floatArrayOf(dash, gap),
+			0f,
+		)
 
 	private fun encode(image: BufferedImage): ByteArray =
 		ByteArrayOutputStream().use { output ->
@@ -339,14 +428,17 @@ class WeeklyHealthReportRenderer {
 			output.toByteArray()
 		}
 
-	private fun LocalDate.toChartDate(): Date =
-		Date.from(atStartOfDay(ZoneOffset.UTC).toInstant())
-
 	private fun formatInteger(value: Number): String =
 		"%,d".format(java.util.Locale.US, value.toLong()).replace(',', ' ')
 
+	private fun compactInteger(value: Double): String =
+		when {
+			value >= 1_000 -> "${(value / 1_000).roundToInt()}k"
+			else -> value.roundToInt().toString()
+		}
+
 	private fun formatDecimal(value: Double): String =
-		"%.1f".format(java.util.Locale.US, value)
+		"%.1f".format(java.util.Locale.US, value).replace('.', ',')
 
 	private fun formatWeightDelta(delta: Double): String =
 		when {
@@ -362,26 +454,33 @@ class WeeklyHealthReportRenderer {
 			else -> "±0%"
 		}
 
-	private fun deltaColor(value: Double): Color =
-		when {
-			value > 0 -> Palette.POSITIVE
-			value < 0 -> Palette.NEGATIVE
-			else -> Palette.TEXT_MUTED
-		}
-
-	private fun deltaColor(value: String): Color =
+	private fun stepsDeltaColor(value: String): Color =
 		when {
 			value.startsWith("+") -> Palette.POSITIVE
 			value.startsWith("-") -> Palette.NEGATIVE
 			else -> Palette.TEXT_MUTED
 		}
 
-	private fun chartFont(): Font =
+	private fun weightDeltaColor(value: Double): Color =
+		when {
+			value > 0 -> Palette.NEGATIVE
+			value < 0 -> Palette.LATEST
+			else -> Palette.TEXT_MUTED
+		}
+
+	private fun shortDate(date: LocalDate): String =
+		"${date.dayOfMonth} ${MONTHS[date.monthValue - 1]}"
+
+	private fun font(
+		style: Int,
+		size: Float,
+	): Font =
 		listOf("DejaVu Sans", "SansSerif")
 			.asSequence()
-			.map { Font(it, Font.PLAIN, 12) }
+			.map { Font(it, style, size.roundToInt()) }
 			.firstOrNull { it.canDisplay('Я') && it.canDisplay('ж') }
-			?: Font(Font.SANS_SERIF, Font.PLAIN, 12)
+			?.deriveFont(style, size)
+			?: Font(Font.SANS_SERIF, style, size.roundToInt()).deriveFont(style, size)
 
 	private data class Stat(
 		val label: String,
@@ -389,37 +488,47 @@ class WeeklyHealthReportRenderer {
 		val color: Color,
 	)
 
+	private data class ChartPoint(
+		val x: Double,
+		val y: Double,
+	)
+
 	private object Palette {
-		val BG_TOP = Color(15, 23, 42)
-		val BG_BOTTOM = Color(35, 26, 66)
-		val CARD = Color(30, 37, 56)
-		val PLOT = Color(24, 30, 46)
-		val PLOT_BORDER = Color(51, 65, 85)
-		val HEADER_END = Color(109, 93, 252)
-		val HEADER_SUBTITLE = Color(235, 232, 255)
-		val TEXT = Color(226, 232, 240)
-		val TEXT_MUTED = Color(148, 163, 184)
-		val GRID = Color(71, 85, 105, 120)
-		val LEGEND_BG = Color(15, 23, 42, 200)
-		val LEGEND_BORDER = Color(71, 85, 105)
-		val STATS_BG = Color(15, 23, 42, 220)
-		val STEPS = Color(52, 211, 153)
-		val STEPS_FILL = Color(52, 211, 153, 190)
-		val TARGET = Color(251, 191, 36)
-		val WEIGHT = Color(155, 138, 251)
-		val WEIGHT_FILL = Color(155, 138, 251, 65)
+		val BG = Color(5, 13, 25)
+		val TEXT = Color(238, 242, 247)
+		val TEXT_MUTED = Color(145, 158, 176)
+		val TEXT_DIM = Color(105, 121, 143)
+		val GRID = Color(71, 85, 105, 55)
+		val SEPARATOR = Color(71, 85, 105, 90)
+		val PILL_DARK = Color(13, 25, 42, 230)
+		val STEPS = Color(45, 196, 154)
+		val STEPS_HIGH = Color(88, 226, 177)
+		val STEPS_BOTTOM = Color(13, 88, 82)
+		val TARGET = Color(250, 204, 21)
+		val TARGET_LINE = Color(250, 204, 21, 150)
+		val WEIGHT_LINE = Color(244, 176, 62)
+		val WEIGHT_FILL_TOP = Color(239, 68, 68, 175)
+		val WEIGHT_FILL_BOTTOM = Color(94, 29, 42, 25)
+		val AVERAGE_LINE = Color(203, 213, 225, 90)
+		val LATEST = Color(125, 211, 252)
 		val POSITIVE = Color(52, 211, 153)
-		val NEGATIVE = Color(248, 113, 113)
+		val NEGATIVE = Color(251, 113, 133)
 	}
 
-	companion object {
-		private val dateFmt = DateTimeFormatter.ofPattern("dd.MM.yyyy")
-		private const val STEP_TARGET = 10_000
-		private const val CANVAS_WIDTH = 1200
-		private const val CANVAS_HEIGHT = 760
-		private const val PLOT_WIDTH = 1120
-		private const val PLOT_HEIGHT = 500
-		private const val FRAME = 20
-		private const val HEADER_HEIGHT = 104
+	private companion object {
+		val MONTHS = listOf("янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
+		const val STEP_TARGET = 10_000
+		const val CANVAS_WIDTH = 1200
+		const val CANVAS_HEIGHT = 760
+		const val CONTENT_LEFT = 54
+		const val CONTENT_RIGHT = 1146
+		const val PLOT_LEFT = 72
+		const val PLOT_RIGHT = 1146
+		const val PLOT_TOP = 122
+		const val PLOT_BOTTOM = 610
+		const val PLOT_WIDTH = PLOT_RIGHT - PLOT_LEFT
+		const val PLOT_HEIGHT = PLOT_BOTTOM - PLOT_TOP
+		const val GRID_LINES = 4
+		const val STATS_TOP = 666
 	}
 }
