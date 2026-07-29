@@ -78,6 +78,15 @@ The browser sends anonymous client/session/page-view markers only; the API adds
 the nginx-verified IP address and browser headers. Form values and workout data
 are not part of these events.
 
+### Apple Health import
+
+The iOS Shortcut imports daily steps through `POST /api/health/steps` and daily
+body weight through `POST /api/health/weight/import`. Both requests contain the
+grouped daily values as a multiline string in the empty JSON key. The final
+line represents today; blank or zero lines keep missing calendar days in place.
+Dates are reconstructed by the API, so the Shortcut does not need to extract or
+format Health sample dates.
+
 ### Temporal
 
 Workers and workflows live in `dev.myutils.api.temporal`. Task queue: `myutils-main`.

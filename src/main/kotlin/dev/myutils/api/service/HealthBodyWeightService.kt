@@ -67,6 +67,15 @@ class HealthBodyWeightService(
 		)
 	}
 
+	@Transactional
+	fun upsertAll(days: List<AppleHealthWeightParser.Day>): List<UpsertBodyWeightResponse> =
+		days.map { day ->
+			upsert(
+				weightKg = day.weightKg,
+				date = day.date,
+			)
+		}
+
 	fun history(
 		days: Int?,
 		today: LocalDate,

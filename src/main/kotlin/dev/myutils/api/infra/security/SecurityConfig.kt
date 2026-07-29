@@ -31,6 +31,7 @@ class SecurityConfig(
 					.requestMatchers(HttpMethod.POST, "/api/health/steps").permitAll()
 					.requestMatchers(HttpMethod.GET, "/api/health/weight").permitAll()
 					.requestMatchers(HttpMethod.POST, "/api/health/weight").permitAll()
+					.requestMatchers(HttpMethod.POST, "/api/health/weight/import").permitAll()
 					.requestMatchers(HttpMethod.POST, "/api/telegram/files").permitAll()
 					.requestMatchers(HttpMethod.GET, "/actuator/health").permitAll()
 					.requestMatchers(HttpMethod.GET, "/actuator/prometheus").permitAll()

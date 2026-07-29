@@ -1,7 +1,10 @@
 package dev.myutils.api.web
 
+import com.fasterxml.jackson.databind.JsonNode
 import dev.myutils.api.properties.AppProperties
+import dev.myutils.api.service.AppleHealthWeightParser
 import dev.myutils.api.service.HealthBodyWeightService
+import dev.myutils.api.web.dto.BodyWeightImportResponse
 import dev.myutils.api.web.dto.HealthBodyWeightHistoryResponse
 import dev.myutils.api.web.dto.UpsertBodyWeightRequest
 import dev.myutils.api.web.dto.UpsertBodyWeightResponse
@@ -48,6 +51,28 @@ class HealthWeightController(
 				}
 			} ?: today
 		return healthBodyWeightService.upsert(request.weightKg, date)
+	}
+
+	@PostMapping("/weight/import")
+	fun importWeight(
+		@RequestBody(required = false) body: JsonNode?,
+	): BodyWeightImportResponse {
+		val today = LocalDate.now(ZoneId.of(AppProperties.TEMPORAL_ZONE_ID.get()))
+		val parsed =
+			AppleHealthWeightParser.parse(body, today)
+				?: throw ResponseStatusException(
+					HttpStatus.BAD_REQUEST,
+					"Неверный список значений веса",
+				)
+		val saved = healthBodyWeightService.upsertAll(parsed.days)
+		val latest = saved.lastOrNull()
+		return BodyWeightImportResponse(
+			ok = true,
+			receivedDays = parsed.receivedDays,
+			savedDays = saved.size,
+			latestDate = latest?.date,
+			latestWeightKg = latest?.weightKg,
+		)
 	}
 
 	private fun invalidDate(): ResponseStatusException =

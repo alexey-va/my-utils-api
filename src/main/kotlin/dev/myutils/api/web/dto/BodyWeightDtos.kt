@@ -24,3 +24,11 @@ data class UpsertBodyWeightResponse(
 	val weightKg: BigDecimal,
 	val created: Boolean,
 )
+
+data class BodyWeightImportResponse(
+	val ok: Boolean,
+	val receivedDays: Int,
+	val savedDays: Int,
+	val latestDate: String?,
+	val latestWeightKg: BigDecimal?,
+)
