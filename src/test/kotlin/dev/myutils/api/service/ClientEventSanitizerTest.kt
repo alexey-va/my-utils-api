@@ -46,8 +46,10 @@ class ClientEventSanitizerTest {
 			}
 			""".trimIndent()
 
-		val event = ClientEventSanitizer.parse(body, objectMapper).single()
+		val batch = ClientEventSanitizer.parse(body, objectMapper)!!
+		val event = batch.events.single()
 
+		assertEquals("route-planner", batch.clientApp)
 		assertEquals("click", event.type)
 		assertEquals("/route", event.page)
 		assertEquals("line1 line2", event.detail)
@@ -82,7 +84,7 @@ class ClientEventSanitizerTest {
 			}
 			""".trimIndent()
 
-		val events = ClientEventSanitizer.parse(body, objectMapper)
+		val events = ClientEventSanitizer.parse(body, objectMapper)!!.events
 
 		assertEquals(1, events.size)
 		assertEquals("ui_error", events.single().type)
@@ -91,5 +93,23 @@ class ClientEventSanitizerTest {
 		assertNull(events.single().durationMs)
 		assertNull(events.single().fieldState)
 		assertNull(events.single().hardwareConcurrency)
+	}
+
+	@Test
+	fun `accepts my utils app and rejects unknown app`() {
+		val myUtils =
+			ClientEventSanitizer.parse(
+				"""{"clientApp":"my-utils","events":[{"type":"page_view","page":"/"}]}""",
+				objectMapper,
+			)!!
+		val unknown =
+			ClientEventSanitizer.parse(
+				"""{"clientApp":"some-other-site","events":[{"type":"page_view"}]}""",
+				objectMapper,
+			)
+
+		assertEquals("my-utils", myUtils.clientApp)
+		assertEquals("page_view", myUtils.events.single().type)
+		assertNull(unknown)
 	}
 }

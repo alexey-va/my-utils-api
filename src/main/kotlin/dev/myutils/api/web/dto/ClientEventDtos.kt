@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ClientEventBatchRequest(
+	val clientApp: String? = null,
 	val events: List<ClientEventRequest> = emptyList(),
 )
 

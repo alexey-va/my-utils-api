@@ -17,14 +17,14 @@ class ClientEventLoggingService(
 		body: String?,
 		requestContext: ClientRequestContext,
 	): Int {
-		val events = ClientEventSanitizer.parse(body, objectMapper)
+		val batch = ClientEventSanitizer.parse(body, objectMapper) ?: return 0
 		val safeContext = requestContext.sanitized()
 
-		events.forEach { event ->
+		batch.events.forEach { event ->
 			log
 				.atInfo()
 				.addKeyValue("event_type", "client_event")
-				.addKeyValue("client_app", "route-planner")
+				.addKeyValue("client_app", batch.clientApp)
 				.addKeyValue("client_event_type", event.type)
 				.addKeyValue("client_event_id", event.eventId)
 				.addKeyValue("client_id", event.clientId)
@@ -59,10 +59,10 @@ class ClientEventLoggingService(
 				.addKeyValue("client_sec_ch_ua_platform", safeContext.secChUaPlatform)
 				.addKeyValue("client_sec_ch_ua_mobile", safeContext.secChUaMobile)
 				.addKeyValue("client_origin", safeContext.origin)
-				.log("Route planner client event")
+				.log("Client event")
 		}
 
-		return events.size
+		return batch.events.size
 	}
 
 	private companion object {
@@ -115,17 +115,28 @@ internal object ClientEventSanitizer {
 	fun parse(
 		body: String?,
 		objectMapper: ObjectMapper,
-	): List<SanitizedClientEvent> {
-		if (body.isNullOrBlank() || body.length > MAX_BODY_LENGTH) return emptyList()
+	): SanitizedClientEventBatch? {
+		if (body.isNullOrBlank() || body.length > MAX_BODY_LENGTH) return null
 
 		val request =
 			runCatching {
 				objectMapper.readValue(body, ClientEventBatchRequest::class.java)
-			}.getOrNull() ?: return emptyList()
+			}.getOrNull() ?: return null
 
-		return request.events
-			.take(MAX_BATCH_SIZE)
-			.mapNotNull(::sanitize)
+		val clientApp =
+			when (request.clientApp) {
+				null, "", ROUTE_PLANNER_APP -> ROUTE_PLANNER_APP
+				MY_UTILS_APP -> MY_UTILS_APP
+				else -> return null
+			}
+
+		return SanitizedClientEventBatch(
+			clientApp = clientApp,
+			events =
+				request.events
+					.take(MAX_BATCH_SIZE)
+					.mapNotNull(::sanitize),
+		)
 	}
 
 	fun safeText(
@@ -189,7 +200,14 @@ internal object ClientEventSanitizer {
 		value?.takeIf { it in 0..MAX_DURATION_MS }
 
 	private val CONTROL_CHARACTERS = Regex("[\\u0000-\\u001f\\u007f]")
+	private const val ROUTE_PLANNER_APP = "route-planner"
+	private const val MY_UTILS_APP = "my-utils"
 }
+
+internal data class SanitizedClientEventBatch(
+	val clientApp: String,
+	val events: List<SanitizedClientEvent>,
+)
 
 internal data class SanitizedClientEvent(
 	val eventId: String?,

@@ -1,12 +1,13 @@
 spring:
   datasource:
-    url: jdbc:postgresql://localhost:5432/myutils
+    url: jdbc:postgresql://localhost:5432/${TEST_POSTGRES_DB:myutils}
     username: myutils
     password: myutils
   data:
     redis:
       host: localhost
       port: 6379
+      database: ${TEST_REDIS_DATABASE:0}
   temporal:
     connection:
       enable: true

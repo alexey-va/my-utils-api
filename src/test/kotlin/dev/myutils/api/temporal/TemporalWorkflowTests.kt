@@ -16,6 +16,12 @@ import dev.myutils.api.temporal.notification.NotificationWorkflowInput
 import dev.myutils.api.temporal.notification.TelegramNotificationWorkflow
 import dev.myutils.api.temporal.notification.TelegramNotificationWorkflowImpl
 import dev.myutils.api.temporal.reminder.ReminderWorkflowInput
+import dev.myutils.api.temporal.report.WeeklyHealthReportActivities
+import dev.myutils.api.temporal.report.WeeklyHealthReportActivityInput
+import dev.myutils.api.temporal.report.WeeklyHealthReportInput
+import dev.myutils.api.temporal.report.WeeklyHealthReportWorkflow
+import dev.myutils.api.temporal.report.WeeklyHealthReportWorkflowImpl
+import dev.myutils.api.temporal.report.nextSundayNoon
 import dev.myutils.api.temporal.telegram.TelegramActivities
 import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowClientOptions
@@ -37,6 +43,7 @@ class TemporalWorkflowTests {
 	private val llmSteps = mutableListOf<AgentLlmStepInput>()
 	private val toolCalls = mutableListOf<ToolCallInput>()
 	private val sentMessages = mutableListOf<Pair<Long, String>>()
+	private val generatedReports = mutableListOf<WeeklyHealthReportActivityInput>()
 	private var llmStepCount = 0
 
 	@BeforeEach
@@ -44,17 +51,20 @@ class TemporalWorkflowTests {
 		llmSteps.clear()
 		toolCalls.clear()
 		sentMessages.clear()
+		generatedReports.clear()
 		llmStepCount = 0
 		testEnv = TemporalTestSupport.create()
 		val worker = testEnv.newWorker(TemporalConstants.TASK_QUEUE)
 		worker.registerWorkflowImplementationTypes(
 			WorkoutAgentWorkflowImpl::class.java,
 			TelegramNotificationWorkflowImpl::class.java,
+			WeeklyHealthReportWorkflowImpl::class.java,
 		)
 		worker.registerActivitiesImplementations(
 			stubAgentActivities(),
 			stubToolActivities(),
 			stubTelegramActivities(),
+			stubWeeklyHealthReportActivities(),
 		)
 		testEnv.start()
 	}
@@ -127,6 +137,13 @@ class TemporalWorkflowTests {
 			}
 		}
 
+	private fun stubWeeklyHealthReportActivities(): WeeklyHealthReportActivities =
+		object : WeeklyHealthReportActivities {
+			override fun generateAndSend(input: WeeklyHealthReportActivityInput) {
+				generatedReports.add(input)
+			}
+		}
+
 	@AfterEach
 	fun tearDown() {
 		testEnv.close()
@@ -185,6 +202,27 @@ class TemporalWorkflowTests {
 		assertEquals(listOf(7L to "пора тренироваться"), sentMessages)
 	}
 
+	@Test
+	fun `weekly health report runs at next Sunday noon in configured zone`() {
+		val now = testEnv.currentTimeMillis()
+		val nextRun = nextSundayNoon("Europe/Moscow", now)
+		val untilRun =
+			Duration.ofMillis(nextRun.toInstant().toEpochMilli() - now)
+		WorkflowClient.start(
+			weeklyReportStub("test-weekly-health-report")::run,
+			WeeklyHealthReportInput(chatId = 42L, zoneId = "Europe/Moscow", lookbackDays = 90),
+		)
+
+		testEnv.sleep(untilRun.minusSeconds(1))
+		assertTrue(generatedReports.isEmpty())
+		testEnv.sleep(Duration.ofSeconds(2))
+
+		assertEquals(1, generatedReports.size)
+		assertEquals(42L, generatedReports.single().chatId)
+		assertEquals(90, generatedReports.single().lookbackDays)
+		assertEquals(nextRun.toLocalDate().toString(), generatedReports.single().reportDate)
+	}
+
 	private fun agentStub(workflowId: String): WorkoutAgentWorkflow =
 		testEnv.workflowClient.newWorkflowStub(
 			WorkoutAgentWorkflow::class.java,
@@ -194,6 +232,12 @@ class TemporalWorkflowTests {
 	private fun notificationStub(workflowId: String): TelegramNotificationWorkflow =
 		testEnv.workflowClient.newWorkflowStub(
 			TelegramNotificationWorkflow::class.java,
+			workflowOptions(workflowId),
+		)
+
+	private fun weeklyReportStub(workflowId: String): WeeklyHealthReportWorkflow =
+		testEnv.workflowClient.newWorkflowStub(
+			WeeklyHealthReportWorkflow::class.java,
 			workflowOptions(workflowId),
 		)
 
@@ -241,6 +285,18 @@ class TemporalWorkflowTests {
 					deliverAtEpochMillis = 1_700_000_000_000L,
 				)
 			assertRoundTrip(input, NotificationWorkflowInput::class.java)
+		}
+
+		@Test
+		fun `round-trips WeeklyHealthReportInput`() {
+			assertRoundTrip(
+				WeeklyHealthReportInput(
+					chatId = 303179278L,
+					zoneId = "Europe/Moscow",
+					lookbackDays = 90,
+				),
+				WeeklyHealthReportInput::class.java,
+			)
 		}
 
 		private fun <T> assertRoundTrip(

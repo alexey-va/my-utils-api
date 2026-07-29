@@ -72,9 +72,18 @@ fields remain queryable after API container restarts:
 {app="my-utils-api"} | json | event_type="client_event"
 ```
 
+Workout visits are tagged with `client_app="my-utils"` and appear in the
+provisioned Grafana dashboard `Workout Visitors` (`uid=workout-visitors`).
+The browser sends anonymous client/session/page-view markers only; the API adds
+the nginx-verified IP address and browser headers. Form values and workout data
+are not part of these events.
+
 ### Temporal
 
 Workers and workflows live in `dev.myutils.api.temporal`. Task queue: `myutils-main`.
+For every allowed Telegram user, `WeeklyHealthReportWorkflow` generates and
+sends detailed 90-day PNG charts for steps and body weight each Sunday at
+12:00 in `temporal.zone-id` (default `Europe/Moscow`).
 
 | Env | Default (Docker) | Description |
 |-----|------------------|-------------|

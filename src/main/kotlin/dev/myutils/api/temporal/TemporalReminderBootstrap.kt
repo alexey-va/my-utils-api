@@ -20,18 +20,22 @@ class TemporalReminderBootstrap(
 
 	@EventListener(ApplicationReadyEvent::class)
 	fun startEveningReminders() {
-		if (!AppProperties.TEMPORAL_EVENING_REMINDER_ENABLED.get()) {
-			log.info("Evening reminder disabled in runtime settings")
-			return
-		}
 		val allowed = properties.telegram.allowedUserIdSet()
 		if (allowed.isEmpty()) {
-			log.warn("Temporal evening reminders not started: TELEGRAM_ALLOWED_USER_IDS is empty")
+			log.warn("Temporal automations not started: TELEGRAM_ALLOWED_USER_IDS is empty")
 			return
 		}
-		for (userId in allowed) {
-			temporalWorkflowService.ensureEveningReminderRunning(userId)
+		if (AppProperties.TEMPORAL_EVENING_REMINDER_ENABLED.get()) {
+			for (userId in allowed) {
+				temporalWorkflowService.ensureEveningReminderRunning(userId)
+			}
+			log.info("Temporal evening reminders ensured for {} user(s)", allowed.size)
+		} else {
+			log.info("Evening reminder disabled in runtime settings")
 		}
-		log.info("Temporal evening reminders ensured for {} user(s)", allowed.size)
+		for (userId in allowed) {
+			temporalWorkflowService.ensureWeeklyHealthReportRunning(userId)
+		}
+		log.info("Temporal Sunday health reports ensured for {} user(s)", allowed.size)
 	}
 }

@@ -85,7 +85,7 @@ class ClientEventControllerTest : IntegrationTestBase() {
 
 		val logEvent = appender.list.single()
 		val fields = logEvent.keyValuePairs.associate { it.key to it.value }
-		assertTrue(logEvent.formattedMessage.contains("Route planner client event"))
+		assertTrue(logEvent.formattedMessage.contains("Client event"))
 		assertTrue(fields["event_type"] == "client_event")
 		assertTrue(fields["client_app"] == "route-planner")
 		assertTrue(fields["client_event_type"] == "click")
@@ -101,6 +101,45 @@ class ClientEventControllerTest : IntegrationTestBase() {
 		assertTrue(fields["client_user_agent"] == "agent-browser/1.2 Playwright")
 		assertFalse(fields.values.any { it?.toString()?.contains("198.51.100.99") == true })
 		assertFalse(fields.values.any { it?.toString()?.contains("super-secret-input") == true })
+	}
+
+	@Test
+	fun `accepts anonymous Workout visit with server side visitor markers`() {
+		val body =
+			"""
+			{
+			  "clientApp": "my-utils",
+			  "events": [{
+			    "eventId": "visit-1",
+			    "clientId": "workout-client-1",
+			    "sessionId": "workout-session-1",
+			    "pageViewId": "workout-view-1",
+			    "occurredAt": "2026-07-29T12:00:00Z",
+			    "type": "page_view",
+			    "page": "/",
+			    "uiMode": "workout",
+			    "platform": "Windows"
+			  }]
+			}
+			""".trimIndent()
+
+		mockMvc
+			.post("/api/client-events") {
+				contentType = MediaType.TEXT_PLAIN
+				header("Origin", "https://utils.alexeyav.ru")
+				header("X-Real-IP", "203.0.113.73")
+				header("User-Agent", "Mozilla/5.0 Workout Browser")
+				content = body
+			}.andExpect {
+				status { isNoContent() }
+			}
+
+		val fields = appender.list.single().keyValuePairs.associate { it.key to it.value }
+		assertTrue(fields["client_app"] == "my-utils")
+		assertTrue(fields["client_event_type"] == "page_view")
+		assertTrue(fields["client_id"] == "workout-client-1")
+		assertTrue(fields["client_ip"] == "203.0.113.73")
+		assertTrue(fields["client_user_agent"] == "Mozilla/5.0 Workout Browser")
 	}
 
 	@Test

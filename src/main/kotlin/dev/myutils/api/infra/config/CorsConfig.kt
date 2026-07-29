@@ -20,7 +20,9 @@ class CorsConfig(
 			maxAge = 3600
 		}
 		val clientEventsConfig = CorsConfiguration().apply {
-			allowedOrigins = listOf(ROUTE_PLANNER_ORIGIN)
+			allowedOrigins =
+				(properties.cors.allowedOrigins + ROUTE_PLANNER_ORIGIN + MY_UTILS_ORIGIN)
+					.distinct()
 			allowedMethods = listOf("POST", "OPTIONS")
 			allowedHeaders = listOf("Content-Type")
 			allowCredentials = false
@@ -34,5 +36,6 @@ class CorsConfig(
 
 	private companion object {
 		const val ROUTE_PLANNER_ORIGIN = "https://route.alexeyav.ru"
+		const val MY_UTILS_ORIGIN = "https://utils.alexeyav.ru"
 	}
 }

@@ -8,6 +8,8 @@ import dev.myutils.api.temporal.notification.NotificationWorkflowInput
 import dev.myutils.api.temporal.notification.TelegramNotificationWorkflow
 import dev.myutils.api.temporal.reminder.EveningWorkoutReminderWorkflow
 import dev.myutils.api.temporal.reminder.ReminderWorkflowInput
+import dev.myutils.api.temporal.report.WeeklyHealthReportInput
+import dev.myutils.api.temporal.report.WeeklyHealthReportWorkflow
 import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowExecutionAlreadyStarted
 import io.temporal.client.WorkflowNotFoundException
@@ -50,6 +52,32 @@ class TemporalWorkflowService(
 			log.info("Started evening reminder workflowId={} chatId={}", workflowId, chatId)
 		} catch (_: WorkflowExecutionAlreadyStarted) {
 			log.info("Evening reminder already running workflowId={}", workflowId)
+		}
+	}
+
+	fun ensureWeeklyHealthReportRunning(chatId: Long) {
+		val input =
+			WeeklyHealthReportInput(
+				chatId = chatId,
+				zoneId = AppProperties.TEMPORAL_ZONE_ID.get(),
+				lookbackDays = 90,
+			)
+		val workflowId = weeklyHealthReportWorkflowId(chatId)
+		val stub =
+			workflowClient.newWorkflowStub(
+				WeeklyHealthReportWorkflow::class.java,
+				workflowOptions(workflowId),
+			)
+		try {
+			WorkflowClient.start(stub::run, input)
+			log.info(
+				"Started weekly health report workflowId={} chatId={} schedule=SUN 12:00 zone={}",
+				workflowId,
+				chatId,
+				input.zoneId,
+			)
+		} catch (_: WorkflowExecutionAlreadyStarted) {
+			log.info("Weekly health report already running workflowId={}", workflowId)
 		}
 	}
 
@@ -167,6 +195,8 @@ class TemporalWorkflowService(
 
 	companion object {
 		fun eveningReminderWorkflowId(chatId: Long): String = "evening-reminder-$chatId"
+
+		fun weeklyHealthReportWorkflowId(chatId: Long): String = "weekly-health-report-$chatId"
 
 		fun notificationWorkflowId(chatId: Long): String = "tg-notify-$chatId-${UUID.randomUUID()}"
 
