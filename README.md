@@ -93,9 +93,9 @@ Workers and workflows live in `dev.myutils.api.temporal`. Task queue: `myutils-m
 For every allowed Telegram user, `WeeklyHealthReportWorkflow` generates and
 sends detailed 90-day PNG charts for steps and body weight each Saturday at
 12:00 in `temporal.zone-id` (default `Europe/Moscow`). Each PNG keeps the
-chart and summary visual and adds a readable table for the latest seven
-calendar days. The steps table keeps missing days as placeholders; the weight
-table lists only days that contain an actual measurement.
+chart and summary visual and adds a readable table. The steps table covers the
+latest ten calendar days and keeps missing days as placeholders; the weight
+table lists the ten latest actual measurements regardless of gaps between them.
 
 | Env | Default (Docker) | Description |
 |-----|------------------|-------------|

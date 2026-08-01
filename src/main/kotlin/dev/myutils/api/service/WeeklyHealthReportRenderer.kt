@@ -41,7 +41,8 @@ class WeeklyHealthReportRenderer {
 		val chartFrom = sorted.firstOrNull()?.date ?: from
 		val chartTo = sorted.lastOrNull()?.date ?: to
 		val periodDays = (chartTo.toEpochDay() - chartFrom.toEpochDay() + 1).coerceAtLeast(1)
-		val image = canvas()
+		val tableRows = latestStepTableRows(points, to)
+		val image = canvas(tableRows.size)
 		val g = image.cleanGraphics()
 		drawHeader(
 			g = g,
@@ -60,7 +61,7 @@ class WeeklyHealthReportRenderer {
 		drawDailyTable(
 			g = g,
 			valueLabel = "Шаги",
-			rows = latestStepTableRows(points, to),
+			rows = tableRows,
 		)
 		g.dispose()
 		return encode(image)
@@ -72,7 +73,8 @@ class WeeklyHealthReportRenderer {
 		to: LocalDate,
 	): ByteArray {
 		val sorted = points.filter { it.date in from..to }.sortedBy { it.date }
-		val image = canvas()
+		val tableRows = latestWeightTableRows(sorted, to)
+		val image = canvas(tableRows.size)
 		val g = image.cleanGraphics()
 		drawHeader(
 			g = g,
@@ -91,7 +93,7 @@ class WeeklyHealthReportRenderer {
 		drawDailyTable(
 			g = g,
 			valueLabel = "Вес",
-			rows = latestWeightTableRows(points, to),
+			rows = tableRows,
 		)
 		g.dispose()
 		return encode(image)
@@ -341,11 +343,7 @@ class WeeklyHealthReportRenderer {
 		g.stroke = BasicStroke(1f)
 		g.drawLine(CONTENT_LEFT, TABLE_TOP, CONTENT_RIGHT, TABLE_TOP)
 
-		g.font = font(Font.BOLD, 24f)
-		g.color = Palette.TEXT
-		g.drawString("Последние 7 дней", CONTENT_LEFT, TABLE_TOP + 43)
-
-		val headerTop = TABLE_TOP + 66
+		val headerTop = TABLE_TOP + TABLE_TOP_GAP
 		g.color = Palette.TABLE_HEADER_BG
 		g.fillRoundRect(CONTENT_LEFT, headerTop, CONTENT_RIGHT - CONTENT_LEFT, TABLE_HEADER_HEIGHT, 10, 10)
 		g.font = font(Font.BOLD, 14f)
@@ -445,13 +443,17 @@ class WeeklyHealthReportRenderer {
 		countLabel: String,
 	): String = "${shortDate(from)} — ${shortDate(to)}  ·  $count $countLabel"
 
-	private fun canvas(): BufferedImage =
-		BufferedImage(CANVAS_WIDTH, CANVAS_HEIGHT, BufferedImage.TYPE_INT_RGB).also { image ->
+	private fun canvas(tableRowCount: Int): BufferedImage {
+		val tableBottom =
+			TABLE_TOP + TABLE_TOP_GAP + TABLE_HEADER_HEIGHT + tableRowCount * TABLE_ROW_HEIGHT
+		val height = max(CANVAS_MIN_HEIGHT, tableBottom + CANVAS_BOTTOM_PADDING)
+		return BufferedImage(CANVAS_WIDTH, height, BufferedImage.TYPE_INT_RGB).also { image ->
 			val g = image.createGraphics()
 			g.color = Palette.BG
-			g.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
+			g.fillRect(0, 0, CANVAS_WIDTH, height)
 			g.dispose()
 		}
+	}
 
 	private fun BufferedImage.cleanGraphics(): Graphics2D =
 		(createGraphics() as Graphics2D).apply {
@@ -591,7 +593,8 @@ class WeeklyHealthReportRenderer {
 		val WEEKDAYS = listOf("пн", "вт", "ср", "чт", "пт", "сб", "вс")
 		const val STEP_TARGET = 10_000
 		const val CANVAS_WIDTH = 1200
-		const val CANVAS_HEIGHT = 1180
+		const val CANVAS_MIN_HEIGHT = 1180
+		const val CANVAS_BOTTOM_PADDING = 24
 		const val CONTENT_LEFT = 54
 		const val CONTENT_RIGHT = 1146
 		const val PLOT_LEFT = 72
@@ -603,6 +606,7 @@ class WeeklyHealthReportRenderer {
 		const val GRID_LINES = 4
 		const val STATS_TOP = 666
 		const val TABLE_TOP = 738
+		const val TABLE_TOP_GAP = 20
 		const val TABLE_HEADER_HEIGHT = 44
 		const val TABLE_ROW_HEIGHT = 44
 		const val TABLE_TEXT_LEFT = 72
@@ -620,7 +624,7 @@ internal fun latestStepTableRows(
 	to: LocalDate,
 ): List<DailyValueRow> {
 	val valuesByDate = points.associateBy { it.date }
-	return latestSevenDates(to).map { date ->
+	return latestDates(to, STEP_TABLE_DAY_LIMIT).map { date ->
 		DailyValueRow(
 			date = date,
 			value = valuesByDate[date]?.steps?.toLong()?.let(::formatGroupedInteger) ?: MISSING_VALUE,
@@ -632,19 +636,24 @@ internal fun latestWeightTableRows(
 	points: List<WeeklyHealthReportRenderer.WeightPoint>,
 	to: LocalDate,
 ): List<DailyValueRow> {
-	val valuesByDate = points.associateBy { it.date }
-	return latestSevenDates(to).mapNotNull { date ->
-		valuesByDate[date]?.let { point ->
+	return points
+		.filter { it.date <= to }
+		.associateBy { it.date }
+		.values
+		.sortedByDescending { it.date }
+		.take(WEIGHT_TABLE_ROW_LIMIT)
+		.map { point ->
 			DailyValueRow(
-				date = date,
+				date = point.date,
 				value = "${formatOneDecimal(point.weightKg)} кг",
 			)
 		}
-	}
 }
 
-private fun latestSevenDates(to: LocalDate): List<LocalDate> =
-	(0L..6L).map(to::minusDays)
+private fun latestDates(
+	to: LocalDate,
+	count: Int,
+): List<LocalDate> = (0L until count.toLong()).map(to::minusDays)
 
 private fun formatGroupedInteger(value: Long): String =
 	"%,d".format(java.util.Locale.US, value).replace(',', ' ')
@@ -652,4 +661,6 @@ private fun formatGroupedInteger(value: Long): String =
 private fun formatOneDecimal(value: Double): String =
 	"%.1f".format(java.util.Locale.US, value).replace('.', ',')
 
+private const val STEP_TABLE_DAY_LIMIT = 10
+private const val WEIGHT_TABLE_ROW_LIMIT = 10
 private const val MISSING_VALUE = "—"

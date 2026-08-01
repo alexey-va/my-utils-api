@@ -26,7 +26,7 @@ class WeeklyHealthReportRendererTest {
 
 		val png = renderer.renderSteps(points, from, to)
 		writePreview("steps.png", png)
-		val image = assertReportPng(png)
+		val image = assertReportPng(png, expectedHeight = 1266)
 		val tealPixels =
 			countPixels(image) { color ->
 				color.green > 110 && color.green > color.red + 35 && color.green > color.blue + 20
@@ -37,16 +37,16 @@ class WeeklyHealthReportRendererTest {
 	@Test
 	fun `renders weight as a clean filled trend`() {
 		val points =
-			listOf(
-				WeeklyHealthReportRenderer.WeightPoint(from, 84.2),
-				WeeklyHealthReportRenderer.WeightPoint(from.plusDays(20), 83.6),
-				WeeklyHealthReportRenderer.WeightPoint(from.plusDays(50), 82.9),
-				WeeklyHealthReportRenderer.WeightPoint(to, 83.1),
-			)
+			(0L..11L).map { index ->
+				WeeklyHealthReportRenderer.WeightPoint(
+					date = to.minusDays(index * 4),
+					weightKg = 83.1 + index * 0.1,
+				)
+			}
 
 		val png = renderer.renderWeight(points, from, to)
 		writePreview("weight.png", png)
-		val image = assertReportPng(png)
+		val image = assertReportPng(png, expectedHeight = 1266)
 		val warmPixels =
 			countPixels(image) { color ->
 				color.red > 35 && color.red > color.blue + 10
@@ -56,12 +56,12 @@ class WeeklyHealthReportRendererTest {
 
 	@Test
 	fun `renders an informative empty report instead of failing`() {
-		assertReportPng(renderer.renderSteps(emptyList(), from, to))
+		assertReportPng(renderer.renderSteps(emptyList(), from, to), expectedHeight = 1266)
 		assertReportPng(renderer.renderWeight(emptyList(), from, to))
 	}
 
 	@Test
-	fun `builds seven newest-first calendar rows for steps including missing days`() {
+	fun `builds ten newest-first calendar rows for steps including missing days`() {
 		val rows =
 			latestStepTableRows(
 				points =
@@ -81,37 +81,53 @@ class WeeklyHealthReportRendererTest {
 				DailyValueRow(to.minusDays(4), "—"),
 				DailyValueRow(to.minusDays(5), "—"),
 				DailyValueRow(to.minusDays(6), "—"),
+				DailyValueRow(to.minusDays(7), "—"),
+				DailyValueRow(to.minusDays(8), "—"),
+				DailyValueRow(to.minusDays(9), "—"),
 			),
 			rows,
 		)
 	}
 
 	@Test
-	fun `builds newest-first weight rows only for measured days in the latest week`() {
+	fun `builds ten newest-first weight rows from actual measurements`() {
 		val rows =
 			latestWeightTableRows(
 				points =
-					listOf(
-						WeeklyHealthReportRenderer.WeightPoint(to.minusDays(1), 82.35),
-						WeeklyHealthReportRenderer.WeightPoint(to.minusDays(6), 83.0),
-					),
+					(0L..11L).map { index ->
+						WeeklyHealthReportRenderer.WeightPoint(
+							date = to.minusDays(index * 3),
+							weightKg = 82.0 + index * 0.1,
+						)
+					} + WeeklyHealthReportRenderer.WeightPoint(to.plusDays(1), 99.0),
 				to = to,
 			)
 
 		assertEquals(
 			listOf(
-				DailyValueRow(to.minusDays(1), "82,4 кг"),
-				DailyValueRow(to.minusDays(6), "83,0 кг"),
+				DailyValueRow(to, "82,0 кг"),
+				DailyValueRow(to.minusDays(3), "82,1 кг"),
+				DailyValueRow(to.minusDays(6), "82,2 кг"),
+				DailyValueRow(to.minusDays(9), "82,3 кг"),
+				DailyValueRow(to.minusDays(12), "82,4 кг"),
+				DailyValueRow(to.minusDays(15), "82,5 кг"),
+				DailyValueRow(to.minusDays(18), "82,6 кг"),
+				DailyValueRow(to.minusDays(21), "82,7 кг"),
+				DailyValueRow(to.minusDays(24), "82,8 кг"),
+				DailyValueRow(to.minusDays(27), "82,9 кг"),
 			),
 			rows,
 		)
 	}
 
-	private fun assertReportPng(png: ByteArray): java.awt.image.BufferedImage {
+	private fun assertReportPng(
+		png: ByteArray,
+		expectedHeight: Int = 1180,
+	): java.awt.image.BufferedImage {
 		assertTrue(png.size > 10_000)
 		val image = ImageIO.read(ByteArrayInputStream(png))
 		assertEquals(1200, image.width)
-		assertEquals(1180, image.height)
+		assertEquals(expectedHeight, image.height)
 		return image
 	}
 
