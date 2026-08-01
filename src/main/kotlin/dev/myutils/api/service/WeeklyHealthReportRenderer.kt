@@ -633,11 +633,13 @@ internal fun latestWeightTableRows(
 	to: LocalDate,
 ): List<DailyValueRow> {
 	val valuesByDate = points.associateBy { it.date }
-	return latestSevenDates(to).map { date ->
-		DailyValueRow(
-			date = date,
-			value = valuesByDate[date]?.weightKg?.let { "${formatOneDecimal(it)} кг" } ?: MISSING_VALUE,
-		)
+	return latestSevenDates(to).mapNotNull { date ->
+		valuesByDate[date]?.let { point ->
+			DailyValueRow(
+				date = date,
+				value = "${formatOneDecimal(point.weightKg)} кг",
+			)
+		}
 	}
 }
 

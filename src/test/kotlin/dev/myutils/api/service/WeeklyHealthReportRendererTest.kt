@@ -87,7 +87,7 @@ class WeeklyHealthReportRendererTest {
 	}
 
 	@Test
-	fun `builds seven newest-first calendar rows for weight including missing measurements`() {
+	fun `builds newest-first weight rows only for measured days in the latest week`() {
 		val rows =
 			latestWeightTableRows(
 				points =
@@ -100,12 +100,7 @@ class WeeklyHealthReportRendererTest {
 
 		assertEquals(
 			listOf(
-				DailyValueRow(to, "—"),
 				DailyValueRow(to.minusDays(1), "82,4 кг"),
-				DailyValueRow(to.minusDays(2), "—"),
-				DailyValueRow(to.minusDays(3), "—"),
-				DailyValueRow(to.minusDays(4), "—"),
-				DailyValueRow(to.minusDays(5), "—"),
 				DailyValueRow(to.minusDays(6), "83,0 кг"),
 			),
 			rows,

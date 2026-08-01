@@ -94,7 +94,8 @@ For every allowed Telegram user, `WeeklyHealthReportWorkflow` generates and
 sends detailed 90-day PNG charts for steps and body weight each Saturday at
 12:00 in `temporal.zone-id` (default `Europe/Moscow`). Each PNG keeps the
 chart and summary visual and adds a readable table for the latest seven
-calendar days.
+calendar days. The steps table keeps missing days as placeholders; the weight
+table lists only days that contain an actual measurement.
 
 | Env | Default (Docker) | Description |
 |-----|------------------|-------------|
