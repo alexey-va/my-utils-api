@@ -57,6 +57,11 @@ class WeeklyHealthReportRenderer {
 			drawStepsHistogram(g, sorted, chartFrom, chartTo)
 			drawStats(g, stepsStats(sorted))
 		}
+		drawDailyTable(
+			g = g,
+			valueLabel = "Шаги",
+			rows = latestStepTableRows(points, to),
+		)
 		g.dispose()
 		return encode(image)
 	}
@@ -66,7 +71,7 @@ class WeeklyHealthReportRenderer {
 		from: LocalDate,
 		to: LocalDate,
 	): ByteArray {
-		val sorted = points.sortedBy { it.date }
+		val sorted = points.filter { it.date in from..to }.sortedBy { it.date }
 		val image = canvas()
 		val g = image.cleanGraphics()
 		drawHeader(
@@ -83,6 +88,11 @@ class WeeklyHealthReportRenderer {
 			drawWeightTrend(g, sorted)
 			drawStats(g, weightStats(sorted))
 		}
+		drawDailyTable(
+			g = g,
+			valueLabel = "Вес",
+			rows = latestWeightTableRows(points, to),
+		)
 		g.dispose()
 		return encode(image)
 	}
@@ -322,6 +332,46 @@ class WeeklyHealthReportRenderer {
 		}
 	}
 
+	private fun drawDailyTable(
+		g: Graphics2D,
+		valueLabel: String,
+		rows: List<DailyValueRow>,
+	) {
+		g.color = Palette.SEPARATOR
+		g.stroke = BasicStroke(1f)
+		g.drawLine(CONTENT_LEFT, TABLE_TOP, CONTENT_RIGHT, TABLE_TOP)
+
+		g.font = font(Font.BOLD, 24f)
+		g.color = Palette.TEXT
+		g.drawString("Последние 7 дней", CONTENT_LEFT, TABLE_TOP + 43)
+
+		val headerTop = TABLE_TOP + 66
+		g.color = Palette.TABLE_HEADER_BG
+		g.fillRoundRect(CONTENT_LEFT, headerTop, CONTENT_RIGHT - CONTENT_LEFT, TABLE_HEADER_HEIGHT, 10, 10)
+		g.font = font(Font.BOLD, 14f)
+		g.color = Palette.TEXT_MUTED
+		g.drawString("ДЕНЬ", TABLE_TEXT_LEFT, headerTop + 27)
+		drawRight(g, valueLabel.uppercase(), TABLE_TEXT_RIGHT, headerTop + 27)
+
+		rows.forEachIndexed { index, row ->
+			val rowTop = headerTop + TABLE_HEADER_HEIGHT + index * TABLE_ROW_HEIGHT
+			if (index % 2 == 1) {
+				g.color = Palette.TABLE_ROW_ALT
+				g.fillRect(CONTENT_LEFT, rowTop, CONTENT_RIGHT - CONTENT_LEFT, TABLE_ROW_HEIGHT)
+			}
+			g.color = Palette.SEPARATOR
+			g.stroke = BasicStroke(1f)
+			g.drawLine(CONTENT_LEFT, rowTop + TABLE_ROW_HEIGHT, CONTENT_RIGHT, rowTop + TABLE_ROW_HEIGHT)
+
+			g.font = font(Font.PLAIN, 18f)
+			g.color = Palette.TEXT_MUTED
+			g.drawString(tableDate(row.date), TABLE_TEXT_LEFT, rowTop + 30)
+			g.font = font(Font.BOLD, 20f)
+			g.color = if (row.value == MISSING_VALUE) Palette.TEXT_DIM else Palette.TEXT
+			drawRight(g, row.value, TABLE_TEXT_RIGHT, rowTop + 31)
+		}
+	}
+
 	private fun drawEmpty(
 		g: Graphics2D,
 		message: String,
@@ -450,10 +500,10 @@ class WeeklyHealthReportRenderer {
 		}
 
 	private fun formatInteger(value: Number): String =
-		"%,d".format(java.util.Locale.US, value.toLong()).replace(',', ' ')
+		formatGroupedInteger(value.toLong())
 
 	private fun formatDecimal(value: Double): String =
-		"%.1f".format(java.util.Locale.US, value).replace('.', ',')
+		formatOneDecimal(value)
 
 	private fun formatWeightDelta(delta: Double): String =
 		when {
@@ -485,6 +535,9 @@ class WeeklyHealthReportRenderer {
 
 	private fun shortDate(date: LocalDate): String =
 		"${date.dayOfMonth} ${MONTHS[date.monthValue - 1]}"
+
+	private fun tableDate(date: LocalDate): String =
+		"${WEEKDAYS[date.dayOfWeek.value - 1]}, ${shortDate(date)}"
 
 	private fun font(
 		style: Int,
@@ -529,13 +582,16 @@ class WeeklyHealthReportRenderer {
 		val LATEST = Color(125, 211, 252)
 		val POSITIVE = Color(52, 211, 153)
 		val NEGATIVE = Color(251, 113, 133)
+		val TABLE_HEADER_BG = Color(13, 25, 42)
+		val TABLE_ROW_ALT = Color(9, 19, 33)
 	}
 
 	private companion object {
 		val MONTHS = listOf("янв", "фев", "мар", "апр", "мая", "июн", "июл", "авг", "сен", "окт", "ноя", "дек")
+		val WEEKDAYS = listOf("пн", "вт", "ср", "чт", "пт", "сб", "вс")
 		const val STEP_TARGET = 10_000
 		const val CANVAS_WIDTH = 1200
-		const val CANVAS_HEIGHT = 760
+		const val CANVAS_HEIGHT = 1180
 		const val CONTENT_LEFT = 54
 		const val CONTENT_RIGHT = 1146
 		const val PLOT_LEFT = 72
@@ -546,5 +602,52 @@ class WeeklyHealthReportRenderer {
 		const val PLOT_HEIGHT = PLOT_BOTTOM - PLOT_TOP
 		const val GRID_LINES = 4
 		const val STATS_TOP = 666
+		const val TABLE_TOP = 738
+		const val TABLE_HEADER_HEIGHT = 44
+		const val TABLE_ROW_HEIGHT = 44
+		const val TABLE_TEXT_LEFT = 72
+		const val TABLE_TEXT_RIGHT = 1128
 	}
 }
+
+internal data class DailyValueRow(
+	val date: LocalDate,
+	val value: String,
+)
+
+internal fun latestStepTableRows(
+	points: List<WeeklyHealthReportRenderer.StepPoint>,
+	to: LocalDate,
+): List<DailyValueRow> {
+	val valuesByDate = points.associateBy { it.date }
+	return latestSevenDates(to).map { date ->
+		DailyValueRow(
+			date = date,
+			value = valuesByDate[date]?.steps?.toLong()?.let(::formatGroupedInteger) ?: MISSING_VALUE,
+		)
+	}
+}
+
+internal fun latestWeightTableRows(
+	points: List<WeeklyHealthReportRenderer.WeightPoint>,
+	to: LocalDate,
+): List<DailyValueRow> {
+	val valuesByDate = points.associateBy { it.date }
+	return latestSevenDates(to).map { date ->
+		DailyValueRow(
+			date = date,
+			value = valuesByDate[date]?.weightKg?.let { "${formatOneDecimal(it)} кг" } ?: MISSING_VALUE,
+		)
+	}
+}
+
+private fun latestSevenDates(to: LocalDate): List<LocalDate> =
+	(0L..6L).map(to::minusDays)
+
+private fun formatGroupedInteger(value: Long): String =
+	"%,d".format(java.util.Locale.US, value).replace(',', ' ')
+
+private fun formatOneDecimal(value: Double): String =
+	"%.1f".format(java.util.Locale.US, value).replace('.', ',')
+
+private const val MISSING_VALUE = "—"

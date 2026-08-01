@@ -18,7 +18,7 @@ dev.myutils.api/
 ├── temporal/         — workflows + activities (queue: myutils-main)
 │   ├── agent/        — WorkoutAgentWorkflow, llmStep, WorkoutToolActivities
 │   ├── reminder/     — evening reminder workflow
-│   ├── report/       — Sunday steps/body-weight PNG report workflow
+│   ├── report/       — Saturday steps/body-weight PNG report workflow
 │   └── notification/ — scheduled Telegram messages
 ├── properties/       — runtime settings (app_settings table)
 ├── infra/            — config, security, session, http, util, openrouter, web helpers

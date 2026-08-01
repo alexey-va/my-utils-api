@@ -11,8 +11,8 @@ import javax.imageio.ImageIO
 
 class WeeklyHealthReportRendererTest {
 	private val renderer = WeeklyHealthReportRenderer()
-	private val from = LocalDate.of(2026, 5, 1)
-	private val to = LocalDate.of(2026, 7, 29)
+	private val from = LocalDate.of(2026, 5, 4)
+	private val to = LocalDate.of(2026, 8, 1)
 
 	@Test
 	fun `renders steps as a clean histogram`() {
@@ -60,11 +60,63 @@ class WeeklyHealthReportRendererTest {
 		assertReportPng(renderer.renderWeight(emptyList(), from, to))
 	}
 
+	@Test
+	fun `builds seven newest-first calendar rows for steps including missing days`() {
+		val rows =
+			latestStepTableRows(
+				points =
+					listOf(
+						WeeklyHealthReportRenderer.StepPoint(to, 12_345),
+						WeeklyHealthReportRenderer.StepPoint(to.minusDays(2), 8_000),
+					),
+				to = to,
+			)
+
+		assertEquals(
+			listOf(
+				DailyValueRow(to, "12 345"),
+				DailyValueRow(to.minusDays(1), "—"),
+				DailyValueRow(to.minusDays(2), "8 000"),
+				DailyValueRow(to.minusDays(3), "—"),
+				DailyValueRow(to.minusDays(4), "—"),
+				DailyValueRow(to.minusDays(5), "—"),
+				DailyValueRow(to.minusDays(6), "—"),
+			),
+			rows,
+		)
+	}
+
+	@Test
+	fun `builds seven newest-first calendar rows for weight including missing measurements`() {
+		val rows =
+			latestWeightTableRows(
+				points =
+					listOf(
+						WeeklyHealthReportRenderer.WeightPoint(to.minusDays(1), 82.35),
+						WeeklyHealthReportRenderer.WeightPoint(to.minusDays(6), 83.0),
+					),
+				to = to,
+			)
+
+		assertEquals(
+			listOf(
+				DailyValueRow(to, "—"),
+				DailyValueRow(to.minusDays(1), "82,4 кг"),
+				DailyValueRow(to.minusDays(2), "—"),
+				DailyValueRow(to.minusDays(3), "—"),
+				DailyValueRow(to.minusDays(4), "—"),
+				DailyValueRow(to.minusDays(5), "—"),
+				DailyValueRow(to.minusDays(6), "83,0 кг"),
+			),
+			rows,
+		)
+	}
+
 	private fun assertReportPng(png: ByteArray): java.awt.image.BufferedImage {
 		assertTrue(png.size > 10_000)
 		val image = ImageIO.read(ByteArrayInputStream(png))
 		assertEquals(1200, image.width)
-		assertEquals(760, image.height)
+		assertEquals(1180, image.height)
 		return image
 	}
 

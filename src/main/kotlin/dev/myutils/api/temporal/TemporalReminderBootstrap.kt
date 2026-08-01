@@ -36,6 +36,6 @@ class TemporalReminderBootstrap(
 		for (userId in allowed) {
 			temporalWorkflowService.ensureWeeklyHealthReportRunning(userId)
 		}
-		log.info("Temporal Sunday health reports ensured for {} user(s)", allowed.size)
+		log.info("Temporal Saturday health reports ensured for {} user(s)", allowed.size)
 	}
 }

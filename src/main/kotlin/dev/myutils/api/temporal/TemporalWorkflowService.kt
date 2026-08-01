@@ -71,13 +71,19 @@ class TemporalWorkflowService(
 		try {
 			WorkflowClient.start(stub::run, input)
 			log.info(
-				"Started weekly health report workflowId={} chatId={} schedule=SUN 12:00 zone={}",
+				"Started weekly health report workflowId={} chatId={} schedule=SAT 12:00 zone={}",
 				workflowId,
 				chatId,
 				input.zoneId,
 			)
 		} catch (_: WorkflowExecutionAlreadyStarted) {
 			log.info("Weekly health report already running workflowId={}", workflowId)
+		}
+		if (terminateLegacyWeeklyHealthReport(workflowClient, chatId)) {
+			log.info(
+				"Terminated legacy Sunday health report workflowId={}",
+				legacyWeeklyHealthReportWorkflowId(chatId),
+			)
 		}
 	}
 
@@ -196,10 +202,25 @@ class TemporalWorkflowService(
 	companion object {
 		fun eveningReminderWorkflowId(chatId: Long): String = "evening-reminder-$chatId"
 
-		fun weeklyHealthReportWorkflowId(chatId: Long): String = "weekly-health-report-$chatId"
+		fun weeklyHealthReportWorkflowId(chatId: Long): String = "weekly-health-report-v2-$chatId"
+
+		fun legacyWeeklyHealthReportWorkflowId(chatId: Long): String = "weekly-health-report-$chatId"
 
 		fun notificationWorkflowId(chatId: Long): String = "tg-notify-$chatId-${UUID.randomUUID()}"
 
 		fun agentTurnWorkflowId(chatId: Long): String = "agent-turn-$chatId-${UUID.randomUUID()}"
 	}
 }
+
+internal fun terminateLegacyWeeklyHealthReport(
+	workflowClient: WorkflowClient,
+	chatId: Long,
+): Boolean =
+	try {
+		workflowClient
+			.newUntypedWorkflowStub(TemporalWorkflowService.legacyWeeklyHealthReportWorkflowId(chatId))
+			.terminate("Migrated weekly health report schedule from Sunday to Saturday")
+		true
+	} catch (_: WorkflowNotFoundException) {
+		false
+	}

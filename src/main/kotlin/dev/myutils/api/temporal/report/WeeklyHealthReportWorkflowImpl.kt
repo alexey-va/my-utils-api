@@ -30,7 +30,7 @@ open class WeeklyHealthReportWorkflowImpl : WeeklyHealthReportWorkflow {
 
 	override fun run(input: WeeklyHealthReportInput) {
 		while (true) {
-			Workflow.sleep(durationUntilNextSundayNoon(input.zoneId, Workflow.currentTimeMillis()))
+			Workflow.sleep(durationUntilNextSaturdayNoon(input.zoneId, Workflow.currentTimeMillis()))
 			val reportDate =
 				Instant
 					.ofEpochMilli(Workflow.currentTimeMillis())
@@ -47,14 +47,14 @@ open class WeeklyHealthReportWorkflowImpl : WeeklyHealthReportWorkflow {
 	}
 }
 
-internal fun durationUntilNextSundayNoon(
+internal fun durationUntilNextSaturdayNoon(
 	zoneId: String,
 	nowMillis: Long,
 ): Duration {
 	val now = Instant.ofEpochMilli(nowMillis).atZone(ZoneId.of(zoneId))
 	var target =
 		now
-			.with(TemporalAdjusters.nextOrSame(DayOfWeek.SUNDAY))
+			.with(TemporalAdjusters.nextOrSame(DayOfWeek.SATURDAY))
 			.withHour(12)
 			.withMinute(0)
 			.withSecond(0)
@@ -65,10 +65,10 @@ internal fun durationUntilNextSundayNoon(
 	return Duration.between(now, target)
 }
 
-internal fun nextSundayNoon(
+internal fun nextSaturdayNoon(
 	zoneId: String,
 	nowMillis: Long,
 ): ZonedDateTime =
 	Instant.ofEpochMilli(nowMillis).atZone(ZoneId.of(zoneId)).plus(
-		durationUntilNextSundayNoon(zoneId, nowMillis),
+		durationUntilNextSaturdayNoon(zoneId, nowMillis),
 	)

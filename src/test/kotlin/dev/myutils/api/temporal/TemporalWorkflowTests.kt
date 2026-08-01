@@ -21,7 +21,7 @@ import dev.myutils.api.temporal.report.WeeklyHealthReportActivityInput
 import dev.myutils.api.temporal.report.WeeklyHealthReportInput
 import dev.myutils.api.temporal.report.WeeklyHealthReportWorkflow
 import dev.myutils.api.temporal.report.WeeklyHealthReportWorkflowImpl
-import dev.myutils.api.temporal.report.nextSundayNoon
+import dev.myutils.api.temporal.report.nextSaturdayNoon
 import dev.myutils.api.temporal.telegram.TelegramActivities
 import io.temporal.client.WorkflowClient
 import io.temporal.client.WorkflowClientOptions
@@ -203,9 +203,9 @@ class TemporalWorkflowTests {
 	}
 
 	@Test
-	fun `weekly health report runs at next Sunday noon in configured zone`() {
+	fun `weekly health report runs at next Saturday noon in configured zone`() {
 		val now = testEnv.currentTimeMillis()
-		val nextRun = nextSundayNoon("Europe/Moscow", now)
+		val nextRun = nextSaturdayNoon("Europe/Moscow", now)
 		val untilRun =
 			Duration.ofMillis(nextRun.toInstant().toEpochMilli() - now)
 		WorkflowClient.start(
