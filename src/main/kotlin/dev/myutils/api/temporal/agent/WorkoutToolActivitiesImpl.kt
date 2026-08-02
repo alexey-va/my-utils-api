@@ -2,6 +2,7 @@ package dev.myutils.api.temporal.agent
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.myutils.api.agent.AgentToolMutationPolicy
+import dev.myutils.api.agent.AgentToolArgumentsGrounding
 import dev.myutils.api.agent.ToolArgumentsJsonParser
 import dev.myutils.api.agent.ToolExecutionFeedback
 import dev.myutils.api.agent.WorkoutToolsService
@@ -57,7 +58,11 @@ class WorkoutToolActivitiesImpl(
 						toolsService.runTool(
 							input.toolName,
 							toolChatId,
-							parsed.args,
+							AgentToolArgumentsGrounding.ground(
+								input.toolName,
+								parsed.args,
+								input.userMessage,
+							),
 							input.publishStatus,
 						)
 					is ToolArgumentsJsonParser.ParseResult.Error ->

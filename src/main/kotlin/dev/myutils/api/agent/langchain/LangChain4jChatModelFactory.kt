@@ -12,6 +12,7 @@ import java.net.InetSocketAddress
 import java.net.ProxySelector
 import java.net.http.HttpClient
 import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
 
 interface ChatModelFactory {
 	fun create(): ChatModel
@@ -25,16 +26,18 @@ class LangChain4jChatModelFactory(
 	private val properties: MyUtilsProperties,
 ) : ChatModelFactory {
 	private val log = LoggerFactory.getLogger(javaClass)
+	private val models = ConcurrentHashMap<String, ChatModel>()
 
-	override fun create(): ChatModel = buildModel(AppProperties.OPENROUTER_MODEL.get())
+	override fun create(): ChatModel = create(AppProperties.OPENROUTER_MODEL.get())
 
-	override fun create(modelName: String): ChatModel = buildModel(modelName)
+	override fun create(modelName: String): ChatModel = models.computeIfAbsent(modelName, ::buildModel)
 
 	private fun buildModel(modelName: String): ChatModel {
 		val config = properties.openrouter
 		val jdkBuilder =
 			HttpClient
 				.newBuilder()
+				.version(HttpClient.Version.HTTP_1_1)
 				.connectTimeout(Duration.ofSeconds(30))
 		val proxy = config.proxy
 		if (proxy.enabled && proxy.host.isNotBlank()) {

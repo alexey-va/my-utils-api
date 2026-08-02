@@ -12,6 +12,7 @@ import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.temporal.agent.ToolCallDto
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.argThat
 import org.mockito.kotlin.any
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
@@ -90,5 +91,31 @@ class WorkoutLangChain4jAgentMutationTest {
 
 		assertTrue(result.contains("Упражнения"))
 		verify(toolsService).runDirectTool(eq("listExercises"), eq(303179278L), any(), eq(false))
+	}
+
+	@Test
+	fun `workout tool keeps literal notation from current user message`() {
+		whenever(toolsService.runDirectTool(eq("logWorkout"), eq(303179278L), any(), eq(false)))
+			.thenReturn("Записано")
+
+		agent.executeToolCall(
+			chatId = 303179278L,
+			call =
+				ToolCallDto(
+					id = "tc-log",
+					name = "logWorkout",
+					argumentsJson =
+						"""{"exercise_name":"Жим","notation":"80 3*10/10","date":"2026-08-02"}""",
+				),
+			mutationAuthorizationText = "сегодня 80 10/10",
+			publishStatus = false,
+		)
+
+		verify(toolsService).runDirectTool(
+			eq("logWorkout"),
+			eq(303179278L),
+			argThat { this["notation"] == "80 10/10" },
+			eq(false),
+		)
 	}
 }

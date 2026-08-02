@@ -149,6 +149,7 @@ class RecordingChatModel(
 	defaultResponse: String = "Тестовый ответ.",
 ) : ChatModel {
 	private val responseQueue = ArrayDeque<AiMessage>()
+	private var failure: RuntimeException? = null
 
 	val requests = mutableListOf<ChatRequest>()
 
@@ -161,6 +162,7 @@ class RecordingChatModel(
 	}
 
 	fun resetMessages(vararg responses: AiMessage) {
+		failure = null
 		responseQueue.clear()
 		requests.clear()
 		responses.forEach { responseQueue.addLast(it) }
@@ -169,8 +171,15 @@ class RecordingChatModel(
 		}
 	}
 
+	fun resetFailure(error: RuntimeException) {
+		responseQueue.clear()
+		requests.clear()
+		failure = error
+	}
+
 	override fun chat(request: ChatRequest): ChatResponse {
 		requests.add(request)
+		failure?.let { throw it }
 		val message = responseQueue.removeFirstOrNull() ?: AiMessage.from("ok")
 		return ChatResponse.builder().aiMessage(message).build()
 	}

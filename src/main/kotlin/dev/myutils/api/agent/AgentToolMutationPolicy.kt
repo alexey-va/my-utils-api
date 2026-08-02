@@ -15,8 +15,13 @@ object AgentToolMutationPolicy {
 	private val bareBodyWeight =
 		Regex("""^(?:вес\s*[:=]?\s*)?\d+(?:[.,]\d+)?\s*(?:кг|kg|lb|lbs|фунт(?:а|ов)?)[.!]?$""")
 	private val bodyWeightStatement = Regex("""(?:взвесил(?:ся|ась)?|мой\s+вес|вешу).{0,20}\d""")
+	private val naturalBodyWeightStatement =
+		Regex(
+			"""(?:^|\s)(?:вес(?:\s+(?:сегодня|вчера))?|(?:сегодня|вчера)\s+вес)\s*[:=—-]?\s*\d""",
+		)
 	private val explicitWeightWrite = Regex("""(?:запиши(?:те)?|записать|зафиксируй(?:те)?)\s+(?:мой\s+)?вес""")
-	private val explicitRemember = Regex("""(?:^|\s)(?:запомни(?:те)?|учти(?:те)?|сохрани(?:те)?\s+(?:как\s+)?факт)(?:\s|$)""")
+	private val explicitRemember =
+		Regex("""(?:^|\s)(?:запомни(?:те)?|учти(?:те)?|сохрани(?:те)?\s+(?:как\s+)?факт)(?=\s|[:—-]|$)""")
 	private val explicitForget = Regex("""(?:^|\s)(?:забудь(?:те)?|удали(?:те)?\s+факт|больше\s+не\s+учитывай(?:те)?)(?:\s|$)""")
 	private val explicitNotificationCreate =
 		Regex("""(?:^|\s)(?:напомни(?:те)?|уведоми(?:те)?|поставь(?:те)?\s+напоминание|запланируй(?:те)?\s+(?:напоминание|уведомление))(?:\s|$)""")
@@ -48,7 +53,8 @@ object AgentToolMutationPolicy {
 						(
 							explicitWeightWrite.containsMatchIn(message) ||
 								(!question && bareBodyWeight.matches(message)) ||
-								(!question && bodyWeightStatement.containsMatchIn(message))
+								(!question && bodyWeightStatement.containsMatchIn(message)) ||
+								(!question && naturalBodyWeightStatement.containsMatchIn(message))
 						)
 				"remember_fact" -> explicitRemember.containsMatchIn(message)
 				"forget_fact" -> explicitForget.containsMatchIn(message)

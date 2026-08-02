@@ -41,6 +41,12 @@ class AgentToolMutationPolicyTest {
 	}
 
 	@Test
+	fun `natural dated body weight measurement authorizes logging`() {
+		assertNull(AgentToolMutationPolicy.denialReason("logBodyWeight", "вес сегодня 82.4"))
+		assertNull(AgentToolMutationPolicy.denialReason("logBodyWeight", "сегодня вес 82,4 кг"))
+	}
+
+	@Test
 	fun `read only tools never require mutation authorization`() {
 		assertNull(AgentToolMutationPolicy.denialReason("getDaySummaries", null))
 	}
@@ -61,6 +67,16 @@ class AgentToolMutationPolicyTest {
 			AgentToolMutationPolicy.denialReason(
 				"createExercise",
 				"как добавить жим лежа?",
+			),
+		)
+	}
+
+	@Test
+	fun `remember command with colon authorizes fact mutation`() {
+		assertNull(
+			AgentToolMutationPolicy.denialReason(
+				"rememberFact",
+				"запомни: локоть беречь",
 			),
 		)
 	}

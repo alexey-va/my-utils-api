@@ -2,6 +2,7 @@ package dev.myutils.api.agent.memory
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.readValue
+import dev.langchain4j.data.message.AiMessage
 import dev.myutils.api.agent.langchain.ChatMemoryMessageMapper
 import dev.myutils.api.agent.langchain.WorkoutLangChain4jAgent
 import dev.myutils.api.domain.AgentConversationMessage
@@ -11,6 +12,7 @@ import dev.myutils.api.infra.openrouter.ChatMessage
 import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.temporal.TemporalWorkflowService
 import dev.myutils.api.temporal.agent.AgentTurnInput
+import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.ObjectProvider
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
@@ -25,6 +27,8 @@ class AgentChatTurnService(
 	private val messageRepository: AgentConversationMessageRepository,
 	private val objectMapper: ObjectMapper,
 ) {
+	private val log = LoggerFactory.getLogger(javaClass)
+
 	fun runSyncTurn(
 		chatId: Long,
 		text: String,
@@ -48,41 +52,46 @@ class AgentChatTurnService(
 				?: persistUserMessage(chatId, trimmed, normalizedImages)
 		}
 
-		val temporal = temporalWorkflow.getIfAvailable()
-		if (temporal != null && properties.temporal.enabled) {
-			temporal.executeAgentTurn(
-				AgentTurnInput(
-					chatId = chatId,
-					userId = userId,
-					text = if (hasImages) "" else trimmed,
-					maxToolIterations = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get(),
-					mutationAuthorizationText = trimmed.takeIf { hasImages },
-					deliverToTelegram = false,
-					contextChatId = contextChatId,
-				),
-			)
-		} else {
-			val agent =
-				langChainAgent.getIfAvailable()
-					?: throw ResponseStatusException(
-						HttpStatus.SERVICE_UNAVAILABLE,
-						"Агент недоступен (Telegram-бот / OpenRouter не настроен).",
-					)
-			if (hasImages) {
-				agent.runFromMemory(
-					chatId = chatId,
-					mutationAuthorizationText = trimmed,
-					contextChatId = contextChatId,
-					publishToolStatus = false,
+		try {
+			val temporal = temporalWorkflow.getIfAvailable()
+			if (temporal != null && properties.temporal.enabled) {
+				temporal.executeAgentTurn(
+					AgentTurnInput(
+						chatId = chatId,
+						userId = userId,
+						text = if (hasImages) "" else trimmed,
+						maxToolIterations = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get(),
+						mutationAuthorizationText = trimmed.takeIf { hasImages },
+						deliverToTelegram = false,
+						contextChatId = contextChatId,
+					),
 				)
 			} else {
-				agent.run(
-					chatId = chatId,
-					userMessage = trimmed,
-					contextChatId = contextChatId,
-					publishToolStatus = false,
-				)
+				val agent =
+					langChainAgent.getIfAvailable()
+						?: throw ResponseStatusException(
+							HttpStatus.SERVICE_UNAVAILABLE,
+							"Агент недоступен (Telegram-бот / OpenRouter не настроен).",
+						)
+				if (hasImages) {
+					agent.runFromMemory(
+						chatId = chatId,
+						mutationAuthorizationText = trimmed,
+						contextChatId = contextChatId,
+						publishToolStatus = false,
+					)
+				} else {
+					agent.run(
+						chatId = chatId,
+						userMessage = trimmed,
+						contextChatId = contextChatId,
+						publishToolStatus = false,
+					)
+				}
 			}
+		} catch (error: Exception) {
+			log.error("Synchronous agent turn failed chatId={}", chatId, error)
+			persistAssistantError(chatId)
 		}
 
 		val newMessages =
@@ -111,6 +120,23 @@ class AgentChatTurnService(
 				messageJson = objectMapper.writeValueAsString(dto),
 			),
 		)
+	}
+
+	private fun persistAssistantError(chatId: Long) {
+		val reply = "❌ Не удалось обработать запрос. Попробуй ещё раз."
+		conversationStore.getIfAvailable()?.append(chatId, listOf(AiMessage.from(reply)))
+			?: messageRepository.save(
+				AgentConversationMessage(
+					chatId = chatId,
+					messageJson =
+						objectMapper.writeValueAsString(
+							ChatMessage(
+								role = "assistant",
+								content = reply,
+							),
+						),
+				),
+			)
 	}
 
 	private fun resolveUserId(): Long {

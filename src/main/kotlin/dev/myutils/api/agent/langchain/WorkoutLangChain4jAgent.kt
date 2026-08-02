@@ -2,6 +2,7 @@ package dev.myutils.api.agent.langchain
 
 import dev.myutils.api.agent.AgentReplyNormalizer
 import dev.myutils.api.agent.AgentToolCatalog
+import dev.myutils.api.agent.AgentToolArgumentsGrounding
 import dev.myutils.api.agent.AgentToolMutationPolicy
 import dev.myutils.api.agent.ToolArgumentsJsonParser
 import dev.myutils.api.agent.ToolExecutionFeedback
@@ -130,7 +131,16 @@ class WorkoutLangChain4jAgent(
 		} ?: try {
 			when (val parsed = ToolArgumentsJsonParser.parse(objectMapper, call.argumentsJson)) {
 				is ToolArgumentsJsonParser.ParseResult.Ok ->
-					toolsService.runDirectTool(call.name, chatId, parsed.args, publishStatus)
+					toolsService.runDirectTool(
+						call.name,
+						chatId,
+						AgentToolArgumentsGrounding.ground(
+							call.name,
+							parsed.args,
+							mutationAuthorizationText,
+						),
+						publishStatus,
+					)
 				is ToolArgumentsJsonParser.ParseResult.Error ->
 					ToolExecutionFeedback.failure(
 						error = parsed.message,

@@ -1,20 +1,20 @@
 package dev.myutils.api.agent.memory
 
+import dev.langchain4j.agent.tool.ToolExecutionRequest
+import dev.langchain4j.data.message.AiMessage
+import dev.langchain4j.data.message.SystemMessage
+import dev.myutils.api.agent.ToolExecutionFeedback
+import dev.myutils.api.agent.WorkoutToolsService
 import dev.myutils.api.domain.AgentConversationMessage
 import dev.myutils.api.domain.AgentConversationMessageRepository
-import dev.myutils.api.domain.HealthBodyWeightRepository
-import dev.myutils.api.domain.AgentTestSandboxStateRepository
 import dev.myutils.api.domain.AgentTestChatRepository
-import dev.myutils.api.agent.WorkoutToolsService
-import dev.myutils.api.agent.ToolExecutionFeedback
+import dev.myutils.api.domain.AgentTestSandboxStateRepository
+import dev.myutils.api.domain.HealthBodyWeightRepository
 import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.service.WorkoutService
 import dev.myutils.api.testkit.TestingIntegrationTestBase
 import dev.myutils.api.testkit.impl.InMemoryTelegramMessenger
 import dev.myutils.api.testkit.impl.StubChatModelFactory
-import dev.langchain4j.agent.tool.ToolExecutionRequest
-import dev.langchain4j.data.message.AiMessage
-import dev.langchain4j.data.message.SystemMessage
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertNotEquals
 import org.junit.jupiter.api.Assertions.assertThrows
@@ -152,6 +152,23 @@ class AgentTestChatServiceIntegrationTest : TestingIntegrationTestBase() {
 	}
 
 	@Test
+	fun `failed model turn persists and returns an explicit assistant error`() {
+		val created = service.create("Failed turn")
+		chatModelFactory.model.resetFailure(IllegalStateException("OpenRouter unavailable"))
+
+		try {
+			val result = service.sendMessage(created.id, "что сегодня", null)
+
+			assertEquals("❌ Не удалось обработать запрос. Попробуй ещё раз.", result.reply)
+			assertEquals("assistant", result.messages.last().role)
+			assertEquals(result.reply, result.messages.last().content)
+			assertEquals(result.messages.size.toLong(), messages.countByChatId(created.memoryChatId))
+		} finally {
+			service.delete(created.id)
+		}
+	}
+
+	@Test
 	@Transactional
 	fun `sandbox mutations never touch real workout data and clear starts fresh`() {
 		val realExercisesBefore = workoutService.listExercises().map { it.id to it.name }
@@ -227,7 +244,7 @@ class AgentTestChatServiceIntegrationTest : TestingIntegrationTestBase() {
 			AiMessage.from("Вес сохранён в тестовом чате."),
 		)
 
-		service.sendMessage(created.id, "вес 82.4 кг", null)
+		service.sendMessage(created.id, "вес сегодня 82.4", null)
 
 		assertEquals(realWeightsBefore, bodyWeights.count())
 		chatModelFactory.model.resetMessages(
