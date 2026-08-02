@@ -45,6 +45,7 @@ class TemporalWorkflowTests {
 	private val sentMessages = mutableListOf<Pair<Long, String>>()
 	private val generatedReports = mutableListOf<WeeklyHealthReportActivityInput>()
 	private var llmStepCount = 0
+	private var llmReply = "stub reply"
 
 	@BeforeEach
 	fun setUp() {
@@ -53,6 +54,7 @@ class TemporalWorkflowTests {
 		sentMessages.clear()
 		generatedReports.clear()
 		llmStepCount = 0
+		llmReply = "stub reply"
 		testEnv = TemporalTestSupport.create()
 		val worker = testEnv.newWorker(TemporalConstants.TASK_QUEUE)
 		worker.registerWorkflowImplementationTypes(
@@ -89,7 +91,7 @@ class TemporalWorkflowTests {
 							),
 					)
 				} else {
-					AgentLlmStepResult(reply = "stub reply")
+					AgentLlmStepResult(reply = llmReply)
 				}
 			}
 
@@ -189,6 +191,16 @@ class TemporalWorkflowTests {
 		assertEquals("", llmSteps.first().userMessage)
 		assertEquals("Запиши тренировку с изображения", toolCalls.single().userMessage)
 		assertTrue(sentMessages.isEmpty())
+	}
+
+	@Test
+	fun `agent workflow normalizes model reply before telegram delivery`() {
+		llmReply = "### План\nБля, **завтра** — отдых."
+		val input = AgentTurnInput(chatId = 44L, userId = 1L, text = "что завтра")
+		WorkflowClient.start(agentStub("test-agent-reply-normalization")::handleTurn, input)
+		testEnv.sleep(Duration.ofSeconds(5))
+
+		assertEquals(listOf(44L to "<b>План</b>\n<b>завтра</b> — отдых."), sentMessages)
 	}
 
 	@Test

@@ -1,5 +1,6 @@
 package dev.myutils.api.temporal.agent
 
+import dev.myutils.api.agent.AgentReplyNormalizer
 import dev.myutils.api.agent.AgentToolCatalog
 import dev.myutils.api.infra.util.LogPreview
 import dev.myutils.api.temporal.TemporalConstants
@@ -156,7 +157,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 						"reply" to LogPreview.of(step.reply),
 					),
 				)
-				val reply = step.reply.trim().ifEmpty { "Готово." }
+				val reply = AgentReplyNormalizer.forTelegram(step.reply)
 				recordTurnMetrics(startedAt, llmSteps, "reply")
 				deliverReply(input, reply)
 				return llmSteps

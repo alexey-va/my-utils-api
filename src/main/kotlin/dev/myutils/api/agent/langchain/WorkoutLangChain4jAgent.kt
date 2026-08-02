@@ -1,5 +1,6 @@
 package dev.myutils.api.agent.langchain
 
+import dev.myutils.api.agent.AgentReplyNormalizer
 import dev.myutils.api.agent.AgentToolCatalog
 import dev.myutils.api.agent.AgentToolMutationPolicy
 import dev.myutils.api.agent.ToolArgumentsJsonParser
@@ -78,7 +79,7 @@ class WorkoutLangChain4jAgent(
 				userFacts.formatForPrompt(chatId),
 			)
 		log.info("LangChain4j agent chatId={} reply={}", chatId, LogPreview.of(reply))
-		return reply.trim().ifEmpty { "Готово." }
+		return AgentReplyNormalizer.forTelegram(reply)
 	}
 
 	/** Продолжить диалог, когда user message уже в памяти (например с изображением). */
@@ -92,7 +93,7 @@ class WorkoutLangChain4jAgent(
 			val step = llmStep(AgentLlmStepInput(chatId = chatId, userMessage = userMessage))
 			userMessage = null
 			if (!step.hasToolCalls) {
-				return step.reply.trim().ifEmpty { "Готово." }
+				return AgentReplyNormalizer.forTelegram(step.reply)
 			}
 			val results =
 				step.toolCalls.map { call ->

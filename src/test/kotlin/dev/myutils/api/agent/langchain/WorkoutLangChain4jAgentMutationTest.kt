@@ -45,4 +45,22 @@ class WorkoutLangChain4jAgentMutationTest {
 		assertTrue(ToolExecutionFeedback.isFailure(result))
 		verifyNoInteractions(toolsService)
 	}
+
+	@Test
+	fun `image only memory path blocks workout logging`() {
+		val result =
+			agent.executeToolCall(
+				chatId = 303179278L,
+				call =
+					ToolCallDto(
+						id = "tc-log",
+						name = "logWorkout",
+						argumentsJson = """{"exercise_name":"Плечи","notation":"22 3*10/9"}""",
+					),
+				mutationAuthorizationText = "",
+			)
+
+		assertTrue(ToolExecutionFeedback.isFailure(result))
+		verifyNoInteractions(toolsService)
+	}
 }

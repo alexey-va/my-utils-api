@@ -110,7 +110,7 @@ class WorkoutToolsService(
 	fun sendNotification(
 		chatId: Long,
 		message: String,
-	): String = temporalNotificationFacade.sendNow(chatId, message)
+	): String = temporalNotificationFacade.sendNow(chatId, AgentReplyNormalizer.forTelegram(message))
 
 	fun deleteWorkout(
 		exerciseName: String,
@@ -140,7 +140,7 @@ class WorkoutToolsService(
 		chatId: Long,
 		message: String,
 		deliverAt: String,
-	): String = temporalNotificationFacade.schedule(chatId, message, deliverAt)
+	): String = temporalNotificationFacade.schedule(chatId, AgentReplyNormalizer.forTelegram(message), deliverAt)
 
 	fun cancelNotification(workflowId: String): String = temporalNotificationFacade.cancel(workflowId)
 
@@ -195,7 +195,7 @@ class WorkoutToolsService(
 			} catch (ex: IllegalArgumentException) {
 				return ToolExecutionFeedback.failure(ex.message ?: "Неверный формат buttons")
 			}
-		messenger.sendHtmlMessage(chatId, text, markup)
+		messenger.sendHtmlMessage(chatId, AgentReplyNormalizer.forTelegram(text), markup)
 		return if (markup == null) {
 			"Сообщение отправлено."
 		} else {
