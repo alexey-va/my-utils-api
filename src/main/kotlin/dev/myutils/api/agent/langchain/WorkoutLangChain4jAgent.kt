@@ -51,7 +51,7 @@ class WorkoutLangChain4jAgent(
 		chatId: Long,
 		userMessage: String,
 	): String {
-		val tools = WorkoutLangChainTools.create(chatId, toolsService, properties)
+		val tools = WorkoutLangChainTools.create(chatId, toolsService, properties, userMessage)
 		val memoryLimit = AppProperties.AGENT_MEMORY_RECENT_MESSAGES.get()
 		val assistant =
 			AiServices

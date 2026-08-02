@@ -181,7 +181,13 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					step.toolCalls.map { it.name },
 				)
 			}
-			val toolResults = executeToolCallsParallel(input.chatId, input.traceParent, step.toolCalls)
+			val toolResults =
+				executeToolCallsParallel(
+					input.chatId,
+					input.traceParent,
+					input.text,
+					step.toolCalls,
+				)
 			log.info(
 				"Agent LLM step tool results",
 				mapOf(
@@ -232,6 +238,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 	private fun executeToolCallsParallel(
 		chatId: Long,
 		traceParent: String?,
+		userMessage: String,
 		toolCalls: List<ToolCallDto>,
 	): List<ToolCallResultDto> {
 		if (toolCalls.isEmpty()) {
@@ -239,7 +246,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		}
 		if (toolCalls.size == 1) {
 			val tool = toolCalls.first()
-			return listOf(executeToolCall(chatId, traceParent, tool))
+			return listOf(executeToolCall(chatId, traceParent, userMessage, tool))
 		}
 
 		val promises = ArrayList<Promise<String>>(toolCalls.size)
@@ -253,6 +260,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 						argumentsJson = tool.argumentsJson,
 						traceParent = traceParent,
 						toolCallId = tool.id,
+						userMessage = userMessage,
 					),
 				),
 			)
@@ -274,6 +282,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 	private fun executeToolCall(
 		chatId: Long,
 		traceParent: String?,
+		userMessage: String,
 		tool: ToolCallDto,
 	): ToolCallResultDto =
 		ToolCallResultDto(
@@ -287,6 +296,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 						argumentsJson = tool.argumentsJson,
 						traceParent = traceParent,
 						toolCallId = tool.id,
+						userMessage = userMessage,
 					),
 				),
 		)

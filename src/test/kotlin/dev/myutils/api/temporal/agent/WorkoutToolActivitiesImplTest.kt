@@ -99,4 +99,94 @@ class WorkoutToolActivitiesImplTest {
 		assertTrue(ToolExecutionFeedback.isFailure(result))
 		assertTrue(result.contains("Невалидный JSON"))
 	}
+
+	@Test
+	fun `read only question cannot delete a workout`() {
+		whenever(toolsService.runTool(any(), any(), any())).thenReturn("Удалено")
+
+		val result =
+			activities.executeTool(
+				ToolCallInput(
+					chatId = 303179278L,
+					toolName = "deleteWorkout",
+					argumentsJson = """{"exercise_name":"Плечи","performed_on":"2026-07-31"}""",
+					userMessage = "Что на этой неделе осталось?",
+				),
+			)
+
+		assertTrue(ToolExecutionFeedback.isFailure(result))
+		assertTrue(result.contains("только чтение"))
+	}
+
+	@Test
+	fun `explicit delete request can delete a workout`() {
+		whenever(toolsService.runTool(any(), any(), any())).thenReturn("Удалено")
+
+		val result =
+			activities.executeTool(
+				ToolCallInput(
+					chatId = 303179278L,
+					toolName = "deleteWorkout",
+					argumentsJson = """{"exercise_name":"Плечи","performed_on":"2026-07-31"}""",
+					userMessage = "Удали плечи за вчера",
+				),
+			)
+
+		assertFalse(ToolExecutionFeedback.isFailure(result))
+		assertTrue(result.contains("Удалено"))
+	}
+
+	@Test
+	fun `read only plan cannot log a workout`() {
+		whenever(toolsService.runTool(any(), any(), any())).thenReturn("Записано")
+
+		val result =
+			activities.executeTool(
+				ToolCallInput(
+					chatId = 303179278L,
+					toolName = "logWorkout",
+					argumentsJson = """{"exercise_name":"Присед","notation":"60 3*10/12"}""",
+					userMessage = "Что завтра делать?",
+				),
+			)
+
+		assertTrue(ToolExecutionFeedback.isFailure(result))
+		assertTrue(result.contains("только чтение"))
+	}
+
+	@Test
+	fun `workout shorthand can log a workout`() {
+		whenever(toolsService.runTool(any(), any(), any())).thenReturn("Записано")
+
+		val result =
+			activities.executeTool(
+				ToolCallInput(
+					chatId = 303179278L,
+					toolName = "logWorkout",
+					argumentsJson = """{"exercise_name":"Бабочка","notation":"43 3*8/9"}""",
+					userMessage = "43 кг 8/9",
+				),
+			)
+
+		assertFalse(ToolExecutionFeedback.isFailure(result))
+		assertTrue(result.contains("Записано"))
+	}
+
+	@Test
+	fun `body weight value can log body weight`() {
+		whenever(toolsService.runTool(any(), any(), any())).thenReturn("Вес записан")
+
+		val result =
+			activities.executeTool(
+				ToolCallInput(
+					chatId = 303179278L,
+					toolName = "logBodyWeight",
+					argumentsJson = """{"weight_kg":"82.1"}""",
+					userMessage = "82.1 кг",
+				),
+			)
+
+		assertFalse(ToolExecutionFeedback.isFailure(result))
+		assertTrue(result.contains("Вес записан"))
+	}
 }

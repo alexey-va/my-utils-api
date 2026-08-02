@@ -51,4 +51,5 @@ data class ToolCallInput(
 	val argumentsJson: String,
 	val traceParent: String? = null,
 	val toolCallId: String? = null,
+	val userMessage: String? = null,
 )

@@ -117,8 +117,20 @@ class ParallelToolWorkflowTest {
 		assertTrue(
 			toolCalls.containsAll(
 				listOf(
-					ToolCallInput(99L, "getDaySummaries", """{"days":"2026-06-07"}""", toolCallId = "tc-1"),
-					ToolCallInput(99L, "listExercises", "{}", toolCallId = "tc-2"),
+					ToolCallInput(
+						99L,
+						"getDaySummaries",
+						"""{"days":"2026-06-07"}""",
+						toolCallId = "tc-1",
+						userMessage = "что на сегодня",
+					),
+					ToolCallInput(
+						99L,
+						"listExercises",
+						"{}",
+						toolCallId = "tc-2",
+						userMessage = "что на сегодня",
+					),
 				),
 			),
 		)

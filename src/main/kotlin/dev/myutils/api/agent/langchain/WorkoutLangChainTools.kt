@@ -1,5 +1,7 @@
 package dev.myutils.api.agent.langchain
 
+import dev.myutils.api.agent.AgentToolMutationPolicy
+import dev.myutils.api.agent.ToolExecutionFeedback
 import dev.myutils.api.agent.WorkoutToolsService
 import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.langchain4j.agent.tool.Tool
@@ -11,6 +13,7 @@ class WorkoutLangChainTools(
 	private val chatId: Long,
 	private val toolsService: WorkoutToolsService,
 	private val temporalEnabled: Boolean,
+	private val userMessage: String? = null,
 ) {
 	@Tool("Список упражнений в дневнике.")
 	fun listExercises(): String = tracked("list_exercises") { toolsService.listExercises() }
@@ -155,7 +158,13 @@ class WorkoutLangChainTools(
 	private fun tracked(
 		toolName: String,
 		block: () -> String,
-	): String = toolsService.trackedDirectTool(chatId, toolName, block)
+	): String =
+		AgentToolMutationPolicy.denialReason(toolName, userMessage)?.let { reason ->
+			ToolExecutionFeedback.failure(
+				error = reason,
+				hint = "Ответь на вопрос без изменения данных.",
+			)
+		} ?: toolsService.trackedDirectTool(chatId, toolName, block)
 
 	private fun requireTemporal() {
 		check(temporalEnabled) { "Temporal выключен — уведомления недоступны." }
@@ -166,11 +175,13 @@ class WorkoutLangChainTools(
 			chatId: Long,
 			toolsService: WorkoutToolsService,
 			properties: MyUtilsProperties,
+			userMessage: String? = null,
 		): WorkoutLangChainTools =
 			WorkoutLangChainTools(
 				chatId = chatId,
 				toolsService = toolsService,
 				temporalEnabled = properties.temporal.enabled,
+				userMessage = userMessage,
 			)
 	}
 }

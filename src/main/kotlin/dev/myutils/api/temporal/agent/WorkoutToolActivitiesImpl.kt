@@ -1,6 +1,7 @@
 package dev.myutils.api.temporal.agent
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import dev.myutils.api.agent.AgentToolMutationPolicy
 import dev.myutils.api.agent.ToolArgumentsJsonParser
 import dev.myutils.api.agent.ToolExecutionFeedback
 import dev.myutils.api.agent.WorkoutToolsService
@@ -37,6 +38,18 @@ class WorkoutToolActivitiesImpl(
 			argumentsJson = input.argumentsJson,
 		) {
 			try {
+				AgentToolMutationPolicy.denialReason(input.toolName, input.userMessage)?.let { reason ->
+					log.warn(
+						"Temporal tool mutation denied tool={} chatId={} userMessage={}",
+						input.toolName,
+						input.chatId,
+						LogPreview.of(input.userMessage.orEmpty(), max = 160),
+					)
+					return@executeTool ToolExecutionFeedback.failure(
+						error = reason,
+						hint = "Ответь на вопрос из снимка без изменения данных.",
+					)
+				}
 				when (val parsed = ToolArgumentsJsonParser.parse(objectMapper, input.argumentsJson)) {
 					is ToolArgumentsJsonParser.ParseResult.Ok ->
 						toolsService.runTool(input.toolName, input.chatId, parsed.args)
