@@ -227,6 +227,9 @@ class AgentTestChatServiceIntegrationTest : TestingIntegrationTestBase() {
 		val result = service.sendMessage(created.id, "Отправь сообщение sandbox only", null)
 
 		assertTrue(result.messages.single { it.role == "tool" }.content.orEmpty().contains("SANDBOX"))
+		assertEquals("assistant", result.messages.last().role)
+		assertEquals("Готово.", result.messages.last().content)
+		assertEquals("Готово.", result.reply)
 		assertTrue(telegram.messagesFor(realChatId).isEmpty())
 	}
 

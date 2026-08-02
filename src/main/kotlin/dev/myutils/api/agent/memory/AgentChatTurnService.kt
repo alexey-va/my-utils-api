@@ -52,6 +52,7 @@ class AgentChatTurnService(
 				?: persistUserMessage(chatId, trimmed, normalizedImages)
 		}
 
+		var executionReply: String? = null
 		try {
 			val temporal = temporalWorkflow.getIfAvailable()
 			if (temporal != null && properties.temporal.enabled) {
@@ -74,14 +75,14 @@ class AgentChatTurnService(
 							"Агент недоступен (Telegram-бот / OpenRouter не настроен).",
 						)
 				if (hasImages) {
-					agent.runFromMemory(
+					executionReply = agent.runFromMemory(
 						chatId = chatId,
 						mutationAuthorizationText = trimmed,
 						contextChatId = contextChatId,
 						publishToolStatus = false,
 					)
 				} else {
-					agent.run(
+					executionReply = agent.run(
 						chatId = chatId,
 						userMessage = trimmed,
 						contextChatId = contextChatId,
@@ -94,9 +95,15 @@ class AgentChatTurnService(
 			persistAssistantError(chatId)
 		}
 
-		val newMessages =
+		var newMessages =
 			messageRepository.findByChatIdAndIdGreaterThanOrderByCreatedAtAsc(chatId, afterId)
-		val reply = extractAssistantReply(newMessages) ?: "Готово."
+		var reply = extractAssistantReply(newMessages)
+		if (reply == null) {
+			reply = executionReply?.takeIf { it.isNotBlank() } ?: "Готово."
+			persistAssistantMessage(chatId, reply)
+			newMessages =
+				messageRepository.findByChatIdAndIdGreaterThanOrderByCreatedAtAsc(chatId, afterId)
+		}
 		return AgentMemoryChatTurnResult(
 			reply = reply,
 			messages = newMessages.map { it.toDto() },
@@ -123,7 +130,13 @@ class AgentChatTurnService(
 	}
 
 	private fun persistAssistantError(chatId: Long) {
-		val reply = "❌ Не удалось обработать запрос. Попробуй ещё раз."
+		persistAssistantMessage(chatId, "❌ Не удалось обработать запрос. Попробуй ещё раз.")
+	}
+
+	private fun persistAssistantMessage(
+		chatId: Long,
+		reply: String,
+	) {
 		conversationStore.getIfAvailable()?.append(chatId, listOf(AiMessage.from(reply)))
 			?: messageRepository.save(
 				AgentConversationMessage(

@@ -80,4 +80,14 @@ class AgentToolMutationPolicyTest {
 			),
 		)
 	}
+
+	@Test
+	fun `natural cancel last reminder command authorizes mutation`() {
+		assertNull(
+			AgentToolMutationPolicy.denialReason(
+				"cancelNotification",
+				"отмени последнее напоминание",
+			),
+		)
+	}
 }

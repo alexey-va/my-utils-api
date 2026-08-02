@@ -54,7 +54,7 @@ class AgentContextCompactionService(
 				tailKeep = tailKeep,
 				threshold = threshold,
 			)
-		return runCompaction(chatId, toCompact)
+		return runCompaction(chatId, safeCompactionPrefix(compactable, toCompact.size))
 	}
 
 	@Transactional
@@ -69,7 +69,18 @@ class AgentContextCompactionService(
 				compactableOrdered = compactable,
 				keepRecent = keepRecent,
 			)
-		return runCompaction(chatId, toCompact)
+		return runCompaction(chatId, safeCompactionPrefix(compactable, toCompact.size))
+	}
+
+	private fun safeCompactionPrefix(
+		ordered: List<AgentConversationMessage>,
+		selectedCount: Int,
+	): List<AgentConversationMessage> {
+		val safeCount =
+			CompactionSelection.rewindSplitToolTurn(ordered, selectedCount) { row ->
+				StoredMessageFilter.roleFromJson(row.messageJson, objectMapper)
+			}
+		return ordered.take(safeCount)
 	}
 
 	private fun loadCompactableMessages(chatId: Long): List<AgentConversationMessage> =

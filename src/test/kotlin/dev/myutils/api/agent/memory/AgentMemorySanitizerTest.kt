@@ -43,4 +43,18 @@ class AgentMemorySanitizerTest {
 
 		assertEquals(messages, sanitized)
 	}
+
+	@Test
+	fun `drops orphan tool result left by recent message truncation`() {
+		val user = UserMessage.from("следующий запрос")
+		val messages =
+			listOf(
+				ToolExecutionResultMessage.from("missing-call", "logWorkout", "ok"),
+				user,
+			)
+
+		val sanitized = AgentMemorySanitizer.dropIncompleteToolTurns(messages)
+
+		assertEquals(listOf(user), sanitized)
+	}
 }

@@ -3,6 +3,28 @@ package dev.myutils.api.agent.memory
 import dev.myutils.api.domain.AgentConversationMessage
 
 internal object CompactionSelection {
+	fun <T> rewindSplitToolTurn(
+		ordered: List<T>,
+		selectedCount: Int,
+		roleOf: (T) -> String?,
+	): Int {
+		if (selectedCount <= 0 || selectedCount >= ordered.size) {
+			return selectedCount.coerceIn(0, ordered.size)
+		}
+		if (!roleOf(ordered[selectedCount]).equals("tool", ignoreCase = true)) {
+			return selectedCount
+		}
+
+		var boundary = selectedCount
+		while (boundary > 0 && roleOf(ordered[boundary - 1]).equals("tool", ignoreCase = true)) {
+			boundary--
+		}
+		if (boundary > 0 && roleOf(ordered[boundary - 1]).equals("assistant", ignoreCase = true)) {
+			boundary--
+		}
+		return boundary
+	}
+
 	fun selectForAutoCompaction(
 		compactableOrdered: List<AgentConversationMessage>,
 		tailKeep: Int,

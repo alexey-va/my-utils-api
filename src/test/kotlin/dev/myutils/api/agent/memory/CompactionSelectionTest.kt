@@ -80,6 +80,15 @@ class CompactionSelectionTest {
 		assertTrue(selected.isEmpty())
 	}
 
+	@Test
+	fun `rewinds boundary before assistant when it would split tool results`() {
+		val roles = listOf("user", "assistant", "tool", "tool", "user")
+
+		assertEquals(1, CompactionSelection.rewindSplitToolTurn(roles, 2) { it })
+		assertEquals(1, CompactionSelection.rewindSplitToolTurn(roles, 3) { it })
+		assertEquals(4, CompactionSelection.rewindSplitToolTurn(roles, 4) { it })
+	}
+
 	private fun message(id: Long): AgentConversationMessage =
 		AgentConversationMessage(
 			id = id,

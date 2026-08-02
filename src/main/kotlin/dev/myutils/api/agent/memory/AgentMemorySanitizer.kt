@@ -25,6 +25,10 @@ internal object AgentMemorySanitizer {
 					result.addAll(toolResults)
 				}
 				index = cursor
+			} else if (message is ToolExecutionResultMessage) {
+				// The matching assistant tool call can sit just outside the recent-message window.
+				// Sending this orphan result to OpenRouter makes strict providers reject the request.
+				index++
 			} else {
 				result.add(message)
 				index++

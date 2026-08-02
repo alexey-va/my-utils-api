@@ -116,6 +116,31 @@ class AgentContextCompactionServiceIntegrationTest : TestingIntegrationTestBase(
 		assertEquals(0, summaryRepository.findByChatIdOrderBySequenceAsc(DELETE_CHAT_ID).size)
 	}
 
+	@Test
+	fun `compaction never splits assistant tool call from its result`() {
+		chatModelFactory.model.resetResponses("Summary до tool-turn.")
+		val before = saveMessage(TOOL_TURN_CHAT_ID, "до инструмента")
+		val assistant =
+			saveRaw(
+				TOOL_TURN_CHAT_ID,
+				"""{"role":"assistant","tool_calls":[{"id":"a1","type":"function","function":{"name":"logWorkout","arguments":"{}"}}]}""",
+			)
+		val tool =
+			saveRaw(
+				TOOL_TURN_CHAT_ID,
+				"""{"role":"tool","content":"ok","tool_call_id":"a1","name":"logWorkout"}""",
+			)
+		val after = saveMessage(TOOL_TURN_CHAT_ID, "после инструмента")
+
+		val result = service.compactManual(TOOL_TURN_CHAT_ID, keepRecent = 2)
+
+		assertEquals(1, result.messageCount)
+		assertTrue(messageRepository.findById(before.id).orElseThrow().isCompacted)
+		assertFalse(messageRepository.findById(assistant.id).orElseThrow().isCompacted)
+		assertFalse(messageRepository.findById(tool.id).orElseThrow().isCompacted)
+		assertFalse(messageRepository.findById(after.id).orElseThrow().isCompacted)
+	}
+
 	private fun saveMessage(
 		chatId: Long,
 		content: String,
@@ -127,10 +152,22 @@ class AgentContextCompactionServiceIntegrationTest : TestingIntegrationTestBase(
 			),
 		)
 
+	private fun saveRaw(
+		chatId: Long,
+		messageJson: String,
+	): AgentConversationMessage =
+		messageRepository.saveAndFlush(
+			AgentConversationMessage(
+				chatId = chatId,
+				messageJson = messageJson,
+			),
+		)
+
 	private companion object {
 		const val ROLLING_CHAT_ID = -910_001L
 		const val CONCURRENT_CHAT_ID = -910_002L
 		const val DELETE_CHAT_ID = -910_003L
-		val TEST_CHAT_IDS = listOf(ROLLING_CHAT_ID, CONCURRENT_CHAT_ID, DELETE_CHAT_ID)
+		const val TOOL_TURN_CHAT_ID = -910_004L
+		val TEST_CHAT_IDS = listOf(ROLLING_CHAT_ID, CONCURRENT_CHAT_ID, DELETE_CHAT_ID, TOOL_TURN_CHAT_ID)
 	}
 }
