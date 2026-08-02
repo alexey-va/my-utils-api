@@ -144,7 +144,7 @@ object AppProperties {
 			key = "openrouter.model",
 			description = "Модель OpenRouter для Telegram-агента (provider/model-id или @preset/…).",
 			tags = listOf("agent"),
-			default = "openai/gpt-5.4-mini",
+			default = "@preset/deepseek",
 			validate = { model ->
 				model.length in 3..200 &&
 					(model.contains('/') || model.startsWith("@preset/"))

@@ -65,6 +65,11 @@ Flyway: `src/main/resources/db/migration/`. Tests: `src/test/kotlin/.../testkit/
 - Bot beans: `@ConditionalOnTelegramBot` (needs `TELEGRAM_BOT_TOKEN`)
 - Temporal beans: `@ConditionalOnProperty(myutils.temporal.enabled=true)`
 - Runtime tunables: `properties/Properties.kt` → `AppProperties.*`, admin API `PUT /api/admin/settings/{key}`
+- Change values of existing runtime tunables only through the authenticated
+  admin API and read them back afterward. Do not use Flyway, direct SQL, or a
+  code-default change as a production settings mechanism. If the API cannot
+  express the change, improve and test the API first. Keep already-applied
+  Flyway migrations immutable.
 - Package moves: shared stuff lives under `infra/`, not top-level `config/`
 
 ## Testing
