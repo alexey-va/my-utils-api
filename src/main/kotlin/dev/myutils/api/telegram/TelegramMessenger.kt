@@ -97,6 +97,10 @@ class PengradTelegramMessenger(
 					.parseMode(ParseMode.HTML),
 			)
 		if (!response.isOk) {
+			if (response.isMessageNotModified()) {
+				log.debug("Telegram edit is already current chatId={} messageId={}", chatId, messageId)
+				return
+			}
 			log.warnTelegramFailed("edit", response, " chatId=$chatId messageId=$messageId")
 			throw response.deliveryException("edit")
 		}
@@ -190,4 +194,8 @@ class PengradTelegramMessenger(
 		IllegalStateException(
 			"Telegram $operation failed: ${errorCode()} ${description()}",
 		)
+
+	private fun BaseResponse.isMessageNotModified(): Boolean =
+		errorCode() == 400 &&
+			description()?.contains("message is not modified", ignoreCase = true) == true
 }
