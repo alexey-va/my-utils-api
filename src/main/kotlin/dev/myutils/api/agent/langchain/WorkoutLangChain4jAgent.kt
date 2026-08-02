@@ -1,6 +1,7 @@
 package dev.myutils.api.agent.langchain
 
 import dev.myutils.api.agent.AgentToolCatalog
+import dev.myutils.api.agent.AgentToolMutationPolicy
 import dev.myutils.api.agent.ToolArgumentsJsonParser
 import dev.myutils.api.agent.ToolExecutionFeedback
 import dev.myutils.api.agent.WorkoutAgentContextBuilder
@@ -81,7 +82,10 @@ class WorkoutLangChain4jAgent(
 	}
 
 	/** Продолжить диалог, когда user message уже в памяти (например с изображением). */
-	fun runFromMemory(chatId: Long): String {
+	fun runFromMemory(
+		chatId: Long,
+		mutationAuthorizationText: String,
+	): String {
 		val maxSteps = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get().coerceAtLeast(1)
 		var userMessage: String? = null
 		repeat(maxSteps) {
@@ -95,7 +99,7 @@ class WorkoutLangChain4jAgent(
 					ToolCallResultDto(
 						toolCallId = call.id,
 						toolName = call.name,
-						result = executeToolCall(chatId, call),
+						result = executeToolCall(chatId, call, mutationAuthorizationText),
 					)
 				}
 			recordToolResults(RecordToolResultsInput(chatId = chatId, results = results))
@@ -106,11 +110,17 @@ class WorkoutLangChain4jAgent(
 		return "Слишком много шагов с инструментами, попробуй короче."
 	}
 
-	private fun executeToolCall(
+	internal fun executeToolCall(
 		chatId: Long,
 		call: ToolCallDto,
+		mutationAuthorizationText: String,
 	): String =
-		try {
+		AgentToolMutationPolicy.denialReason(call.name, mutationAuthorizationText)?.let { reason ->
+			ToolExecutionFeedback.failure(
+				error = reason,
+				hint = "Ответь на вопрос без изменения данных.",
+			)
+		} ?: try {
 			when (val parsed = ToolArgumentsJsonParser.parse(objectMapper, call.argumentsJson)) {
 				is ToolArgumentsJsonParser.ParseResult.Ok ->
 					toolsService.runTool(call.name, chatId, parsed.args)

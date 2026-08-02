@@ -55,6 +55,7 @@ class AgentChatTurnService(
 					userId = userId,
 					text = if (hasImages) "" else trimmed,
 					maxToolIterations = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get(),
+					mutationAuthorizationText = trimmed.takeIf { hasImages },
 					deliverToTelegram = false,
 				),
 			)
@@ -66,7 +67,7 @@ class AgentChatTurnService(
 						"Агент недоступен (Telegram-бот / OpenRouter не настроен).",
 					)
 			if (hasImages) {
-				agent.runFromMemory(chatId)
+				agent.runFromMemory(chatId, trimmed)
 			} else {
 				agent.run(chatId, trimmed)
 			}

@@ -174,6 +174,24 @@ class TemporalWorkflowTests {
 	}
 
 	@Test
+	fun `agent workflow keeps image text only for mutation authorization`() {
+		val input =
+			AgentTurnInput(
+				chatId = 43L,
+				userId = 1L,
+				text = "",
+				mutationAuthorizationText = "Запиши тренировку с изображения",
+				deliverToTelegram = false,
+			)
+		WorkflowClient.start(agentStub("test-agent-image-authorization")::handleTurn, input)
+		testEnv.sleep(Duration.ofSeconds(5))
+
+		assertEquals("", llmSteps.first().userMessage)
+		assertEquals("Запиши тренировку с изображения", toolCalls.single().userMessage)
+		assertTrue(sentMessages.isEmpty())
+	}
+
+	@Test
 	fun `agent workflow forwards start reply from prelude`() {
 		val input = AgentTurnInput(chatId = 10L, userId = 1L, text = "/start")
 		WorkflowClient.start(agentStub("test-agent-start")::handleTurn, input)

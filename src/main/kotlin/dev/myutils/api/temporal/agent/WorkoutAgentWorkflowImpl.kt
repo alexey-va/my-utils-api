@@ -185,7 +185,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 				executeToolCallsParallel(
 					input.chatId,
 					input.traceParent,
-					input.text,
+					input.mutationAuthorizationText ?: input.text,
 					step.toolCalls,
 				)
 			log.info(
