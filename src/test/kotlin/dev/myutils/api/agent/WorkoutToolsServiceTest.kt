@@ -286,6 +286,8 @@ class WorkoutToolsServiceTest {
 	@Test
 	fun `send_rich_message sends html with buttons`() {
 		val messenger: TelegramMessenger = mock()
+		whenever(messenger.sendHtmlMessage(eq(42L), eq("<b>План</b>"), org.mockito.kotlin.any()))
+			.thenReturn(10)
 		val service = service(messenger)
 		val result =
 			service.runTool(
@@ -299,6 +301,29 @@ class WorkoutToolsServiceTest {
 			)
 		assertTrue(result.contains("кнопками"))
 		verify(messenger).sendHtmlMessage(eq(42L), eq("<b>План</b>"), org.mockito.kotlin.any())
+	}
+
+	@Test
+	fun `send_rich_message reports delivery failure when telegram returns no message`() {
+		val messenger: TelegramMessenger = mock()
+		whenever(
+			messenger.sendHtmlMessage(
+				eq(42L),
+				eq("План"),
+				org.mockito.kotlin.isNull(),
+			),
+		).thenReturn(null)
+		val service = service(messenger)
+
+		val result =
+			service.runTool(
+				"send_rich_message",
+				chatId = 42L,
+				args = mapOf("text" to "План"),
+			)
+
+		assertTrue(ToolExecutionFeedback.isFailure(result))
+		assertTrue(result.contains("не доставил"))
 	}
 
 	@Test

@@ -8,7 +8,8 @@ object AgentToolMutationPolicy {
 		Regex("""(?:^|\s)(?:запиши(?:те)?|записать|залогируй(?:те)?|зафиксируй(?:те)?|добавь(?:те)?\s+(?:тренировку|в\s+дневник))(?:\s|$)""")
 	private val explicitDelete =
 		Regex("""(?:^|\s)(?:удали(?:те)?|удалить|сотри(?:те)?|стереть|убери(?:те)?|исправь(?:те)?\s+запись)(?:\s|$)""")
-	private val explicitExerciseCreate = Regex("""(?:создай(?:те)?|создать|добавь(?:те)?)\s+упражнение""")
+	private val explicitExerciseCreate =
+		Regex("""(?:^|\s)(?:создай(?:те)?|создать|добавь(?:те)?)(?:\s+упражнение)?(?:\s|$)""")
 	private val explicitExerciseRename = Regex("""(?:переименуй(?:те)?|переименовать|смени(?:те)?\s+название)""")
 	private val bodyWeightNumber = Regex("""\d+(?:[.,]\d+)?(?:\s*(?:кг|kg|lb|lbs|фунт(?:а|ов)?))?""")
 	private val bareBodyWeight =
@@ -36,7 +37,7 @@ object AgentToolMutationPolicy {
 		val question = message.contains('?') || readOnlyQuestion.containsMatchIn(message)
 		val authorized =
 			when (normalizedTool) {
-				"create_exercise" -> explicitExerciseCreate.containsMatchIn(message)
+				"create_exercise" -> !question && explicitExerciseCreate.containsMatchIn(message)
 				"rename_exercise" -> explicitExerciseRename.containsMatchIn(message)
 				"log_workout" ->
 					explicitWorkoutWrite.containsMatchIn(message) ||

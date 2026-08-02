@@ -80,9 +80,10 @@ class PengradTelegramMessenger(
 		if (response.isOk) {
 			log.info("Telegram send ok chatId={} text={}", chatId, LogPreview.of(text))
 			return response.message()?.messageId()
+				?: throw IllegalStateException("Telegram send succeeded without message id.")
 		}
 		log.warnTelegramFailed("send", response, " chatId=$chatId")
-		return null
+		throw response.deliveryException("send")
 	}
 
 	override fun editHtmlMessage(
@@ -97,6 +98,7 @@ class PengradTelegramMessenger(
 			)
 		if (!response.isOk) {
 			log.warnTelegramFailed("edit", response, " chatId=$chatId messageId=$messageId")
+			throw response.deliveryException("edit")
 		}
 	}
 
@@ -129,6 +131,7 @@ class PengradTelegramMessenger(
 			log.info("Telegram photo ok chatId={} bytes={}", chatId, png.size)
 		} else {
 			log.warnTelegramFailed("sendPhoto", response, " chatId=$chatId")
+			throw response.deliveryException("sendPhoto")
 		}
 	}
 
@@ -182,4 +185,9 @@ class PengradTelegramMessenger(
 			)
 		}
 	}
+
+	private fun BaseResponse.deliveryException(operation: String): IllegalStateException =
+		IllegalStateException(
+			"Telegram $operation failed: ${errorCode()} ${description()}",
+		)
 }

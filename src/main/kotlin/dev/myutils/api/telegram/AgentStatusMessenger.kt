@@ -1,6 +1,7 @@
 package dev.myutils.api.telegram
 
 import dev.myutils.api.infra.config.ConditionalOnTelegramBot
+import org.slf4j.LoggerFactory
 import org.springframework.data.redis.core.StringRedisTemplate
 import org.springframework.stereotype.Component
 import java.time.Duration
@@ -12,6 +13,8 @@ class AgentStatusMessenger(
 	private val telegram: TelegramMessenger,
 	private val redis: StringRedisTemplate,
 ) {
+	private val log = LoggerFactory.getLogger(javaClass)
+
 	fun begin(chatId: Long) {
 		reset(chatId)
 		show(chatId, AgentStatusLabels.thinking())
@@ -52,8 +55,18 @@ class AgentStatusMessenger(
 		chatId: Long,
 		text: String,
 	) {
-		update(chatId, "❌ $text")
-		clear(chatId)
+		try {
+			loadMessageId(chatId)?.let { telegram.deleteMessage(chatId, it) }
+		} catch (cleanupError: Exception) {
+			log.warn("Failed to remove agent status before terminal error chatId={}", chatId, cleanupError)
+		}
+		try {
+			clear(chatId)
+		} catch (cleanupError: Exception) {
+			log.warn("Failed to clear agent status before terminal error chatId={}", chatId, cleanupError)
+		}
+		val terminalText = if (text.startsWith("❌")) text else "❌ $text"
+		telegram.sendHtmlMessage(chatId, terminalText)
 	}
 
 	private fun show(

@@ -2,6 +2,7 @@ package dev.myutils.api.temporal.agent
 
 import dev.myutils.api.agent.AgentReplyNormalizer
 import dev.myutils.api.agent.AgentToolCatalog
+import dev.myutils.api.agent.ToolExecutionFeedback
 import dev.myutils.api.infra.util.LogPreview
 import dev.myutils.api.temporal.TemporalConstants
 import dev.myutils.api.temporal.logging.TemporalWorkflowLog
@@ -209,7 +210,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					results = toolResults,
 				),
 			)
-			if (isImmediateReturnStep(step.toolCalls)) {
+			if (isImmediateReturnStep(step.toolCalls, toolResults)) {
 				log.info(
 					"Agent immediate tool step finished",
 					mapOf(
@@ -284,8 +285,13 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		}
 	}
 
-	private fun isImmediateReturnStep(toolCalls: List<ToolCallDto>): Boolean =
-		toolCalls.isNotEmpty() && toolCalls.all { AgentToolCatalog.isImmediateReturn(it.name) }
+	private fun isImmediateReturnStep(
+		toolCalls: List<ToolCallDto>,
+		toolResults: List<ToolCallResultDto>,
+	): Boolean =
+		toolCalls.isNotEmpty() &&
+			toolCalls.all { AgentToolCatalog.isImmediateReturn(it.name) } &&
+			toolResults.none { ToolExecutionFeedback.isFailure(it.result) }
 
 	private fun executeToolCall(
 		chatId: Long,

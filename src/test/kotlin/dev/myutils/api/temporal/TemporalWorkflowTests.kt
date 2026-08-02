@@ -1,5 +1,6 @@
 package dev.myutils.api.temporal
 
+import dev.myutils.api.agent.ToolExecutionFeedback
 import dev.myutils.api.temporal.agent.AgentLlmStepInput
 import dev.myutils.api.temporal.agent.AgentLlmStepResult
 import dev.myutils.api.temporal.agent.AgentPreludeResult
@@ -46,6 +47,8 @@ class TemporalWorkflowTests {
 	private val generatedReports = mutableListOf<WeeklyHealthReportActivityInput>()
 	private var llmStepCount = 0
 	private var llmReply = "stub reply"
+	private var firstToolName = "list_exercises"
+	private var toolResult = "ok"
 
 	@BeforeEach
 	fun setUp() {
@@ -55,6 +58,8 @@ class TemporalWorkflowTests {
 		generatedReports.clear()
 		llmStepCount = 0
 		llmReply = "stub reply"
+		firstToolName = "list_exercises"
+		toolResult = "ok"
 		testEnv = TemporalTestSupport.create()
 		val worker = testEnv.newWorker(TemporalConstants.TASK_QUEUE)
 		worker.registerWorkflowImplementationTypes(
@@ -87,7 +92,7 @@ class TemporalWorkflowTests {
 					AgentLlmStepResult(
 						toolCalls =
 							listOf(
-								ToolCallDto("tc-1", "list_exercises", "{}"),
+								ToolCallDto("tc-1", firstToolName, "{}"),
 							),
 					)
 				} else {
@@ -104,7 +109,7 @@ class TemporalWorkflowTests {
 		object : WorkoutToolActivities {
 			override fun executeTool(input: ToolCallInput): String {
 				toolCalls.add(input)
-				return "ok"
+				return toolResult
 			}
 		}
 
@@ -212,6 +217,20 @@ class TemporalWorkflowTests {
 		testEnv.sleep(Duration.ofSeconds(5))
 
 		assertEquals(listOf(44L to "<b>План</b>\nБля, <b>завтра</b> — отдых."), sentMessages)
+	}
+
+	@Test
+	fun `failed immediate delivery tool continues to a terminal text reply`() {
+		firstToolName = "send_rich_message"
+		toolResult = ToolExecutionFeedback.failure("Telegram send failed")
+		llmReply = "Не удалось отправить карточку. Попробуй ещё раз."
+		val input = AgentTurnInput(chatId = 45L, userId = 1L, text = "покажи кнопки")
+
+		WorkflowClient.start(agentStub("test-agent-immediate-tool-failure")::handleTurn, input)
+		testEnv.sleep(Duration.ofSeconds(5))
+
+		assertEquals(2, llmSteps.size)
+		assertEquals(listOf(45L to llmReply), sentMessages)
 	}
 
 	@Test

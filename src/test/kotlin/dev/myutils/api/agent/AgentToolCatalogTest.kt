@@ -1,8 +1,11 @@
 package dev.myutils.api.agent
 
+import dev.langchain4j.agent.tool.ToolSpecifications
+import dev.myutils.api.agent.langchain.WorkoutLangChainTools
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.mock
 
 class AgentToolCatalogTest {
 	@Test
@@ -46,5 +49,39 @@ class AgentToolCatalogTest {
 	@Test
 	fun `send progress chart status label`() {
 		assertEquals("Строю график прогресса…", AgentToolCatalog.statusLabel("sendProgressChart"))
+	}
+
+	@Test
+	fun `agent exposes the complete supported tool set`() {
+		val tools =
+			WorkoutLangChainTools(
+				chatId = 1L,
+				toolsService = mock(),
+				temporalEnabled = true,
+			)
+		val names = ToolSpecifications.toolSpecificationsFrom(tools).map { it.name() }.toSet()
+
+		assertEquals(
+			setOf(
+				"listExercises",
+				"createExercise",
+				"renameExercise",
+				"deleteWorkout",
+				"logWorkout",
+				"getProgress",
+				"getDays",
+				"logBodyWeight",
+				"getBodyWeight",
+				"rememberFact",
+				"forgetFact",
+				"sendRichMessage",
+				"sendProgressChart",
+				"estimate1rm",
+				"sendNotification",
+				"scheduleNotification",
+				"cancelNotification",
+			),
+			names,
+		)
 	}
 }

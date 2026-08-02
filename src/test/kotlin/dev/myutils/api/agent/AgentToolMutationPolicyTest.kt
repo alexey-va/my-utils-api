@@ -44,4 +44,24 @@ class AgentToolMutationPolicyTest {
 	fun `read only tools never require mutation authorization`() {
 		assertNull(AgentToolMutationPolicy.denialReason("getDaySummaries", null))
 	}
+
+	@Test
+	fun `natural add exercise command authorizes creation`() {
+		assertNull(
+			AgentToolMutationPolicy.denialReason(
+				"createExercise",
+				"добавь жим лежа, грудь",
+			),
+		)
+	}
+
+	@Test
+	fun `question about adding exercise stays read only`() {
+		assertNotNull(
+			AgentToolMutationPolicy.denialReason(
+				"createExercise",
+				"как добавить жим лежа?",
+			),
+		)
+	}
 }

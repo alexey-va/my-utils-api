@@ -114,12 +114,14 @@ class TelegramBotRunner(
 		inboundCoalescer.enqueue(chatId, userId, data)
 	}
 
-	private fun routeMessage(message: Message) {
+	internal fun routeMessage(message: Message) {
 		val userId = message.from()?.id() ?: return
+		val chatId = message.chat().id()
 		val text = message.text()?.trim().orEmpty()
 		if (text.isEmpty()) {
+			messenger.sendHtmlMessage(chatId, "❌ Я понимаю только текстовые сообщения.")
 			return
 		}
-		inboundCoalescer.enqueue(message.chat().id(), userId, text)
+		inboundCoalescer.enqueue(chatId, userId, text)
 	}
 }

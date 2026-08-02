@@ -3,7 +3,7 @@ package dev.myutils.api.telegram
 import dev.myutils.api.agent.WorkoutAgentService
 import dev.myutils.api.infra.config.ConditionalOnTelegramBot
 import dev.myutils.api.infra.util.LogPreview
-import dev.myutils.api.infra.util.PerKeyLatestBuffer
+import dev.myutils.api.infra.util.PerKeySerialQueue
 import jakarta.annotation.PreDestroy
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.CoroutineScope
@@ -17,6 +17,7 @@ import org.springframework.stereotype.Component
 @ConditionalOnTelegramBot
 class TelegramInboundCoalescer(
 	private val workoutAgentService: WorkoutAgentService,
+	private val telegram: TelegramMessenger,
 ) : CoroutineScope {
 	private val log = LoggerFactory.getLogger(javaClass)
 	private val job = SupervisorJob()
@@ -24,10 +25,8 @@ class TelegramInboundCoalescer(
 		job + Dispatchers.Default + CoroutineName("telegram-agent")
 
 	private val buffer =
-		PerKeyLatestBuffer(
+		PerKeySerialQueue(
 			scope = this,
-			log = log,
-			keyLabel = { chatId -> "Telegram chatId=$chatId" },
 		) { chatId: Long, inbound: Inbound ->
 			log.info(
 				"Telegram handling chatId={} text={}",
@@ -38,6 +37,14 @@ class TelegramInboundCoalescer(
 				workoutAgentService.handleMessage(chatId, inbound.userId, inbound.text)
 			} catch (ex: Exception) {
 				log.error("Telegram handle failed chatId={}", chatId, ex)
+				try {
+					telegram.sendHtmlMessage(
+						chatId,
+						"❌ Не удалось обработать запрос. Попробуй ещё раз.",
+					)
+				} catch (notifyError: Exception) {
+					log.error("Telegram terminal error reply failed chatId={}", chatId, notifyError)
+				}
 			}
 		}
 

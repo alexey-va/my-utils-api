@@ -197,7 +197,8 @@ class WorkoutToolsService(
 			} catch (ex: IllegalArgumentException) {
 				return ToolExecutionFeedback.failure(ex.message ?: "Неверный формат buttons")
 			}
-		messenger.sendHtmlMessage(chatId, AgentReplyNormalizer.forTelegram(text), markup)
+		val messageId = messenger.sendHtmlMessage(chatId, AgentReplyNormalizer.forTelegram(text), markup)
+			?: return ToolExecutionFeedback.failure("Telegram не доставил сообщение.")
 		return if (markup == null) {
 			"Сообщение отправлено."
 		} else {

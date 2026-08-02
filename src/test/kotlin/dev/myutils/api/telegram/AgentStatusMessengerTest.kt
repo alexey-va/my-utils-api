@@ -36,6 +36,20 @@ class AgentStatusMessengerTest {
 		assertTrue(telegram.deleted.contains(7L to 55))
 	}
 
+	@Test
+	fun `failure always sends a terminal message instead of relying on status edit`() {
+		val telegram = RecordingTelegramMessenger()
+		val (redis, store) = inMemoryRedis()
+		val messenger = AgentStatusMessenger(telegram, redis)
+		store["agent:status:7"] = "55"
+
+		messenger.fail(7L, "Не удалось обработать запрос.")
+
+		assertTrue(telegram.deleted.contains(7L to 55))
+		assertEquals("❌ Не удалось обработать запрос.", telegram.edits.last())
+		assertTrue(!store.containsKey("agent:status:7"))
+	}
+
 	private class RecordingTelegramMessenger : TelegramMessenger {
 		var nextMessageId = 100
 		val edits = mutableListOf<String>()
