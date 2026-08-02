@@ -54,4 +54,5 @@ data class ToolCallInput(
 	val toolCallId: String? = null,
 	val userMessage: String? = null,
 	val contextChatId: Long? = null,
+	val publishStatus: Boolean = true,
 )

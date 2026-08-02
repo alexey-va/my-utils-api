@@ -55,7 +55,7 @@ class WorkoutToolActivitiesImplTest {
 
 	@Test
 	fun `repairs json syntax and delegates valid days`() {
-		whenever(toolsService.runTool(any(), any(), any())).thenReturn("сводки")
+		whenever(toolsService.runTool(any(), any(), any(), any())).thenReturn("сводки")
 		val result =
 			activities.executeTool(
 				ToolCallInput(
@@ -102,7 +102,7 @@ class WorkoutToolActivitiesImplTest {
 
 	@Test
 	fun `read only question cannot delete a workout`() {
-		whenever(toolsService.runTool(any(), any(), any())).thenReturn("Удалено")
+		whenever(toolsService.runTool(any(), any(), any(), any())).thenReturn("Удалено")
 
 		val result =
 			activities.executeTool(
@@ -120,7 +120,7 @@ class WorkoutToolActivitiesImplTest {
 
 	@Test
 	fun `explicit delete request can delete a workout`() {
-		whenever(toolsService.runTool(any(), any(), any())).thenReturn("Удалено")
+		whenever(toolsService.runTool(any(), any(), any(), any())).thenReturn("Удалено")
 
 		val result =
 			activities.executeTool(
@@ -138,7 +138,7 @@ class WorkoutToolActivitiesImplTest {
 
 	@Test
 	fun `read only plan cannot log a workout`() {
-		whenever(toolsService.runTool(any(), any(), any())).thenReturn("Записано")
+		whenever(toolsService.runTool(any(), any(), any(), any())).thenReturn("Записано")
 
 		val result =
 			activities.executeTool(
@@ -156,7 +156,7 @@ class WorkoutToolActivitiesImplTest {
 
 	@Test
 	fun `workout shorthand can log a workout`() {
-		whenever(toolsService.runTool(any(), any(), any())).thenReturn("Записано")
+		whenever(toolsService.runTool(any(), any(), any(), any())).thenReturn("Записано")
 
 		val result =
 			activities.executeTool(
@@ -174,7 +174,7 @@ class WorkoutToolActivitiesImplTest {
 
 	@Test
 	fun `body weight value can log body weight`() {
-		whenever(toolsService.runTool(any(), any(), any())).thenReturn("Вес записан")
+		whenever(toolsService.runTool(any(), any(), any(), any())).thenReturn("Вес записан")
 
 		val result =
 			activities.executeTool(

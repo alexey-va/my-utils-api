@@ -189,6 +189,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					input.contextChatId,
 					input.traceParent,
 					input.mutationAuthorizationText ?: input.text,
+					input.deliverToTelegram,
 					step.toolCalls,
 				)
 			log.info(
@@ -243,6 +244,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		contextChatId: Long?,
 		traceParent: String?,
 		userMessage: String,
+		publishStatus: Boolean,
 		toolCalls: List<ToolCallDto>,
 	): List<ToolCallResultDto> {
 		if (toolCalls.isEmpty()) {
@@ -250,7 +252,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		}
 		if (toolCalls.size == 1) {
 			val tool = toolCalls.first()
-			return listOf(executeToolCall(chatId, contextChatId, traceParent, userMessage, tool))
+			return listOf(executeToolCall(chatId, contextChatId, traceParent, userMessage, publishStatus, tool))
 		}
 
 		val promises = ArrayList<Promise<String>>(toolCalls.size)
@@ -266,6 +268,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 						toolCallId = tool.id,
 						userMessage = userMessage,
 						contextChatId = contextChatId,
+						publishStatus = publishStatus,
 					),
 				),
 			)
@@ -289,6 +292,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		contextChatId: Long?,
 		traceParent: String?,
 		userMessage: String,
+		publishStatus: Boolean,
 		tool: ToolCallDto,
 	): ToolCallResultDto =
 		ToolCallResultDto(
@@ -304,6 +308,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 						toolCallId = tool.id,
 						userMessage = userMessage,
 						contextChatId = contextChatId,
+						publishStatus = publishStatus,
 					),
 				),
 		)

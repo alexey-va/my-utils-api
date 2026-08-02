@@ -69,9 +69,19 @@ class AgentChatTurnService(
 						"Агент недоступен (Telegram-бот / OpenRouter не настроен).",
 					)
 			if (hasImages) {
-				agent.runFromMemory(chatId, trimmed, contextChatId)
+				agent.runFromMemory(
+					chatId = chatId,
+					mutationAuthorizationText = trimmed,
+					contextChatId = contextChatId,
+					publishToolStatus = false,
+				)
 			} else {
-				agent.run(chatId, trimmed, contextChatId)
+				agent.run(
+					chatId = chatId,
+					userMessage = trimmed,
+					contextChatId = contextChatId,
+					publishToolStatus = false,
+				)
 			}
 		}
 

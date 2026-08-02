@@ -262,12 +262,30 @@ class WorkoutToolsService(
 		name: String,
 		chatId: Long,
 		args: Map<String, String?>,
+		publishStatus: Boolean = true,
+	): String = executeTool(name, chatId, args, publishStatus, executionPath = "temporal")
+
+	fun runDirectTool(
+		name: String,
+		chatId: Long,
+		args: Map<String, String?>,
+		publishStatus: Boolean = true,
+	): String = executeTool(name, chatId, args, publishStatus, executionPath = "direct")
+
+	private fun executeTool(
+		name: String,
+		chatId: Long,
+		args: Map<String, String?>,
+		publishStatus: Boolean,
+		executionPath: String,
 	): String {
 		val toolName = camelToSnake(name)
 		val toolArgs = args.normalizeKeys()
 		log.info("Tool {} chatId={} args={}", toolName, chatId, LogPreview.of(toolArgs.toString(), max = 240))
-		publishToolStatus(chatId, toolName)
-		return agentMetrics.timeTool(toolName, "temporal") {
+		if (publishStatus) {
+			publishToolStatus(chatId, toolName)
+		}
+		return agentMetrics.timeTool(toolName, executionPath) {
 			runToolBody(toolName, chatId, toolArgs, rawName = name)
 		}
 	}

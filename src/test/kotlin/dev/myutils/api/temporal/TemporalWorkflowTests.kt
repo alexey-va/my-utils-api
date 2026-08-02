@@ -178,6 +178,7 @@ class TemporalWorkflowTests {
 					argumentsJson = "{}",
 					toolCallId = "tc-1",
 					userMessage = "что на сегодня",
+					publishStatus = false,
 				),
 			),
 			toolCalls,

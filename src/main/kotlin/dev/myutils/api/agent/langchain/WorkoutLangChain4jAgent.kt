@@ -28,9 +28,7 @@ import dev.langchain4j.data.message.ChatMessage as LcChatMessage
 import dev.langchain4j.data.message.SystemMessage
 import dev.langchain4j.data.message.ToolExecutionResultMessage
 import dev.langchain4j.data.message.UserMessage
-import dev.langchain4j.memory.chat.MessageWindowChatMemory
 import dev.langchain4j.model.chat.request.ChatRequest
-import dev.langchain4j.service.AiServices
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
 
@@ -53,31 +51,15 @@ class WorkoutLangChain4jAgent(
 		chatId: Long,
 		userMessage: String,
 		contextChatId: Long = chatId,
+		publishToolStatus: Boolean = true,
 	): String {
-		val tools = WorkoutLangChainTools.create(contextChatId, toolsService, properties, userMessage)
-		val memoryLimit = AppProperties.AGENT_MEMORY_RECENT_MESSAGES.get()
-		val assistant =
-			AiServices
-				.builder(WorkoutAgentAssistant::class.java)
-				.chatModel(chatModelFactory.create())
-				.tools(tools)
-				.chatMemoryProvider { id ->
-					MessageWindowChatMemory
-						.builder()
-						.id(id)
-						.maxMessages(memoryLimit)
-						.chatMemoryStore(conversationStore)
-						.build()
-				}.maxSequentialToolsInvocations(AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get())
-				.build()
-
+		conversationStore.append(chatId, listOf(UserMessage.from(userMessage)))
 		val reply =
-			assistant.chat(
-				chatId,
-				userMessage,
-				AppProperties.AGENT_SYSTEM_PROMPT.get(),
-				contextBuilder.buildSnapshot(),
-				userFacts.formatForPrompt(contextChatId),
+			runFromMemory(
+				chatId = chatId,
+				mutationAuthorizationText = userMessage,
+				contextChatId = contextChatId,
+				publishToolStatus = publishToolStatus,
 			)
 		log.info(
 			"LangChain4j agent chatId={} contextChatId={} reply={}",
@@ -93,6 +75,7 @@ class WorkoutLangChain4jAgent(
 		chatId: Long,
 		mutationAuthorizationText: String,
 		contextChatId: Long = chatId,
+		publishToolStatus: Boolean = true,
 	): String {
 		val maxSteps = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get().coerceAtLeast(1)
 		var userMessage: String? = null
@@ -114,7 +97,13 @@ class WorkoutLangChain4jAgent(
 					ToolCallResultDto(
 						toolCallId = call.id,
 						toolName = call.name,
-						result = executeToolCall(contextChatId, call, mutationAuthorizationText),
+						result =
+							executeToolCall(
+								contextChatId,
+								call,
+								mutationAuthorizationText,
+								publishToolStatus,
+							),
 					)
 				}
 			recordToolResults(RecordToolResultsInput(chatId = chatId, results = results))
@@ -129,6 +118,7 @@ class WorkoutLangChain4jAgent(
 		chatId: Long,
 		call: ToolCallDto,
 		mutationAuthorizationText: String,
+		publishStatus: Boolean = true,
 	): String =
 		AgentToolMutationPolicy.denialReason(call.name, mutationAuthorizationText)?.let { reason ->
 			ToolExecutionFeedback.failure(
@@ -138,7 +128,7 @@ class WorkoutLangChain4jAgent(
 		} ?: try {
 			when (val parsed = ToolArgumentsJsonParser.parse(objectMapper, call.argumentsJson)) {
 				is ToolArgumentsJsonParser.ParseResult.Ok ->
-					toolsService.runTool(call.name, chatId, parsed.args)
+					toolsService.runDirectTool(call.name, chatId, parsed.args, publishStatus)
 				is ToolArgumentsJsonParser.ParseResult.Error ->
 					ToolExecutionFeedback.failure(
 						error = parsed.message,

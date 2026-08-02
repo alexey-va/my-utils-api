@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
 import org.mockito.kotlin.verify
+import org.mockito.kotlin.verifyNoInteractions
 import org.mockito.kotlin.whenever
 import org.springframework.beans.factory.ObjectProvider
 import java.math.BigDecimal
@@ -54,6 +55,24 @@ class WorkoutToolsServiceTest {
 		val service = service()
 		val result = service.runTool("list_exercises", chatId = 1L, args = emptyMap())
 		assertTrue(result.contains("Упражнений пока нет"))
+	}
+
+	@Test
+	fun `tool execution can suppress telegram status publishing`() {
+		whenever(facade.listExercises()).thenReturn(emptyList())
+		val status: AgentStatusMessenger = mock()
+		val service = service(agentStatus = status)
+
+		val result =
+			service.runTool(
+				"list_exercises",
+				chatId = 42L,
+				args = emptyMap(),
+				publishStatus = false,
+			)
+
+		assertTrue(result.contains("Упражнений пока нет"))
+		verifyNoInteractions(status)
 	}
 
 	@Test

@@ -54,7 +54,12 @@ class WorkoutToolActivitiesImpl(
 				}
 				when (val parsed = ToolArgumentsJsonParser.parse(objectMapper, input.argumentsJson)) {
 					is ToolArgumentsJsonParser.ParseResult.Ok ->
-						toolsService.runTool(input.toolName, toolChatId, parsed.args)
+						toolsService.runTool(
+							input.toolName,
+							toolChatId,
+							parsed.args,
+							input.publishStatus,
+						)
 					is ToolArgumentsJsonParser.ParseResult.Error ->
 						ToolExecutionFeedback.failure(
 							error = parsed.message,

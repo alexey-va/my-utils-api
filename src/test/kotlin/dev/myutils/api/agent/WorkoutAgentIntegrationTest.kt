@@ -7,7 +7,11 @@ import dev.myutils.api.testkit.TestingIntegrationTestBase
 import dev.myutils.api.testkit.impl.InMemoryTelegramMessenger
 import dev.myutils.api.testkit.impl.StubChatModelFactory
 import dev.myutils.api.temporal.agent.AgentLlmStepInput
+import dev.langchain4j.agent.tool.ToolExecutionRequest
+import dev.langchain4j.data.message.AiMessage
 import dev.langchain4j.data.message.SystemMessage
+import dev.langchain4j.data.message.ToolExecutionResultMessage
+import dev.langchain4j.data.message.UserMessage
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -15,6 +19,7 @@ import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.test.context.TestPropertySource
+import java.util.UUID
 
 class WorkoutAgentIntegrationTest : TestingIntegrationTestBase() {
 	@Autowired
@@ -88,6 +93,48 @@ class WorkoutAgentIntegrationTest : TestingIntegrationTestBase() {
 
 		assertTrue(conversationStore.loadRecent(99L).size >= 2)
 		assertEquals(2, chatModelFactory.model.requests.size)
+	}
+
+	@Test
+	fun `direct tool loop persists each message exactly once`() {
+		val memoryChatId = UUID.randomUUID().mostSignificantBits or Long.MIN_VALUE
+		chatModelFactory.model.resetMessages(
+			AiMessage.from(
+				listOf(
+					ToolExecutionRequest
+						.builder()
+						.id("call-list-exercises")
+						.name("listExercises")
+						.arguments("{}")
+						.build(),
+				),
+			),
+			AiMessage.from("Нашёл упражнения."),
+		)
+
+		try {
+			val reply =
+				agent.run(
+					chatId = memoryChatId,
+					userMessage = "Покажи упражнения",
+					contextChatId = 424_242L,
+					publishToolStatus = false,
+				)
+
+			assertEquals("Нашёл упражнения.", reply)
+			val messages = conversationStore.loadRecent(memoryChatId)
+			assertEquals(
+				listOf(
+					UserMessage::class,
+					AiMessage::class,
+					ToolExecutionResultMessage::class,
+					AiMessage::class,
+				),
+				messages.map { it::class },
+			)
+		} finally {
+			memoryAdmin.clearDialog(memoryChatId)
+		}
 	}
 
 	@Test

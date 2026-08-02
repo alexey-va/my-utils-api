@@ -11,8 +11,12 @@ import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.temporal.agent.ToolCallDto
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
+import org.mockito.kotlin.any
+import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
+import org.mockito.kotlin.verify
 import org.mockito.kotlin.verifyNoInteractions
+import org.mockito.kotlin.whenever
 
 class WorkoutLangChain4jAgentMutationTest {
 	private val toolsService = mock<WorkoutToolsService>()
@@ -62,5 +66,27 @@ class WorkoutLangChain4jAgentMutationTest {
 
 		assertTrue(ToolExecutionFeedback.isFailure(result))
 		verifyNoInteractions(toolsService)
+	}
+
+	@Test
+	fun `memory path can suppress telegram tool status`() {
+		whenever(toolsService.runDirectTool(eq("listExercises"), eq(303179278L), any(), eq(false)))
+			.thenReturn("Упражнения")
+
+		val result =
+			agent.executeToolCall(
+				chatId = 303179278L,
+				call =
+					ToolCallDto(
+						id = "tc-list",
+						name = "listExercises",
+						argumentsJson = "{}",
+					),
+				mutationAuthorizationText = "Покажи упражнения",
+				publishStatus = false,
+			)
+
+		assertTrue(result.contains("Упражнения"))
+		verify(toolsService).runDirectTool(eq("listExercises"), eq(303179278L), any(), eq(false))
 	}
 }
