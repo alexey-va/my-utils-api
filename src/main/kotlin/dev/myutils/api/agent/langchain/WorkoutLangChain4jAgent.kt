@@ -52,8 +52,9 @@ class WorkoutLangChain4jAgent(
 	fun run(
 		chatId: Long,
 		userMessage: String,
+		contextChatId: Long = chatId,
 	): String {
-		val tools = WorkoutLangChainTools.create(chatId, toolsService, properties, userMessage)
+		val tools = WorkoutLangChainTools.create(contextChatId, toolsService, properties, userMessage)
 		val memoryLimit = AppProperties.AGENT_MEMORY_RECENT_MESSAGES.get()
 		val assistant =
 			AiServices
@@ -76,9 +77,14 @@ class WorkoutLangChain4jAgent(
 				userMessage,
 				AppProperties.AGENT_SYSTEM_PROMPT.get(),
 				contextBuilder.buildSnapshot(),
-				userFacts.formatForPrompt(chatId),
+				userFacts.formatForPrompt(contextChatId),
 			)
-		log.info("LangChain4j agent chatId={} reply={}", chatId, LogPreview.of(reply))
+		log.info(
+			"LangChain4j agent chatId={} contextChatId={} reply={}",
+			chatId,
+			contextChatId,
+			LogPreview.of(reply),
+		)
 		return AgentReplyNormalizer.forTelegram(reply)
 	}
 
@@ -86,11 +92,19 @@ class WorkoutLangChain4jAgent(
 	fun runFromMemory(
 		chatId: Long,
 		mutationAuthorizationText: String,
+		contextChatId: Long = chatId,
 	): String {
 		val maxSteps = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get().coerceAtLeast(1)
 		var userMessage: String? = null
 		repeat(maxSteps) {
-			val step = llmStep(AgentLlmStepInput(chatId = chatId, userMessage = userMessage))
+			val step =
+				llmStep(
+					AgentLlmStepInput(
+						chatId = chatId,
+						userMessage = userMessage,
+						contextChatId = contextChatId,
+					),
+				)
 			userMessage = null
 			if (!step.hasToolCalls) {
 				return AgentReplyNormalizer.forTelegram(step.reply)
@@ -100,7 +114,7 @@ class WorkoutLangChain4jAgent(
 					ToolCallResultDto(
 						toolCallId = call.id,
 						toolName = call.name,
-						result = executeToolCall(chatId, call, mutationAuthorizationText),
+						result = executeToolCall(contextChatId, call, mutationAuthorizationText),
 					)
 				}
 			recordToolResults(RecordToolResultsInput(chatId = chatId, results = results))
@@ -141,11 +155,12 @@ class WorkoutLangChain4jAgent(
 	/** Один шаг LLM для Temporal workflow (без выполнения tools внутри activity). */
 	fun llmStep(input: AgentLlmStepInput): AgentLlmStepResult {
 		val chatId = input.chatId
-		val tools = WorkoutLangChainTools.create(chatId, toolsService, properties)
+		val contextChatId = input.contextChatId ?: chatId
+		val tools = WorkoutLangChainTools.create(contextChatId, toolsService, properties)
 		val toolSpecs = ToolSpecifications.toolSpecificationsFrom(tools)
 
 		val requestMessages =
-			buildLlmMessages(chatId, input.userMessage).toMutableList()
+			buildLlmMessages(chatId, contextChatId, input.userMessage).toMutableList()
 		if (input.userMessage.isNullOrBlank() && requestMessages.lastOrNull() is ToolExecutionResultMessage) {
 			requestMessages.add(
 				UserMessage.from("Кратко подведи итог для пользователя на русском по результатам tools."),
@@ -268,10 +283,11 @@ class WorkoutLangChain4jAgent(
 
 	private fun buildLlmMessages(
 		chatId: Long,
+		contextChatId: Long,
 		userMessage: String?,
 	): List<LcChatMessage> {
 		val messages = mutableListOf<LcChatMessage>()
-		messages.add(SystemMessage.from(systemContext(chatId)))
+		messages.add(SystemMessage.from(systemContext(contextChatId)))
 		messages.addAll(memoryAssembler.loadContextForLlm(chatId))
 		if (!userMessage.isNullOrBlank()) {
 			messages.add(UserMessage.from(userMessage))

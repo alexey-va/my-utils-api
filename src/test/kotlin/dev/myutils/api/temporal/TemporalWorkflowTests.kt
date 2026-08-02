@@ -152,27 +152,37 @@ class TemporalWorkflowTests {
 	}
 
 	@Test
-	fun `agent workflow runs tool activity between llm steps`() {
-		val input = AgentTurnInput(chatId = 42L, userId = 1L, text = "что на сегодня")
+	fun `agent workflow keeps test memory id while tools use real user context`() {
+		val input =
+			AgentTurnInput(
+				chatId = -9_000_000_000_000_000L,
+				contextChatId = 42L,
+				userId = 1L,
+				text = "что на сегодня",
+				deliverToTelegram = false,
+			)
 		WorkflowClient.start(agentStub("test-agent-turn")::handleTurn, input)
 		testEnv.sleep(Duration.ofSeconds(5))
 
 		assertEquals(2, llmSteps.size)
 		assertEquals("что на сегодня", llmSteps.first().userMessage)
+		assertEquals(-9_000_000_000_000_000L, llmSteps.first().chatId)
+		assertEquals(42L, llmSteps.first().contextChatId)
 		assertEquals(null, llmSteps[1].userMessage)
 		assertEquals(
 			listOf(
 				ToolCallInput(
-					42L,
-					"list_exercises",
-					"{}",
+					chatId = -9_000_000_000_000_000L,
+					contextChatId = 42L,
+					toolName = "list_exercises",
+					argumentsJson = "{}",
 					toolCallId = "tc-1",
 					userMessage = "что на сегодня",
 				),
 			),
 			toolCalls,
 		)
-		assertEquals(listOf(42L to "stub reply"), sentMessages)
+		assertTrue(sentMessages.isEmpty())
 	}
 
 	@Test

@@ -6,6 +6,8 @@ import dev.myutils.api.agent.memory.AgentMemoryAdminService
 import dev.myutils.api.testkit.TestingIntegrationTestBase
 import dev.myutils.api.testkit.impl.InMemoryTelegramMessenger
 import dev.myutils.api.testkit.impl.StubChatModelFactory
+import dev.myutils.api.temporal.agent.AgentLlmStepInput
+import dev.langchain4j.data.message.SystemMessage
 import kotlinx.coroutines.runBlocking
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -35,7 +37,8 @@ class WorkoutAgentIntegrationTest : TestingIntegrationTestBase() {
 
 	@BeforeEach
 	fun resetFakes() {
-		listOf(1L, 2L, 42L, 43L, 99L).forEach(memoryAdmin::clearDialog)
+		listOf(1L, 2L, 42L, 43L, 99L, 424_242L, -9_000_000_000_000_001L)
+			.forEach(memoryAdmin::clearDialog)
 		telegram.clear()
 		chatModelFactory.model.resetResponses("Записал подход.", "Второй ответ.")
 	}
@@ -85,6 +88,36 @@ class WorkoutAgentIntegrationTest : TestingIntegrationTestBase() {
 
 		assertTrue(conversationStore.loadRecent(99L).size >= 2)
 		assertEquals(2, chatModelFactory.model.requests.size)
+	}
+
+	@Test
+	fun `test llm step stores isolated history while using real user facts`() {
+		val memoryChatId = -9_000_000_000_000_001L
+		val contextChatId = 424_242L
+		val fact = memoryAdmin.createFact(contextChatId, "Локоть нельзя перегружать", 1.0)
+		chatModelFactory.model.resetResponses("Учту ограничение.")
+
+		try {
+			agent.llmStep(
+				AgentLlmStepInput(
+					chatId = memoryChatId,
+					contextChatId = contextChatId,
+					userMessage = "что делать сегодня",
+				),
+			)
+
+			val requestMessages = chatModelFactory.model.requests.single().messages()
+			val requestText =
+				requestMessages
+					.filterIsInstance<SystemMessage>()
+					.joinToString("\n") { it.text() }
+			val requestDebug = requestMessages.joinToString("\n") { "${it.javaClass.name}: $it" }
+			assertTrue(requestText.contains("Локоть нельзя перегружать"), requestDebug)
+			assertTrue(conversationStore.loadRecent(memoryChatId).isNotEmpty())
+			assertTrue(conversationStore.loadRecent(contextChatId).isEmpty())
+		} finally {
+			memoryAdmin.deleteFact(fact.id)
+		}
 	}
 }
 

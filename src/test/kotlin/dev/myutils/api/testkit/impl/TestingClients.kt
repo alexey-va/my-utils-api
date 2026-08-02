@@ -148,27 +148,31 @@ class InMemoryChatMemoryStore : ChatMemoryStore {
 class RecordingChatModel(
 	defaultResponse: String = "Тестовый ответ.",
 ) : ChatModel {
-	private val responseQueue = ArrayDeque<String>()
+	private val responseQueue = ArrayDeque<AiMessage>()
 
 	val requests = mutableListOf<ChatRequest>()
 
 	init {
-		responseQueue.addLast(defaultResponse)
+		responseQueue.addLast(AiMessage.from(defaultResponse))
 	}
 
 	fun resetResponses(vararg responses: String) {
+		resetMessages(*responses.map(AiMessage::from).toTypedArray())
+	}
+
+	fun resetMessages(vararg responses: AiMessage) {
 		responseQueue.clear()
 		requests.clear()
 		responses.forEach { responseQueue.addLast(it) }
 		if (responseQueue.isEmpty()) {
-			responseQueue.addLast("Тестовый ответ.")
+			responseQueue.addLast(AiMessage.from("Тестовый ответ."))
 		}
 	}
 
 	override fun chat(request: ChatRequest): ChatResponse {
 		requests.add(request)
-		val text = responseQueue.removeFirstOrNull() ?: "ok"
-		return ChatResponse.builder().aiMessage(AiMessage.from(text)).build()
+		val message = responseQueue.removeFirstOrNull() ?: AiMessage.from("ok")
+		return ChatResponse.builder().aiMessage(message).build()
 	}
 }
 

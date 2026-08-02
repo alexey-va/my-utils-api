@@ -197,6 +197,16 @@ Example message: `bench 80kg 3x5` or `сегодня присед 100 на 5х5`
 
 **Get your Telegram user id:** message [@userinfobot](https://t.me/userinfobot).
 
+### Admin Workout AI test console
+
+В защищённой вкладке **Agents → Test console** можно создавать отдельные
+тестовые чаты и отправлять сообщения через настоящий LLM/Temporal/tool loop.
+История, `tool_call` и `tool_result` сохраняются в PostgreSQL. История каждого
+тестового чата изолирована, но инструменты работают с реальными Workout-данными
+и пользовательскими facts, поэтому UI показывает предупреждение `LIVE DATA`.
+
+HTTP-контракт: `/api/admin/agent-test-chats/**`, доступ только `ROLE_ADMIN`.
+
 ### Send a file through the bot
 
 `POST /api/telegram/files` accepts a multipart `file` and optional `caption`,

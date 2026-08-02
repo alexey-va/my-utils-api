@@ -143,6 +143,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 					chatId = input.chatId,
 					userMessage = userMessage,
 					traceParent = input.traceParent,
+					contextChatId = input.contextChatId,
 				),
 			)
 			userMessage = null
@@ -185,6 +186,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 			val toolResults =
 				executeToolCallsParallel(
 					input.chatId,
+					input.contextChatId,
 					input.traceParent,
 					input.mutationAuthorizationText ?: input.text,
 					step.toolCalls,
@@ -238,6 +240,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 
 	private fun executeToolCallsParallel(
 		chatId: Long,
+		contextChatId: Long?,
 		traceParent: String?,
 		userMessage: String,
 		toolCalls: List<ToolCallDto>,
@@ -247,7 +250,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 		}
 		if (toolCalls.size == 1) {
 			val tool = toolCalls.first()
-			return listOf(executeToolCall(chatId, traceParent, userMessage, tool))
+			return listOf(executeToolCall(chatId, contextChatId, traceParent, userMessage, tool))
 		}
 
 		val promises = ArrayList<Promise<String>>(toolCalls.size)
@@ -262,6 +265,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 						traceParent = traceParent,
 						toolCallId = tool.id,
 						userMessage = userMessage,
+						contextChatId = contextChatId,
 					),
 				),
 			)
@@ -282,6 +286,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 
 	private fun executeToolCall(
 		chatId: Long,
+		contextChatId: Long?,
 		traceParent: String?,
 		userMessage: String,
 		tool: ToolCallDto,
@@ -298,6 +303,7 @@ open class WorkoutAgentWorkflowImpl : WorkoutAgentWorkflow {
 						traceParent = traceParent,
 						toolCallId = tool.id,
 						userMessage = userMessage,
+						contextChatId = contextChatId,
 					),
 				),
 		)

@@ -24,10 +24,12 @@ class WorkoutToolActivitiesImpl(
 	private val log = LoggerFactory.getLogger(javaClass)
 
 	override fun executeTool(input: ToolCallInput): String {
+		val toolChatId = input.contextChatId ?: input.chatId
 		log.info(
-			"Temporal tool {} chatId={} args={}",
+			"Temporal tool {} chatId={} contextChatId={} args={}",
 			input.toolName,
 			input.chatId,
+			toolChatId,
 			LogPreview.of(input.argumentsJson, max = 240),
 		)
 		return genAiTracing.executeTool(
@@ -52,7 +54,7 @@ class WorkoutToolActivitiesImpl(
 				}
 				when (val parsed = ToolArgumentsJsonParser.parse(objectMapper, input.argumentsJson)) {
 					is ToolArgumentsJsonParser.ParseResult.Ok ->
-						toolsService.runTool(input.toolName, input.chatId, parsed.args)
+						toolsService.runTool(input.toolName, toolChatId, parsed.args)
 					is ToolArgumentsJsonParser.ParseResult.Error ->
 						ToolExecutionFeedback.failure(
 							error = parsed.message,

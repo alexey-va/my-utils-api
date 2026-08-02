@@ -29,6 +29,7 @@ class AgentChatTurnService(
 		chatId: Long,
 		text: String,
 		images: List<String>? = null,
+		contextChatId: Long = chatId,
 	): AgentMemoryChatTurnResult {
 		val trimmed = text.trim()
 		val normalizedImages = AgentMessageImages.normalize(images)
@@ -57,6 +58,7 @@ class AgentChatTurnService(
 					maxToolIterations = AppProperties.OPENROUTER_MAX_TOOL_ITERATIONS.get(),
 					mutationAuthorizationText = trimmed.takeIf { hasImages },
 					deliverToTelegram = false,
+					contextChatId = contextChatId,
 				),
 			)
 		} else {
@@ -67,9 +69,9 @@ class AgentChatTurnService(
 						"Агент недоступен (Telegram-бот / OpenRouter не настроен).",
 					)
 			if (hasImages) {
-				agent.runFromMemory(chatId, trimmed)
+				agent.runFromMemory(chatId, trimmed, contextChatId)
 			} else {
-				agent.run(chatId, trimmed)
+				agent.run(chatId, trimmed, contextChatId)
 			}
 		}
 

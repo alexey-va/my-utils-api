@@ -1,5 +1,7 @@
 package dev.myutils.api.web.dto
 
+import com.fasterxml.jackson.annotation.JsonIgnore
+import jakarta.validation.constraints.AssertTrue
 import jakarta.validation.constraints.NotBlank
 
 data class CreateAgentFactRequest(
@@ -25,4 +27,9 @@ data class CreateAgentMessageRequest(
 data class AgentChatTurnRequest(
 	val content: String = "",
 	val images: List<String>? = null,
-)
+) {
+	@get:JsonIgnore
+	@get:AssertTrue(message = "Нужен текст или хотя бы одно изображение.")
+	val hasPayload: Boolean
+		get() = content.isNotBlank() || !images.isNullOrEmpty()
+}

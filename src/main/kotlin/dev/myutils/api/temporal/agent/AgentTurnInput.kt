@@ -10,4 +10,6 @@ data class AgentTurnInput(
 	val mutationAuthorizationText: String? = null,
 	/** false — не отправлять ответ в Telegram (admin simulate). */
 	val deliverToTelegram: Boolean = true,
+	/** Реальный пользовательский контекст для facts/tools; по умолчанию совпадает с conversation chatId. */
+	val contextChatId: Long? = null,
 )

@@ -32,7 +32,8 @@ Promtail сохраняет исходную JSON-строку приложен�
 
 ## Data
 
-- **Postgres**: `users`, `exercises`, `workout_entries`, `app_settings`
+- **Postgres**: `users`, `exercises`, `workout_entries`, `app_settings`,
+  `agent_conversation_messages`, `agent_test_chats`
 - Дневник всегда от пользователя `local@workout` (общий для web + Telegram)
 - Запись: `вес 3*X/МАХ` → `weight_kg`, `set_count=3`, `reps_per_set`, `max_reps`
 - **Redis**: JWT sessions `myutils:session:{id}`; LangChain4j chat memory per `chatId`
@@ -48,6 +49,7 @@ Promtail сохраняет исходную JSON-строку приложен�
 | `POST /api/client-events` | public, normalized browser telemetry with request IP/User-Agent; no raw form values |
 | `/api/admin/settings/**` | `ADMIN` |
 | `/api/admin/agent-memory/**` | `ADMIN` |
+| `/api/admin/agent-test-chats/**` | `ADMIN` |
 | `/api/auth/**` (else) | JWT + Redis session |
 | rest | deny |
 
@@ -66,6 +68,22 @@ getUpdates → WorkoutAgentService
 **Workflow loop**: `resolvePrelude` → (`llmStep` ↔ `executeTool` × N) → Telegram reply.
 
 **Tools** (LangChain4j `@Tool` / `WorkoutToolsService.runTool`): `listExercises`, `logWorkout`, `createExercise`, `renameExercise`, `deleteWorkout`, progress/summary, optional Temporal notifications.
+
+## Admin test console
+
+`/api/admin/agent-test-chats/**` создаёт отдельные именованные разговоры для
+проверки Workout-ассистента без входящего Telegram-сообщения. Каждый turn идёт
+через тот же Temporal/direct agent loop и сохраняет user/assistant/tool
+сообщения в `agent_conversation_messages`.
+
+У turn два идентификатора:
+
+- `chatId` — изолированная история тестового разговора;
+- `contextChatId` — реальный пользовательский контекст для facts и tools.
+
+Поэтому Workout-инструменты читают и меняют настоящую БД, а переписка тестового
+чата не загрязняет Telegram history. Финальный ответ turn в Telegram не
+отправляется; явно вызванные Telegram tools используют реальный context chat.
 
 ## Temporal workflows
 
