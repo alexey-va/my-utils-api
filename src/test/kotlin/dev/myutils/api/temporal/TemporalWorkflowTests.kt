@@ -200,7 +200,7 @@ class TemporalWorkflowTests {
 		WorkflowClient.start(agentStub("test-agent-reply-normalization")::handleTurn, input)
 		testEnv.sleep(Duration.ofSeconds(5))
 
-		assertEquals(listOf(44L to "<b>План</b>\n<b>завтра</b> — отдых."), sentMessages)
+		assertEquals(listOf(44L to "<b>План</b>\nБля, <b>завтра</b> — отдых."), sentMessages)
 	}
 
 	@Test

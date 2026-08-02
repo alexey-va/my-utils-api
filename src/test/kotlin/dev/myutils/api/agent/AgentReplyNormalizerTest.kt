@@ -2,7 +2,6 @@ package dev.myutils.api.agent
 
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertFalse
-import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
 
 class AgentReplyNormalizerTest {
@@ -28,11 +27,10 @@ class AgentReplyNormalizerTest {
 	}
 
 	@Test
-	fun `removes mirrored profanity without damaging the answer`() {
+	fun `preserves wording including profanity`() {
 		val normalized = AgentReplyNormalizer.forTelegram("Бля, завтра понедельник, 03.08 — отдых.")
 
-		assertFalse(normalized.lowercase().contains("бля"))
-		assertTrue(normalized.contains("понедельник, 03.08"))
+		assertEquals("Бля, завтра понедельник, 03.08 — отдых.", normalized)
 	}
 
 	@Test

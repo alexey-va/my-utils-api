@@ -8,11 +8,6 @@ object AgentReplyNormalizer {
 	private val markdownCode = Regex("""`([^`\n]+)`""")
 	private val markdownBullet = Regex("""(?m)^[ \t]*[-*+][ \t]+""")
 	private val markdownLink = Regex("""\[([^\]\n]+)]\((https?://[^)\s]+)\)""")
-	private val profanity =
-		Regex(
-			"""(?<!\p{L})(?:бля(?:дь|ть)?|наху(?:й|я)|ху(?:й|я|е|ё)\p{L}*|пизд\p{L}*|(?:за)?[её]б\p{L}*|сука)(?!\p{L})[,.!?]*""",
-			RegexOption.IGNORE_CASE,
-		)
 	private val horizontalWhitespace = Regex("""[ \t]{2,}""")
 	private val lineLeadingWhitespace = Regex("""(?m)^[ \t]+""")
 	private val whitespaceBeforePunctuation = Regex("""[ \t]+([,.!?;:])""")
@@ -30,7 +25,6 @@ object AgentReplyNormalizer {
 		text = markdownBullet.replace(text, "• ")
 		text = markdownLink.replace(text) { match -> "${match.groupValues[1]} (${match.groupValues[2]})" }
 		text = text.replace("`", "")
-		text = profanity.replace(text, "")
 		text = horizontalWhitespace.replace(text, " ")
 		text = lineLeadingWhitespace.replace(text, "")
 		text = whitespaceBeforePunctuation.replace(text) { match -> match.groupValues[1] }
