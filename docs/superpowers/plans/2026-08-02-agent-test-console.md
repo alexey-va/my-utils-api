@@ -102,7 +102,7 @@ PostgreSQL, React 19, TypeScript, Ant Design, Vitest.
 - Modify `src/index.css`
 
 - [ ] Write failing UI tests for create/select/send and the persistent
-      `LIVE DATA` warning.
+      `SANDBOX` isolation notice.
 - [ ] Add Test console / Memory views, defaulting to Test console.
 - [ ] Add chat sidebar, new/rename/delete controls, clear confirmation,
       chronological history, image composer, Enter-to-send, and loading/error

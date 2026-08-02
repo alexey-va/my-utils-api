@@ -1,5 +1,6 @@
 package dev.myutils.api.agent
 
+import dev.myutils.api.agent.memory.AgentTestSandboxService
 import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.service.HealthBodyWeightService
@@ -38,6 +39,8 @@ class WorkoutToolsServiceTest {
 		whenever(userFactsProvider.getIfAvailable()).thenReturn(userFacts)
 		val agentStatusProvider = mock<ObjectProvider<AgentStatusMessenger>>()
 		whenever(agentStatusProvider.getIfAvailable()).thenReturn(agentStatus)
+		val sandboxProvider = mock<ObjectProvider<AgentTestSandboxService>>()
+		whenever(sandboxProvider.getIfAvailable()).thenReturn(null)
 		return WorkoutToolsService(
 			facade,
 			bodyWeight,
@@ -46,6 +49,7 @@ class WorkoutToolsServiceTest {
 			messengerProvider,
 			userFactsProvider,
 			agentStatusProvider,
+			sandboxProvider,
 		)
 	}
 

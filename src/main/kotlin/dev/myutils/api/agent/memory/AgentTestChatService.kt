@@ -3,7 +3,6 @@ package dev.myutils.api.agent.memory
 import dev.myutils.api.domain.AgentConversationMessageRepository
 import dev.myutils.api.domain.AgentTestChat
 import dev.myutils.api.domain.AgentTestChatRepository
-import dev.myutils.api.infra.config.MyUtilsProperties
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -17,7 +16,7 @@ class AgentTestChatService(
 	private val messages: AgentConversationMessageRepository,
 	private val memoryAdmin: AgentMemoryAdminService,
 	private val chatTurnService: AgentChatTurnService,
-	private val properties: MyUtilsProperties,
+	private val sandbox: AgentTestSandboxService,
 ) {
 	@Transactional
 	fun create(title: String): AgentTestChatDto {
@@ -26,10 +25,10 @@ class AgentTestChatService(
 			repository.save(
 				AgentTestChat(
 					memoryChatId = repository.nextMemoryChatId(),
-					userContextChatId = resolveUserContextChatId(),
 					title = normalizedTitle,
 				),
 			)
+		sandbox.create(row.memoryChatId)
 		return row.toDto()
 	}
 
@@ -58,7 +57,7 @@ class AgentTestChatService(
 				chatId = row.memoryChatId,
 				text = content,
 				images = images,
-				contextChatId = row.userContextChatId,
+				contextChatId = row.memoryChatId,
 			)
 		touch(row)
 		return result
@@ -68,6 +67,7 @@ class AgentTestChatService(
 	fun clearMessages(id: UUID) {
 		val row = requireChat(id)
 		memoryAdmin.clearDialog(row.memoryChatId)
+		sandbox.reset(row.memoryChatId)
 		touch(row)
 	}
 
@@ -103,15 +103,12 @@ class AgentTestChatService(
 		AgentTestChatDto(
 			id = id,
 			memoryChatId = memoryChatId,
-			userContextChatId = userContextChatId,
+			sandboxed = true,
 			title = title,
 			messageCount = messages.countByChatId(memoryChatId),
 			createdAt = createdAt,
 			updatedAt = updatedAt,
 		)
-
-	private fun resolveUserContextChatId(): Long =
-		properties.telegram.allowedUserIdSet().firstOrNull() ?: DEFAULT_USER_CONTEXT_CHAT_ID
 
 	private fun normalizeTitle(title: String): String {
 		val normalized = title.trim()
@@ -123,7 +120,6 @@ class AgentTestChatService(
 	}
 
 	private companion object {
-		const val DEFAULT_USER_CONTEXT_CHAT_ID = 1L
 		const val MAX_TITLE_LENGTH = 120
 	}
 }
@@ -131,7 +127,7 @@ class AgentTestChatService(
 data class AgentTestChatDto(
 	val id: UUID,
 	val memoryChatId: Long,
-	val userContextChatId: Long,
+	val sandboxed: Boolean,
 	val title: String,
 	val messageCount: Long,
 	val createdAt: Instant,

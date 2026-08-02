@@ -1,5 +1,6 @@
 package dev.myutils.api.agent
 
+import dev.myutils.api.agent.memory.AgentTestSandboxService
 import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.infra.util.LogPreview
@@ -31,6 +32,7 @@ class WorkoutToolsService(
 	private val telegramMessenger: ObjectProvider<TelegramMessenger>,
 	private val userFacts: ObjectProvider<AgentUserFactsService>,
 	private val agentStatus: ObjectProvider<AgentStatusMessenger>,
+	private val sandbox: ObjectProvider<AgentTestSandboxService>,
 ) {
 	private val log = LoggerFactory.getLogger(javaClass)
 
@@ -282,6 +284,11 @@ class WorkoutToolsService(
 		val toolName = camelToSnake(name)
 		val toolArgs = args.normalizeKeys()
 		log.info("Tool {} chatId={} args={}", toolName, chatId, LogPreview.of(toolArgs.toString(), max = 240))
+		sandbox.getIfAvailable()?.takeIf { it.isSandboxChatId(chatId) }?.let { sandboxService ->
+			return agentMetrics.timeTool(toolName, "sandbox") {
+				sandboxService.executeTool(chatId, toolName, toolArgs)
+			}
+		}
 		if (publishStatus) {
 			publishToolStatus(chatId, toolName)
 		}

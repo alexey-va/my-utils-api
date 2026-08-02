@@ -9,6 +9,7 @@ import dev.myutils.api.agent.WorkoutAgentContextBuilder
 import dev.myutils.api.agent.WorkoutToolsService
 import dev.myutils.api.agent.memory.AgentConversationStore
 import dev.myutils.api.agent.memory.AgentMemoryAssembler
+import dev.myutils.api.agent.memory.AgentTestSandboxService
 import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.config.ConditionalOnTelegramBot
 import dev.myutils.api.infra.config.MyUtilsProperties
@@ -40,6 +41,7 @@ class WorkoutLangChain4jAgent(
 	private val conversationStore: AgentConversationStore,
 	private val memoryAssembler: AgentMemoryAssembler,
 	private val userFacts: AgentUserFactsService,
+	private val sandbox: AgentTestSandboxService,
 	private val contextBuilder: WorkoutAgentContextBuilder,
 	private val toolsService: WorkoutToolsService,
 	private val objectMapper: ObjectMapper,
@@ -301,8 +303,8 @@ class WorkoutLangChain4jAgent(
 		"""
 		${AppProperties.AGENT_SYSTEM_PROMPT.get()}
 
-		${contextBuilder.buildSnapshot()}
+		${contextBuilder.buildSnapshot(chatId)}
 
-		${userFacts.formatForPrompt(chatId)}
+		${if (sandbox.isSandboxChatId(chatId)) sandbox.formatFacts(chatId) else userFacts.formatForPrompt(chatId)}
 		""".trimIndent()
 }

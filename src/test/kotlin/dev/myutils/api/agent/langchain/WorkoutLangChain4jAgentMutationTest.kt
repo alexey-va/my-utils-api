@@ -6,6 +6,7 @@ import dev.myutils.api.agent.WorkoutAgentContextBuilder
 import dev.myutils.api.agent.WorkoutToolsService
 import dev.myutils.api.agent.memory.AgentConversationStore
 import dev.myutils.api.agent.memory.AgentMemoryAssembler
+import dev.myutils.api.agent.memory.AgentTestSandboxService
 import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.config.MyUtilsProperties
 import dev.myutils.api.temporal.agent.ToolCallDto
@@ -27,6 +28,7 @@ class WorkoutLangChain4jAgentMutationTest {
 			conversationStore = mock<AgentConversationStore>(),
 			memoryAssembler = mock<AgentMemoryAssembler>(),
 			userFacts = mock<AgentUserFactsService>(),
+			sandbox = mock<AgentTestSandboxService>(),
 			contextBuilder = mock<WorkoutAgentContextBuilder>(),
 			toolsService = toolsService,
 			objectMapper = ObjectMapper(),

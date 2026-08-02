@@ -3,6 +3,7 @@ package dev.myutils.api.temporal.agent
 import com.fasterxml.jackson.databind.ObjectMapper
 import dev.myutils.api.agent.ToolExecutionFeedback
 import dev.myutils.api.agent.WorkoutToolsService
+import dev.myutils.api.agent.memory.AgentTestSandboxService
 import dev.myutils.api.agent.memory.AgentUserFactsService
 import dev.myutils.api.infra.observability.AgentMetrics
 import dev.myutils.api.infra.observability.GenAiTracing
@@ -40,6 +41,8 @@ class WorkoutToolActivitiesImplTest {
 		whenever(userFactsProvider.getIfAvailable()).thenReturn(null)
 		val agentStatusProvider = mock<ObjectProvider<AgentStatusMessenger>>()
 		whenever(agentStatusProvider.getIfAvailable()).thenReturn(null)
+		val sandboxProvider = mock<ObjectProvider<AgentTestSandboxService>>()
+		whenever(sandboxProvider.getIfAvailable()).thenReturn(null)
 		val realTools =
 			WorkoutToolsService(
 				workoutBotFacade = mock(),
@@ -49,6 +52,7 @@ class WorkoutToolActivitiesImplTest {
 				telegramMessenger = messengerProvider,
 				userFacts = userFactsProvider,
 				agentStatus = agentStatusProvider,
+				sandbox = sandboxProvider,
 			)
 		return WorkoutToolActivitiesImpl(realTools, ObjectMapper(), genAiTracing)
 	}

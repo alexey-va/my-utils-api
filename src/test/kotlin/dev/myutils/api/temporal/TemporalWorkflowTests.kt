@@ -152,11 +152,11 @@ class TemporalWorkflowTests {
 	}
 
 	@Test
-	fun `agent workflow keeps test memory id while tools use real user context`() {
+	fun `agent workflow keeps test memory id as isolated tool context`() {
 		val input =
 			AgentTurnInput(
 				chatId = -9_000_000_000_000_000L,
-				contextChatId = 42L,
+				contextChatId = -9_000_000_000_000_000L,
 				userId = 1L,
 				text = "что на сегодня",
 				deliverToTelegram = false,
@@ -167,13 +167,13 @@ class TemporalWorkflowTests {
 		assertEquals(2, llmSteps.size)
 		assertEquals("что на сегодня", llmSteps.first().userMessage)
 		assertEquals(-9_000_000_000_000_000L, llmSteps.first().chatId)
-		assertEquals(42L, llmSteps.first().contextChatId)
+		assertEquals(-9_000_000_000_000_000L, llmSteps.first().contextChatId)
 		assertEquals(null, llmSteps[1].userMessage)
 		assertEquals(
 			listOf(
 				ToolCallInput(
 					chatId = -9_000_000_000_000_000L,
-					contextChatId = 42L,
+					contextChatId = -9_000_000_000_000_000L,
 					toolName = "list_exercises",
 					argumentsJson = "{}",
 					toolCallId = "tc-1",

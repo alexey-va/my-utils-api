@@ -14,8 +14,6 @@ class AgentTestChat(
 	val id: UUID = UUID.randomUUID(),
 	@Column(name = "memory_chat_id", nullable = false, unique = true)
 	val memoryChatId: Long,
-	@Column(name = "user_context_chat_id", nullable = false)
-	val userContextChatId: Long,
 	@Column(nullable = false, length = 120)
 	var title: String,
 	@Column(name = "created_at", nullable = false)
