@@ -14,6 +14,29 @@ class WorkoutAgentSnapshotFormatterTest {
 	private val user = User(id = UUID.randomUUID(), email = "w@local", passwordHash = "x")
 
 	@Test
+	fun `exposes today and tomorrow with explicit weekdays`() {
+		val snapshot =
+			WorkoutAgentSnapshotFormatter.format(
+				today = LocalDate.of(2026, 8, 1),
+				nowLine = "Сейчас: 01.08.2026 17:13 (Europe/Moscow)",
+				exercises = emptyList(),
+				allEntries = emptyList(),
+				recentEntriesLimit = 3,
+				calendarDays = 14,
+				progressSessionsPerExercise = 4,
+				todaySummary = "Сегодня пусто",
+				yesterdaySummary = "Вчера пусто",
+			)
+
+		assertTrue(
+			snapshot.contains(
+				"Сегодня: 2026-08-01 (суббота); завтра: 2026-08-02 (воскресенье); " +
+					"неделя: 27.07–02.08 (понедельник–воскресенье)",
+			),
+		)
+	}
+
+	@Test
 	fun `includes only last N entries in recent section`() {
 		val bench =
 			Exercise(id = UUID.randomUUID(), user = user, name = "Жим", muscleGroup = "chest")

@@ -4,10 +4,12 @@ import dev.myutils.api.domain.Exercise
 import dev.myutils.api.domain.WorkoutEntry
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** Текстовый снимок дневника для промпта агента (неделя, группы мышц, прогрессия). */
 object WorkoutAgentSnapshotFormatter {
 	private val dateFmt = DateTimeFormatter.ofPattern("dd.MM")
+	private val weekdayFmt = DateTimeFormatter.ofPattern("EEEE", Locale.forLanguageTag("ru"))
 
 	fun format(
 		today: LocalDate,
@@ -43,7 +45,12 @@ object WorkoutAgentSnapshotFormatter {
 					"get_days / get_progress / list_exercises, если пользователь не просит дату вне календаря.",
 			)
 			appendLine(nowLine)
-			appendLine("Сегодня: $today, неделя: ${dateFmt.format(weekStart)}–${dateFmt.format(weekEnd)}")
+			appendLine(
+				"Сегодня: $today (${weekdayFmt.format(today)}); " +
+					"завтра: ${today.plusDays(1)} (${weekdayFmt.format(today.plusDays(1))}); " +
+					"неделя: ${dateFmt.format(weekStart)}–${dateFmt.format(weekEnd)} " +
+					"(понедельник–воскресенье)",
+			)
 			appendLine()
 			if (!bodyWeightSummary.isNullOrBlank()) {
 				appendLine("### Вес тела")
