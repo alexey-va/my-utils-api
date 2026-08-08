@@ -193,7 +193,9 @@ Log workouts by messaging a Telegram bot. Messages are parsed by an OpenRouter m
 
 Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, and `OPENROUTER_API_KEY` in `.env`. The API receives messages via **long polling** (`getUpdates`) — no public URL required.
 
-Example message: `bench 80kg 3x5` or `сегодня присед 100 на 5х5`.
+Example message: `bench 80kg 3x5`, `сегодня присед 100 на 5х5` or
+`71 фунт трицепс 12/15` (the agent records approximately `32 кг`, without a
+unit clarification round-trip).
 
 **Get your Telegram user id:** message [@userinfobot](https://t.me/userinfobot).
 

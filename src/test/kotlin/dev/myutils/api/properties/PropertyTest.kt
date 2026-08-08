@@ -2,6 +2,7 @@ package dev.myutils.api.properties
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.fasterxml.jackson.module.kotlin.jacksonObjectMapper
+import dev.myutils.api.agent.AgentSystemPromptDefault
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertThrows
 import org.junit.jupiter.api.Assertions.assertTrue
@@ -19,6 +20,15 @@ class PropertyTest {
 		assertTrue(AppProperties.ALL.any { it.key == "agent.system-prompt" })
 		assertEquals(PropertyEditor.TEXTAREA, AppProperties.AGENT_SYSTEM_PROMPT.editor)
 		assertEquals(listOf("agent", "telegram"), AppProperties.AGENT_SYSTEM_PROMPT.tags)
+		assertTrue(AppProperties.AGENT_SYSTEM_PROMPT.default.contains("Снимок формируется заново"))
+		assertTrue(AppProperties.AGENT_SYSTEM_PROMPT.default.contains("71 фунт трицепс 12/15"))
+		assertTrue(AppProperties.AGENT_SYSTEM_PROMPT.default.contains("Никогда не спрашивай, в каких единицах"))
+		val oldRuntimePrompt = "Старый сохранённый prompt без новых правил."
+		assertTrue(AgentSystemPromptDefault.withRequiredRules(oldRuntimePrompt).contains("71 фунт трицепс 12/15"))
+		assertEquals(
+			AppProperties.AGENT_SYSTEM_PROMPT.default,
+			AgentSystemPromptDefault.withRequiredRules(AppProperties.AGENT_SYSTEM_PROMPT.default),
+		)
 		assertTrue(AppProperties.TEMPORAL_EVENING_REMINDER_ENABLED.tags.contains("temporal"))
 	}
 

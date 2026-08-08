@@ -1,6 +1,7 @@
 package dev.myutils.api.agent.langchain
 
 import dev.myutils.api.agent.AgentReplyNormalizer
+import dev.myutils.api.agent.AgentSystemPromptDefault
 import dev.myutils.api.agent.AgentToolCatalog
 import dev.myutils.api.agent.AgentToolArgumentsGrounding
 import dev.myutils.api.agent.AgentToolMutationPolicy
@@ -311,7 +312,7 @@ class WorkoutLangChain4jAgent(
 
 	private fun systemContext(chatId: Long): String =
 		"""
-		${AppProperties.AGENT_SYSTEM_PROMPT.get()}
+		${AgentSystemPromptDefault.withRequiredRules(AppProperties.AGENT_SYSTEM_PROMPT.get())}
 
 		${contextBuilder.buildSnapshot(chatId)}
 

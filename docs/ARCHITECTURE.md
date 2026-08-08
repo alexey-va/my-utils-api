@@ -69,6 +69,13 @@ getUpdates → WorkoutAgentService
 
 **Tools** (LangChain4j `@Tool` / `WorkoutToolsService.runTool`): `listExercises`, `logWorkout`, `createExercise`, `renameExercise`, `deleteWorkout`, progress/summary, optional Temporal notifications.
 
+Каждый текстовый user/assistant message из долговременной памяти получает
+абсолютную метку времени в `temporal.zone-id`. Свежий snapshot дневника остаётся
+единственным источником текущей даты и состояния недели; старые «сегодня»,
+«вчера» и «всё закрыли» не переносятся в новый запрос. Вес упражнения, пришедший
+в `lb`/`lbs`/фунтах, перед `logWorkout` детерминированно переводится в кг и
+округляется до ближайшего целого.
+
 ## Admin test console
 
 `/api/admin/agent-test-chats/**` создаёт отдельные именованные разговоры для
