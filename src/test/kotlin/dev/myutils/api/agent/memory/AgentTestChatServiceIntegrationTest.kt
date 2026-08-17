@@ -11,6 +11,7 @@ import dev.myutils.api.domain.AgentTestChatRepository
 import dev.myutils.api.domain.AgentTestSandboxStateRepository
 import dev.myutils.api.domain.HealthBodyWeightRepository
 import dev.myutils.api.infra.config.MyUtilsProperties
+import dev.myutils.api.properties.AppProperties
 import dev.myutils.api.service.WorkoutService
 import dev.myutils.api.testkit.TestingIntegrationTestBase
 import dev.myutils.api.testkit.impl.InMemoryTelegramMessenger
@@ -24,6 +25,8 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.http.HttpStatus
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.server.ResponseStatusException
+import java.time.LocalDate
+import java.time.ZoneId
 import java.util.UUID
 
 class AgentTestChatServiceIntegrationTest : TestingIntegrationTestBase() {
@@ -238,11 +241,12 @@ class AgentTestChatServiceIntegrationTest : TestingIntegrationTestBase() {
 	fun `sandbox body weight belongs to test chat and never touches real weight data`() {
 		val realWeightsBefore = bodyWeights.count()
 		val created = service.create("Sandbox body weight")
+		val recentDate = LocalDate.now(ZoneId.of(AppProperties.TEMPORAL_ZONE_ID.get())).minusDays(1).toString()
 		chatModelFactory.model.resetMessages(
 			toolCall(
 				id = "tc-log-weight",
 				name = "logBodyWeight",
-				arguments = """{"weight_kg":82.4,"date":"2026-08-02"}""",
+				arguments = """{"weight_kg":82.4,"date":"$recentDate"}""",
 			),
 			AiMessage.from("Вес сохранён в тестовом чате."),
 		)
@@ -261,7 +265,7 @@ class AgentTestChatServiceIntegrationTest : TestingIntegrationTestBase() {
 		val result = service.sendMessage(created.id, "покажи мой вес", null)
 		val toolResult = result.messages.single { it.role == "tool" }.content.orEmpty()
 		assertTrue(toolResult.contains("82.4 кг"))
-		assertTrue(toolResult.contains("2026-08-02"))
+		assertTrue(toolResult.contains(recentDate))
 		assertEquals(realWeightsBefore, bodyWeights.count())
 	}
 
