@@ -23,6 +23,9 @@ steps:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
     commands:
+      # Compile in a separate single-use daemon so its Kotlin/Gradle state is
+      # released before the test worker starts on the shared 4 GiB host.
+      - gradle --no-daemon --max-workers=1 testClasses
       - gradle --no-daemon --max-workers=1 test
 
   - name: deploy

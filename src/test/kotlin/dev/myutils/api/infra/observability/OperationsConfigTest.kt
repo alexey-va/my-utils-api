@@ -15,7 +15,14 @@ class OperationsConfigTest {
 		val dockerfile = Files.readString(Path.of("Dockerfile"))
 
 		assertTrue(workflow.contains("image: gradle:9.4.1-jdk21"), workflow)
-		assertTrue(workflow.contains("gradle --no-daemon --max-workers=1 test"), workflow)
+		val compileCommand = "      - gradle --no-daemon --max-workers=1 testClasses\n"
+		val testCommand = "      - gradle --no-daemon --max-workers=1 test\n"
+		assertTrue(workflow.contains(compileCommand), workflow)
+		assertTrue(workflow.contains(testCommand), workflow)
+		assertTrue(
+			workflow.indexOf(compileCommand) < workflow.indexOf(testCommand),
+			workflow,
+		)
 		assertTrue(gradleProperties.contains("org.gradle.jvmargs=-Xmx384m -XX:MaxMetaspaceSize=320m"), gradleProperties)
 		assertTrue(gradleProperties.contains("org.gradle.workers.max=1"), gradleProperties)
 		assertTrue(gradleProperties.contains("kotlin.compiler.execution.strategy=in-process"), gradleProperties)
