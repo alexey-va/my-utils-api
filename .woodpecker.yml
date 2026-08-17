@@ -15,7 +15,7 @@ services:
 
 steps:
   - name: verify
-    image: gradle:8.13-jdk21
+    image: gradle:9.4.1-jdk21
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/myutils
       SPRING_DATASOURCE_USERNAME: myutils
@@ -23,7 +23,7 @@ steps:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
     commands:
-      - ./gradlew --no-daemon --max-workers=1 test
+      - gradle --no-daemon --max-workers=1 test
 
   - name: deploy
     image: docker:27-cli
