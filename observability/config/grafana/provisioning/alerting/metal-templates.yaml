@@ -7,74 +7,111 @@ templates:
       {{- or .Labels.service_name .Labels.alias .Labels.server_name "unknown" -}}
       {{ end }}
 
+      {{ define "metal.hostRole" -}}
+      {{- $host := or .Labels.service_name "" -}}
+      {{- if eq $host "utils" -}}Monitoring stack · Yandex Cloud
+      {{- else if eq $host "velocity" -}}Minecraft proxy host
+      {{- else if eq $host "gercena" -}}Minecraft backend host
+      {{- else -}}Server host
+      {{- end -}}
+      {{ end }}
+
       {{ define "metal.issueTitle" -}}
       {{- $name := .Labels.alertname -}}
-      {{- if eq $name "Metal host unreachable" -}}Host down
-      {{- else if eq $name "Metal CPU high" -}}CPU high
-      {{- else if eq $name "Metal memory high" -}}RAM low
-      {{- else if eq $name "Metal disk full" -}}Disk full
-      {{- else if eq $name "Metal service unreachable" -}}Service down
+      {{- if eq $name "Metal host unreachable" -}}Host unreachable
+      {{- else if eq $name "Metal CPU high" -}}CPU overload
+      {{- else if eq $name "Metal memory high" -}}Memory exhausted
+      {{- else if eq $name "Metal disk full" -}}Root disk almost full
+      {{- else if eq $name "Metal service unreachable" -}}Service unreachable
       {{- else -}}{{ $name }}
       {{- end -}}
       {{ end }}
 
-      {{ define "metal.issueHint" -}}
+      {{ define "metal.issueDetail" -}}
       {{- $name := .Labels.alertname -}}
-      {{- if eq $name "Metal host unreachable" -}}node-exporter not responding
-      {{- else if eq $name "Metal CPU high" -}}CPU >90% for 5m
-      {{- else if eq $name "Metal memory high" -}}RAM >90% for 5m
-      {{- else if eq $name "Metal disk full" -}}disk >85% for 10m
-      {{- else if eq $name "Metal service unreachable" -}}blackbox probe failed 2m+
+      {{- if eq $name "Metal host unreachable" -}}Metrics agent stopped responding — host may be down or node-exporter failed.
+      {{- else if eq $name "Metal CPU high" -}}CPU usage stayed above 90% for several minutes.
+      {{- else if eq $name "Metal memory high" -}}Less than 10% RAM available — OOM risk.
+      {{- else if eq $name "Metal disk full" -}}Root filesystem usage exceeded 85%.
+      {{- else if eq $name "Metal service unreachable" -}}Blackbox probe failed for more than two minutes.
       {{- else if .Annotations.summary -}}{{ .Annotations.summary }}
-      {{- else -}}check Grafana
+      {{- else -}}Check Grafana for details.
       {{- end -}}
       {{ end }}
 
       {{ define "metal.formatDuration" -}}
-      {{- $text := printf "%s" . -}}
-      {{- if or (eq $text "0s") (eq $text "0") (eq $text "") -}}<1m
-      {{- else -}}{{ $text }}
+      {{- $dur := . -}}
+      {{- if eq (printf "%s" $dur) "0s" -}}under a minute
+      {{- else -}}{{ printf "%s" $dur }}
       {{- end -}}
       {{ end }}
 
       {{ define "metal.alert.firing" -}}
-      **{{ template "metal.hostName" . }}** · {{ template "metal.issueTitle" . }} · `{{ or .Labels.severity "?" }}`
-      {{ template "metal.issueHint" . }}
-      {{- if .GeneratorURL }} · [open]({{ .GeneratorURL }}){{- end -}}
+      **Host:** `{{ template "metal.hostName" . }}` · {{ template "metal.hostRole" . }}
+      **Problem:** {{ template "metal.issueTitle" . }}
+      **Severity:** `{{ or .Labels.severity "unknown" }}`
+
+      > {{ template "metal.issueDetail" . }}
+      {{- if .Annotations.description }}
+
+      {{ .Annotations.description }}
+      {{- end }}
+
+      **Since:** {{ .StartsAt | date "Mon 02 Jan 2006, 15:04 UTC" }}
+      {{- with .DashboardURL }}
+      [Open dashboard]({{ . }})
+      {{- end }}
       {{ end }}
 
       {{ define "metal.alert.resolved" -}}
-      **{{ template "metal.hostName" . }}** · {{ template "metal.issueTitle" . }} ✓ · {{ template "metal.formatDuration" (.EndsAt.Sub .StartsAt) }}
-      {{ .StartsAt | date "15:04" }}→{{ .EndsAt | date "15:04 UTC" }}
+      **Host:** `{{ template "metal.hostName" . }}`
+      **Problem:** {{ template "metal.issueTitle" . }} — resolved
+      **Downtime:** {{ template "metal.formatDuration" (.EndsAt.Sub .StartsAt) }}
+      **Period:** {{ .StartsAt | date "15:04 UTC" }} → {{ .EndsAt | date "15:04 UTC" }}
+      {{- with .DashboardURL }}
+      [Open dashboard]({{ . }})
+      {{- end }}
       {{ end }}
 
       {{ define "metal.discord.title" -}}
       {{- if eq .Status "firing" -}}
       {{- if eq (len .Alerts.Firing) 1 -}}
-      🔴 {{ template "metal.hostName" (index .Alerts.Firing 0) }} · {{ template "metal.issueTitle" (index .Alerts.Firing 0) }}
+      {{- $a := index .Alerts.Firing 0 -}}
+      🔴 Metal · {{ template "metal.hostName" $a }} · {{ template "metal.issueTitle" $a }}
       {{- else -}}
-      🔴 {{ len .Alerts.Firing }} alerts firing
+      🔴 Metal · {{ len .Alerts.Firing }} hardware issues
       {{- end -}}
       {{- else -}}
       {{- if eq (len .Alerts.Resolved) 1 -}}
-      ✅ {{ template "metal.hostName" (index .Alerts.Resolved 0) }} · {{ template "metal.issueTitle" (index .Alerts.Resolved 0) }} ok
+      {{- $a := index .Alerts.Resolved 0 -}}
+      ✅ Metal · {{ template "metal.hostName" $a }} · recovered
       {{- else -}}
-      ✅ {{ len .Alerts.Resolved }} alerts resolved
+      ✅ Metal · {{ len .Alerts.Resolved }} issues resolved
       {{- end -}}
       {{- end -}}
       {{ end }}
 
       {{ define "metal.discord.message" -}}
       {{- if gt (len .Alerts.Firing) 0 -}}
+      🚨 **Hardware alert**
       {{- range .Alerts.Firing }}
-      • {{ template "metal.alert.firing" . }}
+
+      ---
+      {{ template "metal.alert.firing" . }}
       {{- end }}
-      [status](https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts) · [alerting]({{ .ExternalURL }})
+
+      [Metal Status](https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status) · [Metal Alerts](https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts)
       {{- end -}}
+
       {{- if gt (len .Alerts.Resolved) 0 -}}
+
+      ✅ **Hardware recovered**
       {{- range .Alerts.Resolved }}
-      • {{ template "metal.alert.resolved" . }}
+
+      ---
+      {{ template "metal.alert.resolved" . }}
       {{- end }}
-      [status](https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts)
+
+      [Metal Status](https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status) · [Metal Alerts](https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts)
       {{- end -}}
       {{ end }}

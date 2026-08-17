@@ -15,9 +15,22 @@ GRAFANA_USER = os.environ.get("GRAFANA_USER", os.environ.get("GF_SECURITY_ADMIN_
 GRAFANA_PASSWORD = os.environ.get("GRAFANA_PASSWORD", os.environ.get("GF_SECURITY_ADMIN_PASSWORD", ""))
 GRAFANA_TOKEN = os.environ.get("GRAFANA_SERVICE_ACCOUNT_TOKEN", "")
 TEMPLATE_FILE = Path(__file__).resolve().parent.parent / "config" / "grafana-metal-discord-template.txt"
+PROVISIONED_TEMPLATE_FILE = (
+    Path(__file__).resolve().parent.parent
+    / "config"
+    / "grafana"
+    / "provisioning"
+    / "alerting"
+    / "metal-templates.yaml"
+)
 TEMPLATE_NAME = "metal-discord"
 LEGACY_PREFIXES = ("RusCrafting ",)
 CONTACT_NAMES = ("Metal Discord", "Discord")
+DASHBOARD_URLS = (
+    "https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status",
+    "https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts",
+)
+FORBIDDEN_LINK_MARKERS = (".GeneratorURL", ".ExternalURL", ".SilenceURL", "/alerting/")
 
 
 def auth_headers(extra: dict[str, str] | None = None) -> dict[str, str]:
@@ -45,8 +58,41 @@ def request(method: str, path: str, body: dict | None = None) -> tuple[int, obje
         return response.status, json.loads(raw) if raw else None
 
 
-def apply_template() -> None:
+def provisioned_template() -> str:
+    lines = PROVISIONED_TEMPLATE_FILE.read_text(encoding="utf-8").splitlines()
+    marker = "    template: |"
+    try:
+        start = lines.index(marker) + 1
+    except ValueError as error:
+        raise ValueError(f"missing {marker!r} in {PROVISIONED_TEMPLATE_FILE}") from error
+
+    body: list[str] = []
+    for line in lines[start:]:
+        if line and not line.startswith("      "):
+            raise ValueError(f"unexpected content after template block: {line!r}")
+        body.append(line[6:] if line.startswith("      ") else "")
+    return "\n".join(body).rstrip() + "\n"
+
+
+def validate_template_files() -> str:
     template = TEMPLATE_FILE.read_text(encoding="utf-8")
+    provisioned = provisioned_template()
+    if template.rstrip() != provisioned.rstrip():
+        raise ValueError("standalone and provisioned Metal Discord templates differ")
+
+    forbidden = [marker for marker in FORBIDDEN_LINK_MARKERS if marker in template]
+    if forbidden:
+        raise ValueError(f"alert-management links are forbidden: {', '.join(forbidden)}")
+
+    missing = [url for url in DASHBOARD_URLS if url not in template]
+    if missing:
+        raise ValueError(f"missing dashboard link(s): {', '.join(missing)}")
+    if ".DashboardURL" not in template:
+        raise ValueError("per-alert DashboardURL link is required")
+    return template
+
+
+def apply_template(template: str) -> None:
     status, _ = request("PUT", f"/api/v1/provisioning/templates/{TEMPLATE_NAME}", {
         "name": TEMPLATE_NAME,
         "template": template,
@@ -86,11 +132,23 @@ def retire_legacy_rules() -> int:
 
 
 def main() -> int:
+    check_only = sys.argv[1:] == ["--check"]
+    if sys.argv[1:] and not check_only:
+        print(f"Usage: {Path(sys.argv[0]).name} [--check]", file=sys.stderr)
+        return 2
+    try:
+        template = validate_template_files()
+    except ValueError as error:
+        print(f"template validation failed: {error}", file=sys.stderr)
+        return 1
+    if check_only:
+        print("template validation: OK")
+        return 0
     if not GRAFANA_TOKEN and not (GRAFANA_USER and GRAFANA_PASSWORD):
         print("Set GRAFANA_SERVICE_ACCOUNT_TOKEN or GRAFANA_USER+GRAFANA_PASSWORD", file=sys.stderr)
         return 1
     try:
-        apply_template()
+        apply_template(template)
         deleted = retire_legacy_rules()
         print(f"done: removed {deleted} legacy rule(s)")
     except urllib.error.HTTPError as error:
