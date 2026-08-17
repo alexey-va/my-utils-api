@@ -23,7 +23,7 @@ steps:
       SPRING_DATA_REDIS_HOST: redis
       SPRING_DATA_REDIS_PORT: 6379
     commands:
-      - ./gradlew test
+      - ./gradlew --no-daemon --max-workers=1 test
 
   - name: deploy
     image: docker:27-cli

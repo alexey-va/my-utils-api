@@ -464,7 +464,7 @@
         "type": "prometheus",
         "uid": "${datasource}"
       },
-      "description": "Used Swap",
+      "description": "Swap occupancy. Linux may retain inactive pages after pressure; use Pressure → Mem and swap I/O to judge current impact.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -493,11 +493,11 @@
               },
               {
                 "color": "rgba(237, 129, 40, 0.89)",
-                "value": 10
+                "value": 70
               },
               {
                 "color": "rgba(245, 54, 54, 0.9)",
-                "value": 25
+                "value": 90
               }
             ]
           },

@@ -70,4 +70,6 @@ allOpen {
 
 tasks.withType<Test> {
 	useJUnitPlatform()
+	maxHeapSize = "256m"
+	maxParallelForks = 1
 }
