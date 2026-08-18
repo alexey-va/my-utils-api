@@ -45,4 +45,25 @@ class OperationsConfigTest {
 		assertEquals(90, steps[2]["value"].asInt())
 		assertTrue(panel["description"].asText().contains("Pressure → Mem"))
 	}
+
+	@Test
+	fun `prometheus keeps every RusCrafting metrics scrape target`() {
+		val prometheus = Files.readString(Path.of("observability/config/prometheus/prometheus.yml"))
+		val arc = prometheus.substringAfter("  - job_name: mc-arc\n")
+			.substringBefore("\n  - job_name:")
+		val proxyArc = prometheus.substringAfter("  - job_name: mc-proxyarc\n")
+			.substringBefore("\n  - job_name:")
+
+		for ((serverName, instance) in listOf(
+			"spawn" to "178.44.115.21:26804",
+			"survival" to "178.44.115.21:26805",
+			"parkour" to "178.44.115.21:26806",
+		)) {
+			assertTrue(arc.contains("targets: [\"$instance\"]"), arc)
+			assertTrue(arc.contains("server_name: $serverName"), arc)
+		}
+		assertTrue(proxyArc.contains("metrics_path: /proxyarc/metrics"), proxyArc)
+		assertTrue(proxyArc.contains("targets: [\"31.44.9.177:9100\"]"), proxyArc)
+		assertTrue(proxyArc.contains("server_name: velocity"), proxyArc)
+	}
 }

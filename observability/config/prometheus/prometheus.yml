@@ -36,6 +36,28 @@ scrape_configs:
         labels:
           server_name: survival
 
+  - job_name: mc-arc
+    metrics_path: /metrics
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["178.44.115.21:26804"]
+        labels:
+          server_name: spawn
+      - targets: ["178.44.115.21:26805"]
+        labels:
+          server_name: survival
+      - targets: ["178.44.115.21:26806"]
+        labels:
+          server_name: parkour
+
+  - job_name: mc-proxyarc
+    metrics_path: /proxyarc/metrics
+    scrape_interval: 30s
+    static_configs:
+      - targets: ["31.44.9.177:9100"]
+        labels:
+          server_name: velocity
+
   - job_name: blackbox_minecraft
     metrics_path: /probe
     params:
