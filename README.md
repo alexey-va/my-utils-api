@@ -244,3 +244,18 @@ Compose-файлы:
 | `docker-compose.utils.yml` | shared/utility deployment variant |
 
 Не изменяйте production secrets или серверные файлы через документацию.
+
+## WireGuard relay
+
+Администраторский API `/api/admin/wireguard/**` хранит desired state relay и
+пиров, шифрует восстанавливаемые клиентские private keys через
+`WIREGUARD_CREDENTIALS_ENCRYPTION_KEY` и выдаёт `.conf` только с
+`Cache-Control: no-store`. Host-agent использует отдельный hashed token и
+узкий контракт `/api/internal/wireguard/relays/{id}/**`.
+
+Host scripts и полный безопасный порядок установки находятся в
+[`ops/wireguard/README.md`](ops/wireguard/README.md). Топология:
+`client -> wg-users (utils) -> awg-exit -> Veesp`. На `utils` source NAT
+намеренно отсутствует; клиентский `/32` сохраняется до Veesp, где выполняется
+финальный NAT. При падении `awg-exit` policy routing закрывается через
+unreachable fallback и firewall REJECT.

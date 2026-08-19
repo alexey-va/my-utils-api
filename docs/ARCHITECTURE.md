@@ -50,12 +50,27 @@ Promtail сохраняет исходную JSON-строку приложен�
 | `/api/admin/settings/**` | `ADMIN` |
 | `/api/admin/agent-memory/**` | `ADMIN` |
 | `/api/admin/agent-test-chats/**` | `ADMIN` |
+| `/api/admin/wireguard/**` | `ADMIN` |
+| `/api/internal/wireguard/**` | relay-scoped agent token |
 | `/api/auth/**` (else) | JWT + Redis session |
 | rest | deny |
 
 Таб-пароль во frontend — только клиентский visibility gate. Источник истины
 для серверного доступа: `infra/security/SecurityConfig.kt`. Если политика
 меняется, нужно синхронно обновить эту таблицу, frontend flow и тесты.
+
+## WireGuard relay
+
+Spring хранит desired state `wireguard_relays`/`wireguard_peers`; root-agent на
+`utils` атомарно синхронизирует только выделенный `wg-users` и возвращает
+heartbeat/counters. Клиентский private key хранится только как AES-256-GCM
+ciphertext. Отдельный `awg-exit` не управляется API: его ключи, PSK и Amnezia
+параметры остаются root-only host configuration.
+
+Маршрут `10.89.0.0/24` проходит через `awg-exit` без NAT на `utils`. Veesp
+владеет обратным route через выделенный AWG peer и финальным masquerade.
+Unreachable route плюс firewall REJECT запрещают fallback в обычный default
+route `utils`.
 
 ## Telegram → agent
 

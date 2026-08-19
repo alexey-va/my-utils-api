@@ -3,8 +3,9 @@
 ## Goal
 
 Add an administrator-only WireGuard control plane to my-utils. A dedicated
-relay on the utils host accepts client WireGuard tunnels and forwards their
-IPv4 traffic through a second WireGuard tunnel to an external exit server.
+relay on the utils host accepts standard WireGuard client tunnels and forwards
+their IPv4 traffic through an AmneziaWG egress tunnel to the existing `veesp`
+server.
 Administrators can provision, disable, and inspect client peers from the UI,
 including repeatable `.conf` downloads and QR codes.
 
@@ -14,11 +15,13 @@ The first version supports:
 
 - one or more independently enrolled relay records, with one relay expected in
   the initial deployment;
-- Debian or Ubuntu relay and exit hosts using systemd, `wireguard-tools`,
-  `iptables-nft`, `curl`, and `jq`;
+- the Ubuntu 24.04 utils relay using systemd, standard `wireguard-tools` for
+  ingress, official AmneziaWG tools for egress, `iptables-nft`, `curl`, and
+  `jq`;
+- the existing `amnezia-awg` container on `veesp` as the only external exit;
 - IPv4 client traffic only;
-- one dedicated ingress interface (`wg-users`) and one dedicated egress
-  interface (`wg-exit`) on the utils host;
+- one dedicated standard WireGuard ingress interface (`wg-users`) and one
+  dedicated AmneziaWG egress interface (`awg-exit`) on the utils host;
 - administrator-only relay and peer management;
 - repeatable client credential delivery as WireGuard config text, `.conf`
   download, and an in-browser QR code;
@@ -27,7 +30,8 @@ The first version supports:
 - explicit enabled/disabled peer state and agent convergence status.
 
 The first version does not provide IPv6 forwarding, traffic quotas, per-domain
-policy, multi-hop selection, billing, or automated SSH access to either host.
+policy, multi-hop selection, billing, or application-managed SSH access to
+either host.
 
 ## Network Topology
 
@@ -36,21 +40,29 @@ client
   | WireGuard, client address 10.89.0.2/32+
   v
 utils host: wg-users (10.89.0.1/24, UDP 51820)
-  | source-policy route for 10.89.0.0/24 only
+  | source-policy route for 10.89.0.0/24 only; no relay-side NAT
   v
-utils host: wg-exit (10.90.255.1/30)
-  | WireGuard to the configured external endpoint
+utils host: awg-exit (dedicated 10.8.1.x/32 peer, Table=off)
+  | AmneziaWG to veesp:42696
   v
-exit host: wg-exit (10.90.255.2/30)
-  | IPv4 forwarding + MASQUERADE for 10.89.0.0/24
+veesp: existing amnezia-awg wg0 (10.8.1.0/24)
+  | peer route for 10.89.0.0/24 + IPv4 forwarding + MASQUERADE
   v
 internet
 ```
 
 The relay host itself retains its ordinary default route. Only forwarded
 packets whose source is the configured client CIDR use the policy-routing table
-for `wg-exit`. The external exit peer routes the complete client CIDR back over
-the tunnel.
+for `awg-exit`. The utils relay does not masquerade client addresses: each
+`10.89.0.x/32` remains visible through the egress tunnel. The dedicated
+AmneziaWG peer on `veesp` owns both its egress tunnel address and the complete
+`10.89.0.0/24` client CIDR, which provides the return route.
+
+The policy table contains an unreachable fallback and the relay firewall
+rejects client-CIDR forwarding through any interface other than `awg-exit`.
+Consequently, an egress failure cannot leak client traffic through the normal
+utils default route. Client and ingress MTU are fixed at 1280 to tolerate the
+nested WireGuard plus AmneziaWG encapsulation.
 
 ## Trust Boundaries
 
@@ -58,6 +70,11 @@ the tunnel.
 capabilities, WireGuard server private keys, or SSH credentials. A small root
 agent installed on the utils host owns WireGuard changes. It calls a narrow
 machine API with an opaque, high-entropy relay token.
+
+The AmneziaWG client private key, preshared key, and obfuscation parameters are
+root-only host configuration. They never enter the API, database, repository,
+agent heartbeat, or UI. `veesp` configuration is backed up before a dedicated
+relay peer or persistent NAT rules are changed.
 
 The relay token is generated once by the API. Only its SHA-256 digest is stored;
 the plaintext token is returned once to the administrator for agent setup. The
@@ -187,11 +204,14 @@ modal clears its in-memory credential state when closed.
 
 Versioned scripts under `ops/wireguard/` provide:
 
-- an exit preparation/install flow that installs packages, generates the exit
-  key pair, enables forwarding/NAT, and accepts the relay egress public key;
-- a relay install flow that installs packages, generates ingress and egress
-  server keys, configures `wg-users` and `wg-exit`, policy routing, forwarding,
-  and the systemd control-plane agent;
+- a `veesp` preparation flow that verifies the exact `amnezia-awg` container,
+  backs up its configuration, creates one dedicated relay peer without printing
+  keys, adds the `10.89.0.0/24` return route and persistent forwarding/NAT rules,
+  and writes a root-only client configuration artifact;
+- a relay install flow that installs standard WireGuard ingress and official
+  AmneziaWG egress tooling, consumes the root-only client artifact, configures
+  `wg-users`, `awg-exit`, fail-closed source-policy routing, forwarding, and the
+  systemd control-plane agent;
 - validation commands that check interface state, routes, the agent timer, and
   public internet egress without printing private keys or tokens.
 
@@ -215,6 +235,10 @@ are not run by the ordinary application deployment pipeline.
 - Invalid heartbeat rows do not partially update counters.
 - A failed agent sync leaves the previous kernel configuration active and does
   not report the new revision as applied.
+- A missing or failed `awg-exit` rejects client-CIDR traffic on utils instead of
+  falling back to the host's ordinary default route.
+- A failed `veesp` peer or NAT update restores the timestamped configuration
+  backup before the existing Amnezia service is considered healthy.
 - UI actions display API errors and retain the current table state for retry.
 
 ## Verification
@@ -225,12 +249,14 @@ admin authorization, agent-token authorization, desired-state responses,
 counter reset accumulation, and lifecycle operations. The complete backend
 gate is `./gradlew test` plus `git diff --check`.
 
-Frontend tests cover endpoint construction, one-time provisioning rendering,
+Frontend tests cover endpoint construction, repeatable credential rendering,
 download content, QR payload, status presentation, and peer actions. The
 complete frontend gate is `npm exec eslint -- src`, `npm test`, `npm run build`,
 and `git diff --check`, followed by desktop and narrow browser smoke tests.
 
 Shell scripts are checked with `bash -n`; where ShellCheck is available they
 are checked with `shellcheck` as well. Installation is not considered live
-verified until it is run on the explicitly selected relay and exit hosts and a
-client egress-IP smoke test succeeds.
+verified until it is run on the exact `utils` and `veesp` hosts, the original
+Amnezia peers remain usable, and a disposable client proves that its public
+egress address is `veesp` while ordinary utils traffic retains its original
+route.
