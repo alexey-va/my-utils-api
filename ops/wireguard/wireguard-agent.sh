@@ -75,7 +75,7 @@ jq -e --arg interface "$WIREGUARD_INTERFACE" '
   (.peers | type == "array") and
   all(.peers[];
     (.publicKey | type == "string" and test("^[A-Za-z0-9+/]{43}=$")) and
-    (.allowedIp | type == "string" and test("^(10|172\\.(1[6-9]|2[0-9]|3[01])|192\\.168)\\.[0-9]{1,3}\\.[0-9]{1,3}/32$"))
+    (.allowedIp | type == "string" and test("^(10\\.[0-9]{1,3}|172\\.(1[6-9]|2[0-9]|3[01])|192\\.168)\\.[0-9]{1,3}\\.[0-9]{1,3}/32$"))
   ) and
   (([.peers[].publicKey] | length) == ([.peers[].publicKey] | unique | length)) and
   (([.peers[].allowedIp] | length) == ([.peers[].allowedIp] | unique | length))
