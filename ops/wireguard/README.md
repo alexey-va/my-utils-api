@@ -56,6 +56,24 @@ non-secret status file is read by the existing agent and shown in the admin UI.
 Country selection is IP-based: CDN placement can differ from a domain's
 business country.
 
+## Traffic and route quality metrics
+
+The relay agent records interval byte counters per peer in two route groups:
+validated RU destination prefixes routed directly through `eth0`, and all
+other destinations routed through `awg-exit`. Download classification uses the
+actual return interface. These are forwarded IP bytes, so their sum can differ
+slightly from WireGuard's encrypted interface counters because tunnel overhead
+is not included.
+
+The agent also sends a current route-quality snapshot on every heartbeat. The
+direct probe pings `77.88.8.8` through `eth0`; the Veesp probe pings the public
+endpoint reported by `awg show awg-exit endpoints`, also through `eth0`. The
+second value measures the underlying path from `utils` to Veesp, not end-to-end
+loss between a client device and `wg-users`. Targets and interfaces can be
+overridden with `WIREGUARD_DIRECT_PROBE_TARGET`,
+`WIREGUARD_DIRECT_INTERFACE`, and `WIREGUARD_AWG_INTERFACE` in the agent
+environment.
+
 The production API also needs a base64-encoded 32-byte
 `WIREGUARD_CREDENTIALS_ENCRYPTION_KEY`. Losing it does not stop existing peers,
 but prevents recovery of stored client configs; rotate affected peers instead

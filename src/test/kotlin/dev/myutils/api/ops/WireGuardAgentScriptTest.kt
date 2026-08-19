@@ -30,4 +30,17 @@ class WireGuardAgentScriptTest {
 		assertThat(script).contains("mode == \"RU_DIRECT_AWG_DEFAULT\"")
 		assertThat(script).doesNotContain("routingStatus.token")
 	}
+
+	@Test
+	fun `agent reports interval route counters and direct plus Veesp quality probes`() {
+		val script = Files.readString(Path.of("ops/wireguard/wireguard-agent.sh"))
+
+		assertThat(script).contains("MYUTILS-WG-TRAFFIC")
+		assertThat(script).contains("routingTraffic")
+		assertThat(script).contains("ruDownloadBytes")
+		assertThat(script).contains("nonRuUploadBytes")
+		assertThat(script).contains("routeQuality: \$routeQuality[0]")
+		assertThat(script).contains("packetLossPercent")
+		assertThat(script).contains("awg show \"\$WIREGUARD_AWG_INTERFACE\" endpoints")
+	}
 }

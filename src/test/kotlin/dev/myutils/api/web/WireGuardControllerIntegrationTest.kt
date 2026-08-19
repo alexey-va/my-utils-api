@@ -240,7 +240,16 @@ class WireGuardControllerIntegrationTest : TestingIntegrationTestBase() {
 			relayId,
 			agentToken,
 			appliedRevision = 1,
-			counters = listOf(Counter(publicKey, handshake.epochSecond, receiveBytes = 100, transmitBytes = 200)),
+			counters =
+				listOf(
+					Counter(
+						publicKey,
+						handshake.epochSecond,
+						receiveBytes = 100,
+						transmitBytes = 200,
+						routingTraffic = RoutingTraffic(80, 40, 120, 60),
+					),
+				),
 			routingStatus =
 				mapOf(
 					"mode" to "RU_DIRECT_AWG_DEFAULT",
@@ -252,12 +261,37 @@ class WireGuardControllerIntegrationTest : TestingIntegrationTestBase() {
 			relayId,
 			agentToken,
 			appliedRevision = 1,
-			counters = listOf(Counter(publicKey, handshake.epochSecond, receiveBytes = 150, transmitBytes = 260)),
+			counters =
+				listOf(
+					Counter(
+						publicKey,
+						handshake.epochSecond,
+						receiveBytes = 150,
+						transmitBytes = 260,
+						routingTraffic = RoutingTraffic(20, 15, 40, 35),
+					),
+				),
 			routingStatus =
 				mapOf(
 					"mode" to "RU_DIRECT_AWG_DEFAULT",
 					"ruPrefixCount" to 8_642,
 					"updatedAt" to "2026-08-19T18:00:00Z",
+				),
+			routeQuality =
+				mapOf(
+					"measuredAt" to "2026-08-19T18:00:00Z",
+					"direct" to
+						mapOf(
+							"target" to "77.88.8.8",
+							"packetLossPercent" to 0.0,
+							"averageRttMs" to 2.7,
+						),
+					"veesp" to
+						mapOf(
+							"target" to "185.242.106.81",
+							"packetLossPercent" to 20.0,
+							"averageRttMs" to 26.6,
+						),
 				),
 		)
 
@@ -270,6 +304,11 @@ class WireGuardControllerIntegrationTest : TestingIntegrationTestBase() {
 				jsonPath("$[0].routingMode") { value("RU_DIRECT_AWG_DEFAULT") }
 				jsonPath("$[0].ruPrefixCount") { value(8_642) }
 				jsonPath("$[0].routingUpdatedAt") { value("2026-08-19T18:00:00Z") }
+				jsonPath("$[0].routeQuality.direct.packetLossPercent") { value(0.0) }
+				jsonPath("$[0].routeQuality.direct.averageRttMs") { value(2.7) }
+				jsonPath("$[0].routeQuality.veesp.packetLossPercent") { value(20.0) }
+				jsonPath("$[0].routeQuality.veesp.averageRttMs") { value(26.6) }
+				jsonPath("$[0].routeQuality.measuredAt") { value("2026-08-19T18:00:00Z") }
 			}
 
 		mockMvc
@@ -295,6 +334,10 @@ class WireGuardControllerIntegrationTest : TestingIntegrationTestBase() {
 		val metrics = objectMapper.readTree(metricsResponse.response.contentAsString)
 		assertEquals(260, metrics["points"].sumOf { it["downloadBytes"].asLong() })
 		assertEquals(150, metrics["points"].sumOf { it["uploadBytes"].asLong() })
+		assertEquals(100, metrics["points"].sumOf { it["ruDownloadBytes"].asLong() })
+		assertEquals(55, metrics["points"].sumOf { it["ruUploadBytes"].asLong() })
+		assertEquals(160, metrics["points"].sumOf { it["nonRuDownloadBytes"].asLong() })
+		assertEquals(95, metrics["points"].sumOf { it["nonRuUploadBytes"].asLong() })
 
 		mockMvc
 			.get("/api/admin/wireguard/relays/$relayId/peers/$peerId/metrics") {
@@ -349,6 +392,7 @@ class WireGuardControllerIntegrationTest : TestingIntegrationTestBase() {
 		appliedRevision: Long,
 		counters: List<Counter>,
 		routingStatus: Map<String, Any>? = null,
+		routeQuality: Map<String, Any>? = null,
 	) {
 		val payload =
 			linkedMapOf<String, Any>(
@@ -358,6 +402,7 @@ class WireGuardControllerIntegrationTest : TestingIntegrationTestBase() {
 				"peers" to counters,
 			)
 		routingStatus?.let { payload["routingStatus"] = it }
+		routeQuality?.let { payload["routeQuality"] = it }
 		mockMvc
 			.post("/api/internal/wireguard/relays/$relayId/heartbeat") {
 				agent(agentToken)
@@ -407,5 +452,13 @@ class WireGuardControllerIntegrationTest : TestingIntegrationTestBase() {
 		val latestHandshakeEpochSeconds: Long,
 		val receiveBytes: Long,
 		val transmitBytes: Long,
+		val routingTraffic: RoutingTraffic? = null,
+	)
+
+	private data class RoutingTraffic(
+		val ruDownloadBytes: Long,
+		val ruUploadBytes: Long,
+		val nonRuDownloadBytes: Long,
+		val nonRuUploadBytes: Long,
 	)
 }

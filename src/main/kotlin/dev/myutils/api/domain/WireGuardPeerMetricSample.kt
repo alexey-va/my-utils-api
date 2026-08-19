@@ -24,6 +24,14 @@ class WireGuardPeerMetricSample(
 	val downloadBytes: Long,
 	@Column(name = "upload_bytes", nullable = false)
 	val uploadBytes: Long,
+	@Column(name = "ru_download_bytes", nullable = false)
+	val ruDownloadBytes: Long = 0,
+	@Column(name = "ru_upload_bytes", nullable = false)
+	val ruUploadBytes: Long = 0,
+	@Column(name = "non_ru_download_bytes", nullable = false)
+	val nonRuDownloadBytes: Long = 0,
+	@Column(name = "non_ru_upload_bytes", nullable = false)
+	val nonRuUploadBytes: Long = 0,
 	@Column(name = "latest_handshake_at")
 	val latestHandshakeAt: Instant?,
 )

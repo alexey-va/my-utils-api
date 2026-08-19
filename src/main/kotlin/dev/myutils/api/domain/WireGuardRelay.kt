@@ -38,6 +38,20 @@ class WireGuardRelay(
 	var ruPrefixCount: Int = 0,
 	@Column(name = "routing_updated_at")
 	var routingUpdatedAt: Instant? = null,
+	@Column(name = "direct_probe_target", length = 64)
+	var directProbeTarget: String? = null,
+	@Column(name = "direct_packet_loss_percent")
+	var directPacketLossPercent: Double? = null,
+	@Column(name = "direct_average_rtt_ms")
+	var directAverageRttMs: Double? = null,
+	@Column(name = "veesp_probe_target", length = 64)
+	var veespProbeTarget: String? = null,
+	@Column(name = "veesp_packet_loss_percent")
+	var veespPacketLossPercent: Double? = null,
+	@Column(name = "veesp_average_rtt_ms")
+	var veespAverageRttMs: Double? = null,
+	@Column(name = "route_quality_updated_at")
+	var routeQualityUpdatedAt: Instant? = null,
 	@Column(name = "created_at", nullable = false)
 	val createdAt: Instant = Instant.now(),
 	@Column(name = "updated_at", nullable = false)

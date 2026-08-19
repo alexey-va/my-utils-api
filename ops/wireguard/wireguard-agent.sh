@@ -13,6 +13,11 @@ fi
 source "$ENV_FILE"
 
 WIREGUARD_ROUTING_STATUS_FILE="${WIREGUARD_ROUTING_STATUS_FILE:-/var/lib/my-utils-wireguard/geo-routing-status.json}"
+WIREGUARD_AWG_INTERFACE="${WIREGUARD_AWG_INTERFACE:-awg-exit}"
+WIREGUARD_DIRECT_INTERFACE="${WIREGUARD_DIRECT_INTERFACE:-eth0}"
+WIREGUARD_DIRECT_PROBE_TARGET="${WIREGUARD_DIRECT_PROBE_TARGET:-77.88.8.8}"
+WIREGUARD_TRAFFIC_CHAIN="${WIREGUARD_TRAFFIC_CHAIN:-MYUTILS-WG-TRAFFIC}"
+WIREGUARD_ROUTING_MARK="${WIREGUARD_ROUTING_MARK:-0x51890}"
 
 required=(WIREGUARD_API_BASE_URL WIREGUARD_RELAY_ID WIREGUARD_AGENT_TOKEN WIREGUARD_INTERFACE WIREGUARD_PUBLIC_ENDPOINT)
 for name in "${required[@]}"; do
@@ -30,6 +35,20 @@ if [[ ! "$WIREGUARD_INTERFACE" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ ]]; then
   echo "WIREGUARD_INTERFACE is invalid" >&2
   exit 1
 fi
+for interface in "$WIREGUARD_AWG_INTERFACE" "$WIREGUARD_DIRECT_INTERFACE"; do
+  if [[ ! "$interface" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ ]]; then
+    echo "WireGuard route interface is invalid: $interface" >&2
+    exit 1
+  fi
+done
+if [[ ! "$WIREGUARD_TRAFFIC_CHAIN" =~ ^[a-zA-Z0-9_-]{1,28}$ ]]; then
+  echo "WIREGUARD_TRAFFIC_CHAIN is invalid" >&2
+  exit 1
+fi
+if [[ ! "$WIREGUARD_ROUTING_MARK" =~ ^0x[0-9a-fA-F]{1,8}$ ]]; then
+  echo "WIREGUARD_ROUTING_MARK is invalid" >&2
+  exit 1
+fi
 if [[ ! "$WIREGUARD_API_BASE_URL" =~ ^https?://[^[:space:]]+$ ]]; then
   echo "WIREGUARD_API_BASE_URL is invalid" >&2
   exit 1
@@ -38,7 +57,7 @@ if [[ "$WIREGUARD_PUBLIC_ENDPOINT" == *$'\n'* || "$WIREGUARD_PUBLIC_ENDPOINT" ==
   echo "WIREGUARD_PUBLIC_ENDPOINT is invalid" >&2
   exit 1
 fi
-for command in curl jq wg mktemp; do
+for command in awg awk curl date iptables jq mktemp ping wg; do
   command -v "$command" >/dev/null || {
     echo "Required command is missing: $command" >&2
     exit 1
@@ -48,6 +67,78 @@ if [[ ! -d "/sys/class/net/$WIREGUARD_INTERFACE" ]]; then
   echo "WireGuard interface is not active: $WIREGUARD_INTERFACE" >&2
   exit 1
 fi
+for interface in "$WIREGUARD_AWG_INTERFACE" "$WIREGUARD_DIRECT_INTERFACE"; do
+  if [[ ! -d "/sys/class/net/$interface" ]]; then
+    echo "WireGuard route interface is not active: $interface" >&2
+    exit 1
+  fi
+done
+
+valid_ipv4() {
+  local value=$1 a b c d
+  IFS=. read -r a b c d <<<"$value"
+  for octet in "$a" "$b" "$c" "$d"; do
+    [[ "$octet" =~ ^(0|[1-9][0-9]{0,2})$ ]] && ((10#$octet <= 255)) || return 1
+  done
+}
+
+traffic_rule_bytes() {
+  local marker="myutils:$1:$2" rules
+  if ! rules="$(iptables -t mangle -L "$WIREGUARD_TRAFFIC_CHAIN" -vnx 2>/dev/null)"; then
+    printf '0\n'
+    return
+  fi
+  awk -v marker="$marker" '
+      index($0, marker) { print $2; found=1; exit }
+      END { if (!found) print 0 }
+    ' <<<"$rules"
+}
+
+configure_traffic_counters() {
+  local peer_ip
+  iptables -t mangle -N "$WIREGUARD_TRAFFIC_CHAIN" 2>/dev/null || true
+  iptables -t mangle -C FORWARD -j "$WIREGUARD_TRAFFIC_CHAIN" 2>/dev/null ||
+    iptables -t mangle -I FORWARD 1 -j "$WIREGUARD_TRAFFIC_CHAIN"
+  iptables -t mangle -F "$WIREGUARD_TRAFFIC_CHAIN"
+  while IFS= read -r peer_ip; do
+    iptables -t mangle -A "$WIREGUARD_TRAFFIC_CHAIN" \
+      -i "$WIREGUARD_INTERFACE" -s "$peer_ip" \
+      -m mark --mark "$WIREGUARD_ROUTING_MARK/0xffffffff" \
+      -m comment --comment "myutils:$peer_ip:ru-upload" -j RETURN
+    iptables -t mangle -A "$WIREGUARD_TRAFFIC_CHAIN" \
+      -i "$WIREGUARD_INTERFACE" -s "$peer_ip" \
+      -m comment --comment "myutils:$peer_ip:non-ru-upload" -j RETURN
+    iptables -t mangle -A "$WIREGUARD_TRAFFIC_CHAIN" \
+      -i "$WIREGUARD_DIRECT_INTERFACE" -o "$WIREGUARD_INTERFACE" -d "$peer_ip" \
+      -m comment --comment "myutils:$peer_ip:ru-download" -j RETURN
+    iptables -t mangle -A "$WIREGUARD_TRAFFIC_CHAIN" \
+      -i "$WIREGUARD_AWG_INTERFACE" -o "$WIREGUARD_INTERFACE" -d "$peer_ip" \
+      -m comment --comment "myutils:$peer_ip:non-ru-download" -j RETURN
+  done < <(jq -r '.peers[].allowedIp | sub("/32$"; "")' "$desired_json")
+}
+
+route_probe() {
+  local interface=$1 target=$2 output=$3 loss rtt
+  ping -n -q -c 3 -W 2 -I "$interface" "$target" >"$output" 2>&1 || true
+  loss="$(awk -F', ' '
+    /packet loss/ {
+      for (i=1; i<=NF; i++) if ($i ~ /packet loss/) {
+        gsub(/% packet loss.*/, "", $i)
+        gsub(/^[[:space:]]*/, "", $i)
+        print $i
+      }
+    }
+  ' "$output")"
+  rtt="$(awk -F' = ' '/^(rtt|round-trip)/ { split($2, values, "/"); print values[2] }' "$output")"
+  [[ "$loss" =~ ^[0-9]+([.][0-9]+)?$ ]] || loss=100
+  if [[ "$rtt" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    jq -n --arg target "$target" --argjson loss "$loss" --argjson rtt "$rtt" \
+      '{target: $target, packetLossPercent: $loss, averageRttMs: $rtt}'
+  else
+    jq -n --arg target "$target" --argjson loss "$loss" \
+      '{target: $target, packetLossPercent: $loss, averageRttMs: null}'
+  fi
+}
 
 tmp_dir="$(mktemp -d /run/my-utils-wireguard-agent.XXXXXX)"
 cleanup() {
@@ -112,6 +203,39 @@ wg show "$WIREGUARD_INTERFACE" dump |
     }
   ]' >"$counters_json"
 
+route_counters_json="$tmp_dir/route-counters.json"
+while IFS=$'\t' read -r public_key allowed_ip; do
+  peer_ip="${allowed_ip%/32}"
+  jq -n \
+    --arg publicKey "$public_key" \
+    --argjson ruDownloadBytes "$(traffic_rule_bytes "$peer_ip" ru-download)" \
+    --argjson ruUploadBytes "$(traffic_rule_bytes "$peer_ip" ru-upload)" \
+    --argjson nonRuDownloadBytes "$(traffic_rule_bytes "$peer_ip" non-ru-download)" \
+    --argjson nonRuUploadBytes "$(traffic_rule_bytes "$peer_ip" non-ru-upload)" \
+    '{
+      key: $publicKey,
+      value: {
+        ruDownloadBytes: $ruDownloadBytes,
+        ruUploadBytes: $ruUploadBytes,
+        nonRuDownloadBytes: $nonRuDownloadBytes,
+        nonRuUploadBytes: $nonRuUploadBytes
+      }
+    }'
+done < <(jq -r '.peers[] | [.publicKey, .allowedIp] | @tsv' "$desired_json") |
+  jq -s 'from_entries' >"$route_counters_json"
+
+jq --slurpfile routeCounters "$route_counters_json" '
+  map(. + {
+    routingTraffic: ($routeCounters[0][.publicKey] // {
+      ruDownloadBytes: 0,
+      ruUploadBytes: 0,
+      nonRuDownloadBytes: 0,
+      nonRuUploadBytes: 0
+    })
+  })
+' "$counters_json" >"$tmp_dir/counters-with-routes.json"
+mv "$tmp_dir/counters-with-routes.json" "$counters_json"
+
 routing_status_json="$tmp_dir/routing-status.json"
 printf 'null\n' >"$routing_status_json"
 if [[ -r "$WIREGUARD_ROUTING_STATUS_FILE" ]]; then
@@ -129,6 +253,24 @@ if [[ -r "$WIREGUARD_ROUTING_STATUS_FILE" ]]; then
   fi
 fi
 
+route_quality_json="$tmp_dir/route-quality.json"
+printf 'null\n' >"$route_quality_json"
+awg_endpoint="$(
+  awg show "$WIREGUARD_AWG_INTERFACE" endpoints 2>/dev/null |
+    awk 'NR == 1 { endpoint=$2; sub(/:[0-9]+$/, "", endpoint); print endpoint }' || true
+)"
+if valid_ipv4 "$WIREGUARD_DIRECT_PROBE_TARGET" && valid_ipv4 "$awg_endpoint"; then
+  route_probe "$WIREGUARD_DIRECT_INTERFACE" "$WIREGUARD_DIRECT_PROBE_TARGET" "$tmp_dir/direct-probe.txt" >"$tmp_dir/direct-probe.json"
+  route_probe "$WIREGUARD_DIRECT_INTERFACE" "$awg_endpoint" "$tmp_dir/veesp-probe.txt" >"$tmp_dir/veesp-probe.json"
+  jq -n \
+    --arg measuredAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    --slurpfile direct "$tmp_dir/direct-probe.json" \
+    --slurpfile veesp "$tmp_dir/veesp-probe.json" \
+    '{measuredAt: $measuredAt, direct: $direct[0], veesp: $veesp[0]}' >"$route_quality_json"
+else
+  echo "Skipping route quality probes because a target is invalid" >&2
+fi
+
 heartbeat_json="$tmp_dir/heartbeat.json"
 jq -n \
   --arg serverPublicKey "$(wg show "$WIREGUARD_INTERFACE" public-key)" \
@@ -136,12 +278,15 @@ jq -n \
   --argjson appliedRevision "$(jq '.revision' "$desired_json")" \
   --slurpfile peers "$counters_json" \
   --slurpfile routingStatus "$routing_status_json" \
+  --slurpfile routeQuality "$route_quality_json" \
   '({
       serverPublicKey: $serverPublicKey,
       publicEndpoint: $publicEndpoint,
       appliedRevision: $appliedRevision,
       peers: $peers[0]
-    } + if $routingStatus[0] == null then {} else {routingStatus: $routingStatus[0]} end)' >"$heartbeat_json"
+    } +
+    (if $routingStatus[0] == null then {} else {routingStatus: $routingStatus[0]} end) +
+    (if $routeQuality[0] == null then {} else {routeQuality: $routeQuality[0]} end))' >"$heartbeat_json"
 
 curl --config "$curl_config" \
   --header 'Content-Type: application/json' \
@@ -149,3 +294,7 @@ curl --config "$curl_config" \
   --data-binary "@$heartbeat_json" \
   --output /dev/null \
   "${WIREGUARD_API_BASE_URL%/}/api/internal/wireguard/relays/${WIREGUARD_RELAY_ID}/heartbeat"
+
+# Reset interval counters only after the heartbeat is accepted; failed uploads
+# keep accumulating bytes for the next run instead of losing observations.
+configure_traffic_counters

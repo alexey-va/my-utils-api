@@ -25,6 +25,7 @@ data class WireGuardRelayResponse(
 	val routingMode: String,
 	val ruPrefixCount: Int,
 	val routingUpdatedAt: Instant?,
+	val routeQuality: WireGuardRouteQualityResponse?,
 	val createdAt: Instant,
 	val updatedAt: Instant,
 )
@@ -44,6 +45,7 @@ data class CreatedWireGuardRelayResponse(
 	val routingMode: String,
 	val ruPrefixCount: Int,
 	val routingUpdatedAt: Instant?,
+	val routeQuality: WireGuardRouteQualityResponse?,
 	val createdAt: Instant,
 	val updatedAt: Instant,
 	val agentToken: String,
@@ -98,6 +100,7 @@ data class WireGuardHeartbeatRequest(
 	val appliedRevision: Long,
 	val peers: List<WireGuardPeerCounterRequest> = emptyList(),
 	val routingStatus: WireGuardRoutingStatusRequest? = null,
+	val routeQuality: WireGuardRouteQualityRequest? = null,
 )
 
 data class WireGuardRoutingStatusRequest(
@@ -106,11 +109,43 @@ data class WireGuardRoutingStatusRequest(
 	val updatedAt: Instant,
 )
 
+data class WireGuardRouteQualityRequest(
+	val measuredAt: Instant,
+	val direct: WireGuardRouteProbeRequest,
+	val veesp: WireGuardRouteProbeRequest,
+)
+
+data class WireGuardRouteProbeRequest(
+	val target: String,
+	val packetLossPercent: Double,
+	val averageRttMs: Double?,
+)
+
+data class WireGuardRouteQualityResponse(
+	val measuredAt: Instant,
+	val direct: WireGuardRouteProbeResponse,
+	val veesp: WireGuardRouteProbeResponse,
+)
+
+data class WireGuardRouteProbeResponse(
+	val target: String,
+	val packetLossPercent: Double,
+	val averageRttMs: Double?,
+)
+
 data class WireGuardPeerCounterRequest(
 	val publicKey: String,
 	val latestHandshakeEpochSeconds: Long,
 	val receiveBytes: Long,
 	val transmitBytes: Long,
+	val routingTraffic: WireGuardPeerRoutingTrafficRequest? = null,
+)
+
+data class WireGuardPeerRoutingTrafficRequest(
+	val ruDownloadBytes: Long,
+	val ruUploadBytes: Long,
+	val nonRuDownloadBytes: Long,
+	val nonRuUploadBytes: Long,
 )
 
 enum class WireGuardPeerMetricsRange {
@@ -124,6 +159,10 @@ data class WireGuardPeerMetricPointResponse(
 	val bucketStart: Instant,
 	val downloadBytes: Long,
 	val uploadBytes: Long,
+	val ruDownloadBytes: Long,
+	val ruUploadBytes: Long,
+	val nonRuDownloadBytes: Long,
+	val nonRuUploadBytes: Long,
 )
 
 data class WireGuardPeerMetricsResponse(

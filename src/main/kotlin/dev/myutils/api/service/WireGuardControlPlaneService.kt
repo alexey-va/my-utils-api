@@ -19,6 +19,9 @@ import dev.myutils.api.web.dto.WireGuardPeerMetricsRange
 import dev.myutils.api.web.dto.WireGuardPeerMetricsResponse
 import dev.myutils.api.web.dto.WireGuardPeerCredentialsResponse
 import dev.myutils.api.web.dto.WireGuardPeerResponse
+import dev.myutils.api.web.dto.WireGuardRouteProbeRequest
+import dev.myutils.api.web.dto.WireGuardRouteProbeResponse
+import dev.myutils.api.web.dto.WireGuardRouteQualityResponse
 import dev.myutils.api.web.dto.WireGuardRelayResponse
 import dev.myutils.api.wireguard.EncryptedSecret
 import dev.myutils.api.wireguard.Ipv4Cidr
@@ -121,6 +124,10 @@ class WireGuardControlPlaneService(
 						bucketStart = from.plusMillis(bucketIndex * bucket.toMillis()),
 						downloadBytes = bucketSamples.sumOf(WireGuardPeerMetricSample::downloadBytes),
 						uploadBytes = bucketSamples.sumOf(WireGuardPeerMetricSample::uploadBytes),
+						ruDownloadBytes = bucketSamples.sumOf(WireGuardPeerMetricSample::ruDownloadBytes),
+						ruUploadBytes = bucketSamples.sumOf(WireGuardPeerMetricSample::ruUploadBytes),
+						nonRuDownloadBytes = bucketSamples.sumOf(WireGuardPeerMetricSample::nonRuDownloadBytes),
+						nonRuUploadBytes = bucketSamples.sumOf(WireGuardPeerMetricSample::nonRuUploadBytes),
 					)
 				}
 		return WireGuardPeerMetricsResponse(
@@ -259,6 +266,16 @@ class WireGuardControlPlaneService(
 			) {
 				throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Peer counters must not be negative")
 			}
+			counter.routingTraffic?.let { traffic ->
+				if (
+					traffic.ruDownloadBytes < 0 ||
+					traffic.ruUploadBytes < 0 ||
+					traffic.nonRuDownloadBytes < 0 ||
+					traffic.nonRuUploadBytes < 0
+				) {
+					throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Peer routing counters must not be negative")
+				}
+			}
 		}
 
 		val timestamp = now()
@@ -282,6 +299,20 @@ class WireGuardControlPlaneService(
 			relay.ruPrefixCount = status.ruPrefixCount
 			relay.routingUpdatedAt = status.updatedAt
 		}
+		body.routeQuality?.let { quality ->
+			if (quality.measuredAt.isAfter(timestamp.plus(ROUTING_CLOCK_SKEW))) {
+				throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Route quality timestamp is invalid")
+			}
+			val direct = validateRouteProbe(quality.direct)
+			val veesp = validateRouteProbe(quality.veesp)
+			relay.directProbeTarget = direct.target
+			relay.directPacketLossPercent = direct.packetLossPercent
+			relay.directAverageRttMs = direct.averageRttMs
+			relay.veespProbeTarget = veesp.target
+			relay.veespPacketLossPercent = veesp.packetLossPercent
+			relay.veespAverageRttMs = veesp.averageRttMs
+			relay.routeQualityUpdatedAt = quality.measuredAt
+		}
 		body.peers.forEach { counter ->
 			val peer = peers.findByRelayIdAndPublicKey(relayId, counter.publicKey) ?: return@forEach
 			val receiveDelta = counterDelta(peer.rawReceiveBytes, counter.receiveBytes)
@@ -295,12 +326,17 @@ class WireGuardControlPlaneService(
 			}
 			peer.metricsUpdatedAt = timestamp
 			peer.updatedAt = timestamp
+			val routingTraffic = counter.routingTraffic
 			metricSamples.save(
 				WireGuardPeerMetricSample(
 					peer = peer,
 					recordedAt = timestamp,
 					downloadBytes = transmitDelta,
 					uploadBytes = receiveDelta,
+					ruDownloadBytes = routingTraffic?.ruDownloadBytes ?: 0,
+					ruUploadBytes = routingTraffic?.ruUploadBytes ?: 0,
+					nonRuDownloadBytes = routingTraffic?.nonRuDownloadBytes ?: 0,
+					nonRuUploadBytes = routingTraffic?.nonRuUploadBytes ?: 0,
 					latestHandshakeAt = peer.latestHandshakeAt,
 				),
 			)
@@ -337,6 +373,7 @@ class WireGuardControlPlaneService(
 			routingMode = relay.routingMode,
 			ruPrefixCount = relay.ruPrefixCount,
 			routingUpdatedAt = relay.routingUpdatedAt,
+			routeQuality = routeQualityResponse(relay),
 			createdAt = relay.createdAt,
 			updatedAt = relay.updatedAt,
 		)
@@ -357,6 +394,7 @@ class WireGuardControlPlaneService(
 			routingMode = routingMode,
 			ruPrefixCount = ruPrefixCount,
 			routingUpdatedAt = routingUpdatedAt,
+			routeQuality = routeQuality,
 			createdAt = createdAt,
 			updatedAt = updatedAt,
 			agentToken = token,
@@ -469,6 +507,33 @@ class WireGuardControlPlaneService(
 		return value
 	}
 
+	private fun validateRouteProbe(probe: WireGuardRouteProbeRequest): WireGuardRouteProbeRequest {
+		val target = validateIpv4(probe.target, "Route probe target")
+		val loss = probe.packetLossPercent
+		val rtt = probe.averageRttMs
+		if (
+			!loss.isFinite() || loss !in 0.0..100.0 ||
+			(rtt != null && (!rtt.isFinite() || rtt < 0 || rtt > MAX_PROBE_RTT_MS)) ||
+			(loss < 100.0 && rtt == null)
+		) {
+			throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Route probe values are invalid")
+		}
+		return probe.copy(target = target)
+	}
+
+	private fun routeQualityResponse(relay: WireGuardRelay): WireGuardRouteQualityResponse? {
+		val measuredAt = relay.routeQualityUpdatedAt ?: return null
+		val directTarget = relay.directProbeTarget ?: return null
+		val directLoss = relay.directPacketLossPercent ?: return null
+		val veespTarget = relay.veespProbeTarget ?: return null
+		val veespLoss = relay.veespPacketLossPercent ?: return null
+		return WireGuardRouteQualityResponse(
+			measuredAt = measuredAt,
+			direct = WireGuardRouteProbeResponse(directTarget, directLoss, relay.directAverageRttMs),
+			veesp = WireGuardRouteProbeResponse(veespTarget, veespLoss, relay.veespAverageRttMs),
+		)
+	}
+
 	private fun generateToken(): String =
 		ByteArray(TOKEN_BYTES)
 			.also(secureRandom::nextBytes)
@@ -509,6 +574,7 @@ class WireGuardControlPlaneService(
 	private companion object {
 		const val TOKEN_BYTES = 32
 		const val MAX_RU_PREFIX_COUNT = 100_000
+		const val MAX_PROBE_RTT_MS = 60_000.0
 		const val ROUTING_MODE_AWG_ONLY = "AWG_ONLY"
 		const val ROUTING_MODE_RU_DIRECT = "RU_DIRECT_AWG_DEFAULT"
 		val ROUTING_MODES = setOf(ROUTING_MODE_AWG_ONLY, ROUTING_MODE_RU_DIRECT)
