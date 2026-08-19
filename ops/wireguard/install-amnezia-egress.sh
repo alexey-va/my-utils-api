@@ -67,14 +67,18 @@ fi
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y software-properties-common ca-certificates
+apt-get -o Dpkg::Options::=--force-confold install -y software-properties-common ca-certificates
 if ! grep -Rqs '^deb .*ppa.launchpadcontent.net/amnezia/ppa' /etc/apt/sources.list /etc/apt/sources.list.d; then
   add-apt-repository -y ppa:amnezia/ppa
 fi
 apt-get update
-apt-get install -y amneziawg
+apt-get -o Dpkg::Options::=--force-confold install -y amneziawg
 command -v awg >/dev/null || { echo "amneziawg package did not install awg" >&2; exit 1; }
 command -v awg-quick >/dev/null || { echo "amneziawg package did not install awg-quick" >&2; exit 1; }
+if ! awg-quick strip "$config_file" >/dev/null; then
+  echo "AmneziaWG client config failed awg-quick validation" >&2
+  exit 1
+fi
 
 install -d -m 700 "$target_dir"
 if [[ -e "$target" ]]; then

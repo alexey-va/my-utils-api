@@ -172,7 +172,16 @@ iptables -t nat -C POSTROUTING -s "$client_cidr" -o eth0 -j MASQUERADE 2>/dev/nu
   echo '[Interface]'
   echo "Address = $awg_address"
   echo "PrivateKey = $(cat "$tmp_dir/client.key")"
-  awk -F= '/^(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)[[:space:]]*=/{gsub(/[[:space:]]/, "", $1); sub(/^[^=]*=[[:space:]]*/, "", $0); print $1 " = " $0}' "$config"
+  awk '
+    /^(Jc|Jmin|Jmax|S1|S2|H1|H2|H3|H4)[[:space:]]*=/ {
+      line=$0
+      key=line
+      sub(/[[:space:]]*=.*/, "", key)
+      value=line
+      sub(/^[^=]*=[[:space:]]*/, "", value)
+      print key " = " value
+    }
+  ' "$config"
   echo 'MTU = 1380'
   echo 'Table = off'
   echo
