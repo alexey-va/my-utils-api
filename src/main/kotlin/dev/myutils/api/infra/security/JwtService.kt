@@ -5,10 +5,13 @@ import dev.myutils.api.domain.User
 import io.jsonwebtoken.Claims
 import io.jsonwebtoken.Jwts
 import io.jsonwebtoken.security.Keys
+import jakarta.annotation.PostConstruct
+import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.util.Date
 import java.util.UUID
 import javax.crypto.SecretKey
+import kotlin.system.measureTimeMillis
 
 data class IssuedToken(
 	val token: String,
@@ -20,8 +23,23 @@ data class IssuedToken(
 class JwtService(
 	private val properties: MyUtilsProperties,
 ) {
+	private val log = LoggerFactory.getLogger(javaClass)
 	private val key: SecretKey by lazy {
 		Keys.hmacShaKeyFor(properties.jwt.secret.toByteArray(Charsets.UTF_8))
+	}
+
+	@PostConstruct
+	internal fun warmUp() {
+		val elapsedMs =
+			measureTimeMillis {
+				Jwts
+					.builder()
+					.subject("startup-warmup")
+					.expiration(Date(0))
+					.signWith(key)
+					.compact()
+			}
+		log.info("JWT signer warmed in {} ms", elapsedMs)
 	}
 
 	fun issue(user: User): IssuedToken {
