@@ -86,7 +86,10 @@ if [[ "$(docker inspect -f '{{.Config.Image}}' "$container")" != amnezia-awg ]];
   exit 1
 fi
 docker exec "$container" test -f /opt/amnezia/awg/wg0.conf
-docker exec "$container" sh -c 'command -v awg >/dev/null && command -v awg-quick >/dev/null'
+docker exec "$container" sh -c '
+  (command -v awg >/dev/null || command -v wg >/dev/null) &&
+  (command -v awg-quick >/dev/null || command -v wg-quick >/dev/null)
+'
 if docker exec "$container" grep -q '^# my-utils-awg-exit$' /opt/amnezia/awg/wg0.conf; then
   echo "Dedicated my-utils AWG peer already exists" >&2
   exit 1
@@ -106,6 +109,8 @@ client_cidr=$2
 awg_address=$3
 client_output=$4
 config=/opt/amnezia/awg/wg0.conf
+wg_command=$(command -v awg 2>/dev/null || command -v wg)
+quick_command=$(command -v awg-quick 2>/dev/null || command -v wg-quick)
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
 backup="/opt/amnezia/awg/wg0.conf.backup.$timestamp"
 tmp_dir=$(mktemp -d /tmp/my-utils-awg.XXXXXX)
@@ -113,8 +118,8 @@ success=false
 cleanup() {
   if [ "$success" != true ]; then
     cp "$backup" "$config" 2>/dev/null || true
-    awg-quick strip "$config" >"$tmp_dir/restore.conf" 2>/dev/null || true
-    awg syncconf wg0 "$tmp_dir/restore.conf" 2>/dev/null || true
+    "$quick_command" strip "$config" >"$tmp_dir/restore.conf" 2>/dev/null || true
+    "$wg_command" syncconf wg0 "$tmp_dir/restore.conf" 2>/dev/null || true
     ip route del "$client_cidr" dev wg0 2>/dev/null || true
     iptables -t nat -D POSTROUTING -s "$client_cidr" -o eth0 -j MASQUERADE 2>/dev/null || true
     rm -f "$client_output"
@@ -125,13 +130,13 @@ trap cleanup EXIT INT TERM
 
 cp "$config" "$backup"
 chmod 600 "$backup"
-awg genkey >"$tmp_dir/client.key"
-awg pubkey <"$tmp_dir/client.key" >"$tmp_dir/client.pub"
-awg genpsk >"$tmp_dir/client.psk"
+"$wg_command" genkey >"$tmp_dir/client.key"
+"$wg_command" pubkey <"$tmp_dir/client.key" >"$tmp_dir/client.pub"
+"$wg_command" genpsk >"$tmp_dir/client.psk"
 client_public=$(cat "$tmp_dir/client.pub")
-server_public=$(awg show wg0 public-key)
+server_public=$("$wg_command" show wg0 public-key)
 host_ip=${awg_address%/*}
-if awg show wg0 allowed-ips | grep -Fq "$host_ip/32"; then
+if "$wg_command" show wg0 allowed-ips | grep -Fq "$host_ip/32"; then
   echo "Requested AWG address is already allocated" >&2
   exit 1
 fi
@@ -158,7 +163,7 @@ AllowedIPs = $awg_address, $client_cidr
 EOF
 chmod 600 "$config"
 
-awg set wg0 peer "$client_public" preshared-key "$tmp_dir/client.psk" allowed-ips "$awg_address,$client_cidr"
+"$wg_command" set wg0 peer "$client_public" preshared-key "$tmp_dir/client.psk" allowed-ips "$awg_address,$client_cidr"
 ip route replace "$client_cidr" dev wg0
 iptables -t nat -C POSTROUTING -s "$client_cidr" -o eth0 -j MASQUERADE 2>/dev/null ||
   iptables -t nat -A POSTROUTING -s "$client_cidr" -o eth0 -j MASQUERADE
