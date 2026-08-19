@@ -9,6 +9,8 @@ import dev.myutils.api.web.dto.WireGuardAgentTokenResponse
 import dev.myutils.api.web.dto.WireGuardDesiredStateResponse
 import dev.myutils.api.web.dto.WireGuardHeartbeatRequest
 import dev.myutils.api.web.dto.WireGuardPeerCredentialsResponse
+import dev.myutils.api.web.dto.WireGuardPeerMetricsRange
+import dev.myutils.api.web.dto.WireGuardPeerMetricsResponse
 import dev.myutils.api.web.dto.WireGuardPeerResponse
 import dev.myutils.api.web.dto.WireGuardRelayResponse
 import org.springframework.http.CacheControl
@@ -21,6 +23,7 @@ import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import java.util.UUID
@@ -31,7 +34,11 @@ class WireGuardAdminController(
 	private val wireGuard: WireGuardControlPlaneService,
 ) {
 	@GetMapping
-	fun listRelays(): List<WireGuardRelayResponse> = wireGuard.listRelays()
+	fun listRelays(): ResponseEntity<List<WireGuardRelayResponse>> =
+		ResponseEntity
+			.ok()
+			.cacheControl(CacheControl.noStore())
+			.body(wireGuard.listRelays())
 
 	@PostMapping
 	fun createRelay(@RequestBody body: CreateWireGuardRelayRequest): ResponseEntity<CreatedWireGuardRelayResponse> =
@@ -54,7 +61,22 @@ class WireGuardAdminController(
 	}
 
 	@GetMapping("/{relayId}/peers")
-	fun listPeers(@PathVariable relayId: UUID): List<WireGuardPeerResponse> = wireGuard.listPeers(relayId)
+	fun listPeers(@PathVariable relayId: UUID): ResponseEntity<List<WireGuardPeerResponse>> =
+		ResponseEntity
+			.ok()
+			.cacheControl(CacheControl.noStore())
+			.body(wireGuard.listPeers(relayId))
+
+	@GetMapping("/{relayId}/peers/{peerId}/metrics")
+	fun peerMetrics(
+		@PathVariable relayId: UUID,
+		@PathVariable peerId: UUID,
+		@RequestParam range: WireGuardPeerMetricsRange,
+	): ResponseEntity<WireGuardPeerMetricsResponse> =
+		ResponseEntity
+			.ok()
+			.cacheControl(CacheControl.noStore())
+			.body(wireGuard.peerMetrics(relayId, peerId, range))
 
 	@PostMapping("/{relayId}/peers")
 	fun createPeer(

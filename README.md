@@ -254,8 +254,10 @@ Compose-файлы:
 узкий контракт `/api/internal/wireguard/relays/{id}/**`.
 
 Host scripts и полный безопасный порядок установки находятся в
-[`ops/wireguard/README.md`](ops/wireguard/README.md). Топология:
-`client -> wg-users (utils) -> awg-exit -> Veesp`. На `utils` source NAT
-намеренно отсутствует; клиентский `/32` сохраняется до Veesp, где выполняется
-финальный NAT. При падении `awg-exit` policy routing закрывается через
-unreachable fallback и firewall REJECT.
+[`ops/wireguard/README.md`](ops/wireguard/README.md). Клиент входит через
+`wg-users` на `utils`. Валидированные российские IPv4-назначения получают
+отдельную mark и выходят напрямую с узким masquerade; остальной трафик идёт
+через `awg-exit -> Veesp`, сохраняя клиентский `/32` до финального NAT. При
+падении `awg-exit` этот основной маршрут закрывается через unreachable fallback
+и firewall REJECT. Heartbeat сохраняет минутные дельты трафика для 30-дневного
+графика и сообщает UI текущий статус RU-маршрутизатора.

@@ -22,6 +22,9 @@ data class WireGuardRelayResponse(
 	val appliedRevision: Long?,
 	val status: String,
 	val lastSeenAt: Instant?,
+	val routingMode: String,
+	val ruPrefixCount: Int,
+	val routingUpdatedAt: Instant?,
 	val createdAt: Instant,
 	val updatedAt: Instant,
 )
@@ -38,6 +41,9 @@ data class CreatedWireGuardRelayResponse(
 	val appliedRevision: Long?,
 	val status: String,
 	val lastSeenAt: Instant?,
+	val routingMode: String,
+	val ruPrefixCount: Int,
+	val routingUpdatedAt: Instant?,
 	val createdAt: Instant,
 	val updatedAt: Instant,
 	val agentToken: String,
@@ -91,6 +97,13 @@ data class WireGuardHeartbeatRequest(
 	val publicEndpoint: String,
 	val appliedRevision: Long,
 	val peers: List<WireGuardPeerCounterRequest> = emptyList(),
+	val routingStatus: WireGuardRoutingStatusRequest? = null,
+)
+
+data class WireGuardRoutingStatusRequest(
+	val mode: String,
+	val ruPrefixCount: Int,
+	val updatedAt: Instant,
 )
 
 data class WireGuardPeerCounterRequest(
@@ -98,4 +111,25 @@ data class WireGuardPeerCounterRequest(
 	val latestHandshakeEpochSeconds: Long,
 	val receiveBytes: Long,
 	val transmitBytes: Long,
+)
+
+enum class WireGuardPeerMetricsRange {
+	HOUR,
+	DAY,
+	WEEK,
+	MONTH,
+}
+
+data class WireGuardPeerMetricPointResponse(
+	val bucketStart: Instant,
+	val downloadBytes: Long,
+	val uploadBytes: Long,
+)
+
+data class WireGuardPeerMetricsResponse(
+	val peerId: UUID,
+	val range: WireGuardPeerMetricsRange,
+	val from: Instant,
+	val to: Instant,
+	val points: List<WireGuardPeerMetricPointResponse>,
 )

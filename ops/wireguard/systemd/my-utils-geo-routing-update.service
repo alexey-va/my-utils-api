@@ -1,0 +1,9 @@
+[Unit]
+Description=Refresh validated Russian IPv4 prefixes for my-utils WireGuard
+After=network-online.target my-utils-geo-routing.service
+Requires=my-utils-geo-routing.service
+
+[Service]
+Type=oneshot
+Environment=GEO_ROUTING_ENV_FILE=/etc/my-utils/geo-routing.env
+ExecStart=/usr/local/libexec/my-utils-update-geo-routing

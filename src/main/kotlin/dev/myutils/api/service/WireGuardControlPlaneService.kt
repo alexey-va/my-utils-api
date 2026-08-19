@@ -1,6 +1,8 @@
 package dev.myutils.api.service
 
 import dev.myutils.api.domain.WireGuardPeer
+import dev.myutils.api.domain.WireGuardPeerMetricSample
+import dev.myutils.api.domain.WireGuardPeerMetricSampleRepository
 import dev.myutils.api.domain.WireGuardPeerRepository
 import dev.myutils.api.domain.WireGuardRelay
 import dev.myutils.api.domain.WireGuardRelayRepository
@@ -12,6 +14,9 @@ import dev.myutils.api.web.dto.WireGuardAgentTokenResponse
 import dev.myutils.api.web.dto.WireGuardDesiredPeerResponse
 import dev.myutils.api.web.dto.WireGuardDesiredStateResponse
 import dev.myutils.api.web.dto.WireGuardHeartbeatRequest
+import dev.myutils.api.web.dto.WireGuardPeerMetricPointResponse
+import dev.myutils.api.web.dto.WireGuardPeerMetricsRange
+import dev.myutils.api.web.dto.WireGuardPeerMetricsResponse
 import dev.myutils.api.web.dto.WireGuardPeerCredentialsResponse
 import dev.myutils.api.web.dto.WireGuardPeerResponse
 import dev.myutils.api.web.dto.WireGuardRelayResponse
@@ -36,6 +41,7 @@ import java.util.UUID
 class WireGuardControlPlaneService(
 	private val relays: WireGuardRelayRepository,
 	private val peers: WireGuardPeerRepository,
+	private val metricSamples: WireGuardPeerMetricSampleRepository,
 	private val keyPairGenerator: WireGuardKeyPairGenerator,
 	private val credentialsCipher: WireGuardCredentialsCipher,
 	private val clock: Clock = Clock.systemUTC(),
@@ -89,6 +95,41 @@ class WireGuardControlPlaneService(
 	fun listPeers(relayId: UUID): List<WireGuardPeerResponse> {
 		relay(relayId)
 		return peers.findAllByRelayIdOrderByCreatedAtAsc(relayId).map(::peerResponse)
+	}
+
+	@Transactional(readOnly = true)
+	fun peerMetrics(
+		relayId: UUID,
+		peerId: UUID,
+		range: WireGuardPeerMetricsRange,
+	): WireGuardPeerMetricsResponse {
+		relay(relayId)
+		peer(relayId, peerId)
+		val to = now()
+		val (window, bucket) = metricWindow(range)
+		val from = to.minus(window)
+		val points =
+			metricSamples
+				.findAllByPeerIdAndRecordedAtGreaterThanEqualAndRecordedAtLessThanOrderByRecordedAtAsc(
+					peerId,
+					from,
+					to,
+				).groupBy { sample -> Duration.between(from, sample.recordedAt).toMillis() / bucket.toMillis() }
+				.toSortedMap()
+				.map { (bucketIndex, bucketSamples) ->
+					WireGuardPeerMetricPointResponse(
+						bucketStart = from.plusMillis(bucketIndex * bucket.toMillis()),
+						downloadBytes = bucketSamples.sumOf(WireGuardPeerMetricSample::downloadBytes),
+						uploadBytes = bucketSamples.sumOf(WireGuardPeerMetricSample::uploadBytes),
+					)
+				}
+		return WireGuardPeerMetricsResponse(
+			peerId = peerId,
+			range = range,
+			from = from,
+			to = to,
+			points = points,
+		)
 	}
 
 	@Transactional
@@ -226,10 +267,27 @@ class WireGuardControlPlaneService(
 		relay.appliedRevision = body.appliedRevision
 		relay.lastSeenAt = timestamp
 		relay.updatedAt = timestamp
+		body.routingStatus?.let { status ->
+			if (status.mode !in ROUTING_MODES || status.ruPrefixCount !in 0..MAX_RU_PREFIX_COUNT) {
+				throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Routing status is invalid")
+			}
+			if (
+				(status.mode == ROUTING_MODE_AWG_ONLY && status.ruPrefixCount != 0) ||
+				(status.mode == ROUTING_MODE_RU_DIRECT && status.ruPrefixCount == 0) ||
+				status.updatedAt.isAfter(timestamp.plus(ROUTING_CLOCK_SKEW))
+			) {
+				throw ResponseStatusException(HttpStatus.BAD_REQUEST, "Routing status is inconsistent")
+			}
+			relay.routingMode = status.mode
+			relay.ruPrefixCount = status.ruPrefixCount
+			relay.routingUpdatedAt = status.updatedAt
+		}
 		body.peers.forEach { counter ->
 			val peer = peers.findByRelayIdAndPublicKey(relayId, counter.publicKey) ?: return@forEach
-			peer.totalReceiveBytes += counterDelta(peer.rawReceiveBytes, counter.receiveBytes)
-			peer.totalTransmitBytes += counterDelta(peer.rawTransmitBytes, counter.transmitBytes)
+			val receiveDelta = counterDelta(peer.rawReceiveBytes, counter.receiveBytes)
+			val transmitDelta = counterDelta(peer.rawTransmitBytes, counter.transmitBytes)
+			peer.totalReceiveBytes += receiveDelta
+			peer.totalTransmitBytes += transmitDelta
 			peer.rawReceiveBytes = counter.receiveBytes
 			peer.rawTransmitBytes = counter.transmitBytes
 			if (counter.latestHandshakeEpochSeconds > 0) {
@@ -237,7 +295,17 @@ class WireGuardControlPlaneService(
 			}
 			peer.metricsUpdatedAt = timestamp
 			peer.updatedAt = timestamp
+			metricSamples.save(
+				WireGuardPeerMetricSample(
+					peer = peer,
+					recordedAt = timestamp,
+					downloadBytes = transmitDelta,
+					uploadBytes = receiveDelta,
+					latestHandshakeAt = peer.latestHandshakeAt,
+				),
+			)
 		}
+		metricSamples.deleteRecordedBefore(timestamp.minus(METRIC_RETENTION))
 	}
 
 	@Transactional(readOnly = true)
@@ -266,6 +334,9 @@ class WireGuardControlPlaneService(
 			appliedRevision = relay.appliedRevision,
 			status = relayStatus(relay),
 			lastSeenAt = relay.lastSeenAt,
+			routingMode = relay.routingMode,
+			ruPrefixCount = relay.ruPrefixCount,
+			routingUpdatedAt = relay.routingUpdatedAt,
 			createdAt = relay.createdAt,
 			updatedAt = relay.updatedAt,
 		)
@@ -283,6 +354,9 @@ class WireGuardControlPlaneService(
 			appliedRevision = appliedRevision,
 			status = status,
 			lastSeenAt = lastSeenAt,
+			routingMode = routingMode,
+			ruPrefixCount = ruPrefixCount,
+			routingUpdatedAt = routingUpdatedAt,
 			createdAt = createdAt,
 			updatedAt = updatedAt,
 			agentToken = token,
@@ -422,10 +496,24 @@ class WireGuardControlPlaneService(
 		current: Long,
 	): Long = if (current >= previous) current - previous else current
 
+	private fun metricWindow(range: WireGuardPeerMetricsRange): Pair<Duration, Duration> =
+		when (range) {
+			WireGuardPeerMetricsRange.HOUR -> Duration.ofHours(1) to Duration.ofMinutes(1)
+			WireGuardPeerMetricsRange.DAY -> Duration.ofDays(1) to Duration.ofMinutes(15)
+			WireGuardPeerMetricsRange.WEEK -> Duration.ofDays(7) to Duration.ofHours(1)
+			WireGuardPeerMetricsRange.MONTH -> Duration.ofDays(30) to Duration.ofHours(6)
+		}
+
 	private fun now(): Instant = clock.instant()
 
 	private companion object {
 		const val TOKEN_BYTES = 32
+		const val MAX_RU_PREFIX_COUNT = 100_000
+		const val ROUTING_MODE_AWG_ONLY = "AWG_ONLY"
+		const val ROUTING_MODE_RU_DIRECT = "RU_DIRECT_AWG_DEFAULT"
+		val ROUTING_MODES = setOf(ROUTING_MODE_AWG_ONLY, ROUTING_MODE_RU_DIRECT)
+		val ROUTING_CLOCK_SKEW: Duration = Duration.ofMinutes(5)
+		val METRIC_RETENTION: Duration = Duration.ofDays(31)
 		val STALE_AFTER: Duration = Duration.ofMinutes(2)
 	}
 }

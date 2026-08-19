@@ -12,6 +12,8 @@ fi
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 
+WIREGUARD_ROUTING_STATUS_FILE="${WIREGUARD_ROUTING_STATUS_FILE:-/var/lib/my-utils-wireguard/geo-routing-status.json}"
+
 required=(WIREGUARD_API_BASE_URL WIREGUARD_RELAY_ID WIREGUARD_AGENT_TOKEN WIREGUARD_INTERFACE WIREGUARD_PUBLIC_ENDPOINT)
 for name in "${required[@]}"; do
   if [[ -z "${!name:-}" ]]; then
@@ -110,18 +112,36 @@ wg show "$WIREGUARD_INTERFACE" dump |
     }
   ]' >"$counters_json"
 
+routing_status_json="$tmp_dir/routing-status.json"
+printf 'null\n' >"$routing_status_json"
+if [[ -r "$WIREGUARD_ROUTING_STATUS_FILE" ]]; then
+  if jq -e '
+    type == "object" and
+    ((keys | sort) == ["mode", "ruPrefixCount", "updatedAt"]) and
+    (.mode == "AWG_ONLY" or .mode == "RU_DIRECT_AWG_DEFAULT") and
+    (.ruPrefixCount | type == "number" and floor == . and . >= 0 and . <= 100000) and
+    (.updatedAt | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
+    ((.mode == "AWG_ONLY" and .ruPrefixCount == 0) or (.mode == "RU_DIRECT_AWG_DEFAULT" and .ruPrefixCount > 0))
+  ' "$WIREGUARD_ROUTING_STATUS_FILE" >/dev/null; then
+    jq '{mode, ruPrefixCount, updatedAt}' "$WIREGUARD_ROUTING_STATUS_FILE" >"$routing_status_json"
+  else
+    echo "Ignoring invalid WireGuard routing status file" >&2
+  fi
+fi
+
 heartbeat_json="$tmp_dir/heartbeat.json"
 jq -n \
   --arg serverPublicKey "$(wg show "$WIREGUARD_INTERFACE" public-key)" \
   --arg publicEndpoint "$WIREGUARD_PUBLIC_ENDPOINT" \
   --argjson appliedRevision "$(jq '.revision' "$desired_json")" \
   --slurpfile peers "$counters_json" \
-  '{
-    serverPublicKey: $serverPublicKey,
-    publicEndpoint: $publicEndpoint,
-    appliedRevision: $appliedRevision,
-    peers: $peers[0]
-  }' >"$heartbeat_json"
+  --slurpfile routingStatus "$routing_status_json" \
+  '({
+      serverPublicKey: $serverPublicKey,
+      publicEndpoint: $publicEndpoint,
+      appliedRevision: $appliedRevision,
+      peers: $peers[0]
+    } + if $routingStatus[0] == null then {} else {routingStatus: $routingStatus[0]} end)' >"$heartbeat_json"
 
 curl --config "$curl_config" \
   --header 'Content-Type: application/json' \

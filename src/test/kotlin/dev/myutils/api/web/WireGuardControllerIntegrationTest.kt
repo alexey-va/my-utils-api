@@ -224,6 +224,87 @@ class WireGuardControllerIntegrationTest : TestingIntegrationTestBase() {
 			}
 	}
 
+	@Test
+	fun `heartbeat exposes routing state and peer traffic history with client directions`() {
+		val relay = createRelay()
+		val relayId = UUID.fromString(relay["id"].asText())
+		val agentToken = relay["agentToken"].asText()
+
+		heartbeat(relayId, agentToken, appliedRevision = 0, counters = emptyList())
+		val peerBody = createPeer(relayId, "Chart peer")
+		val peerId = UUID.fromString(peerBody["peer"]["id"].asText())
+		val publicKey = peerBody["peer"]["publicKey"].asText()
+		val handshake = Instant.parse("2026-08-19T18:05:11Z")
+
+		heartbeat(
+			relayId,
+			agentToken,
+			appliedRevision = 1,
+			counters = listOf(Counter(publicKey, handshake.epochSecond, receiveBytes = 100, transmitBytes = 200)),
+			routingStatus =
+				mapOf(
+					"mode" to "RU_DIRECT_AWG_DEFAULT",
+					"ruPrefixCount" to 8_642,
+					"updatedAt" to "2026-08-19T18:00:00Z",
+				),
+		)
+		heartbeat(
+			relayId,
+			agentToken,
+			appliedRevision = 1,
+			counters = listOf(Counter(publicKey, handshake.epochSecond, receiveBytes = 150, transmitBytes = 260)),
+			routingStatus =
+				mapOf(
+					"mode" to "RU_DIRECT_AWG_DEFAULT",
+					"ruPrefixCount" to 8_642,
+					"updatedAt" to "2026-08-19T18:00:00Z",
+				),
+		)
+
+		mockMvc
+			.get("/api/admin/wireguard/relays") {
+				admin()
+			}.andExpect {
+				status { isOk() }
+				header { string("Cache-Control", "no-store") }
+				jsonPath("$[0].routingMode") { value("RU_DIRECT_AWG_DEFAULT") }
+				jsonPath("$[0].ruPrefixCount") { value(8_642) }
+				jsonPath("$[0].routingUpdatedAt") { value("2026-08-19T18:00:00Z") }
+			}
+
+		mockMvc
+			.get("/api/admin/wireguard/relays/$relayId/peers") {
+				admin()
+			}.andExpect {
+				status { isOk() }
+				header { string("Cache-Control", "no-store") }
+			}
+
+		val metricsResponse =
+			mockMvc
+				.get("/api/admin/wireguard/relays/$relayId/peers/$peerId/metrics") {
+					admin()
+					param("range", "HOUR")
+				}.andExpect {
+					status { isOk() }
+					header { string("Cache-Control", "no-store") }
+					jsonPath("$.peerId") { value(peerId.toString()) }
+					jsonPath("$.range") { value("HOUR") }
+					jsonPath("$.points") { isArray() }
+				}.andReturn()
+		val metrics = objectMapper.readTree(metricsResponse.response.contentAsString)
+		assertEquals(260, metrics["points"].sumOf { it["downloadBytes"].asLong() })
+		assertEquals(150, metrics["points"].sumOf { it["uploadBytes"].asLong() })
+
+		mockMvc
+			.get("/api/admin/wireguard/relays/$relayId/peers/$peerId/metrics") {
+				bearer(userToken)
+				param("range", "MONTH")
+			}.andExpect {
+				status { isForbidden() }
+			}
+	}
+
 	private fun createRelay(): JsonNode {
 		val response =
 			mockMvc
@@ -267,20 +348,21 @@ class WireGuardControllerIntegrationTest : TestingIntegrationTestBase() {
 		agentToken: String,
 		appliedRevision: Long,
 		counters: List<Counter>,
+		routingStatus: Map<String, Any>? = null,
 	) {
+		val payload =
+			linkedMapOf<String, Any>(
+				"serverPublicKey" to serverPublicKey,
+				"publicEndpoint" to "203.0.113.10:51820",
+				"appliedRevision" to appliedRevision,
+				"peers" to counters,
+			)
+		routingStatus?.let { payload["routingStatus"] = it }
 		mockMvc
 			.post("/api/internal/wireguard/relays/$relayId/heartbeat") {
 				agent(agentToken)
 				contentType = MediaType.APPLICATION_JSON
-				content =
-					objectMapper.writeValueAsString(
-						mapOf(
-							"serverPublicKey" to serverPublicKey,
-							"publicEndpoint" to "203.0.113.10:51820",
-							"appliedRevision" to appliedRevision,
-							"peers" to counters,
-						),
-					)
+				content = objectMapper.writeValueAsString(payload)
 			}.andExpect {
 				status { isNoContent() }
 			}

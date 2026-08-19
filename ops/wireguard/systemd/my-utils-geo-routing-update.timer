@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily Russian IPv4 prefix refresh for my-utils WireGuard
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1d
+RandomizedDelaySec=1h
+Persistent=true
+Unit=my-utils-geo-routing-update.service
+
+[Install]
+WantedBy=timers.target

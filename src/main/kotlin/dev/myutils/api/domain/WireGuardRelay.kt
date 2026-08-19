@@ -32,6 +32,12 @@ class WireGuardRelay(
 	var appliedRevision: Long? = null,
 	@Column(name = "last_seen_at")
 	var lastSeenAt: Instant? = null,
+	@Column(name = "routing_mode", nullable = false, length = 32)
+	var routingMode: String = "AWG_ONLY",
+	@Column(name = "ru_prefix_count", nullable = false)
+	var ruPrefixCount: Int = 0,
+	@Column(name = "routing_updated_at")
+	var routingUpdatedAt: Instant? = null,
 	@Column(name = "created_at", nullable = false)
 	val createdAt: Instant = Instant.now(),
 	@Column(name = "updated_at", nullable = false)

@@ -20,4 +20,14 @@ class WireGuardAgentScriptTest {
 		assertThat(pattern.matcher("8.8.8.8/32").matches()).isFalse()
 		assertThat(pattern.matcher("10.89.0.0/24").matches()).isFalse()
 	}
+
+	@Test
+	fun `heartbeat includes optional non-secret geo routing status`() {
+		val script = Files.readString(Path.of("ops/wireguard/wireguard-agent.sh"))
+
+		assertThat(script).contains("WIREGUARD_ROUTING_STATUS_FILE")
+		assertThat(script).contains("routingStatus: \$routingStatus[0]")
+		assertThat(script).contains("mode == \"RU_DIRECT_AWG_DEFAULT\"")
+		assertThat(script).doesNotContain("routingStatus.token")
+	}
 }
