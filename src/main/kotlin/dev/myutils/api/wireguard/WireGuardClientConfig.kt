@@ -15,6 +15,7 @@ object WireGuardClientConfig {
 PrivateKey = $privateKey
 Address = $address/32
 DNS = $dns
+MTU = 1280
 
 [Peer]
 PublicKey = $serverPublicKey

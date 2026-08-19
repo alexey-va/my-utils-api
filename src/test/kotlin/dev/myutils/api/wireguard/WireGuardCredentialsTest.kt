@@ -36,8 +36,18 @@ class WireGuardCredentialsTest {
 	}
 
 	@Test
-	fun `rejects a missing malformed or wrong-sized encryption key`() {
-		listOf("", "not-base64", Base64.getEncoder().encodeToString(ByteArray(16))).forEach { value ->
+	fun `allows application startup without a key but fails closed on credential use`() {
+		val cipher = WireGuardCredentialsCipher("")
+
+		assertFalse(cipher.isConfigured)
+		assertThrows(IllegalStateException::class.java) {
+			cipher.encrypt("private-key")
+		}
+	}
+
+	@Test
+	fun `rejects a malformed or wrong-sized configured encryption key`() {
+		listOf("not-base64", Base64.getEncoder().encodeToString(ByteArray(16))).forEach { value ->
 			assertThrows(IllegalStateException::class.java) {
 				WireGuardCredentialsCipher(value)
 			}
@@ -60,6 +70,7 @@ class WireGuardCredentialsTest {
 PrivateKey = client-private
 Address = 10.89.0.2/32
 DNS = 1.1.1.1
+MTU = 1280
 
 [Peer]
 PublicKey = relay-public

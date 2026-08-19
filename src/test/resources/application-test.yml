@@ -28,6 +28,8 @@ myutils:
     api-key: test-key
   temporal:
     enabled: true
+  wireguard:
+    credentials-encryption-key: AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=
 
 TELEGRAM_BOT_TOKEN: test-token
 OPENROUTER_API_KEY: test-key

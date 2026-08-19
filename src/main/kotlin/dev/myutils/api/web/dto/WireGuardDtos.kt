@@ -1,0 +1,101 @@
+package dev.myutils.api.web.dto
+
+import java.time.Instant
+import java.util.UUID
+
+data class CreateWireGuardRelayRequest(
+	val name: String,
+	val publicEndpoint: String,
+	val clientCidr: String,
+	val clientDns: String,
+)
+
+data class WireGuardRelayResponse(
+	val id: UUID,
+	val name: String,
+	val publicEndpoint: String,
+	val clientCidr: String,
+	val clientDns: String,
+	val interfaceName: String,
+	val serverPublicKey: String?,
+	val desiredRevision: Long,
+	val appliedRevision: Long?,
+	val status: String,
+	val lastSeenAt: Instant?,
+	val createdAt: Instant,
+	val updatedAt: Instant,
+)
+
+data class CreatedWireGuardRelayResponse(
+	val id: UUID,
+	val name: String,
+	val publicEndpoint: String,
+	val clientCidr: String,
+	val clientDns: String,
+	val interfaceName: String,
+	val serverPublicKey: String?,
+	val desiredRevision: Long,
+	val appliedRevision: Long?,
+	val status: String,
+	val lastSeenAt: Instant?,
+	val createdAt: Instant,
+	val updatedAt: Instant,
+	val agentToken: String,
+)
+
+data class WireGuardAgentTokenResponse(
+	val agentToken: String,
+)
+
+data class CreateWireGuardPeerRequest(
+	val name: String,
+)
+
+data class UpdateWireGuardPeerRequest(
+	val enabled: Boolean,
+)
+
+data class WireGuardPeerResponse(
+	val id: UUID,
+	val name: String,
+	val publicKey: String,
+	val assignedIp: String,
+	val enabled: Boolean,
+	val latestHandshakeAt: Instant?,
+	val totalReceiveBytes: Long,
+	val totalTransmitBytes: Long,
+	val metricsUpdatedAt: Instant?,
+	val createdAt: Instant,
+	val updatedAt: Instant,
+)
+
+data class WireGuardPeerCredentialsResponse(
+	val peer: WireGuardPeerResponse,
+	val clientConfig: String,
+	val fileName: String,
+)
+
+data class WireGuardDesiredStateResponse(
+	val revision: Long,
+	val interfaceName: String,
+	val peers: List<WireGuardDesiredPeerResponse>,
+)
+
+data class WireGuardDesiredPeerResponse(
+	val publicKey: String,
+	val allowedIp: String,
+)
+
+data class WireGuardHeartbeatRequest(
+	val serverPublicKey: String,
+	val publicEndpoint: String,
+	val appliedRevision: Long,
+	val peers: List<WireGuardPeerCounterRequest> = emptyList(),
+)
+
+data class WireGuardPeerCounterRequest(
+	val publicKey: String,
+	val latestHandshakeEpochSeconds: Long,
+	val receiveBytes: Long,
+	val transmitBytes: Long,
+)

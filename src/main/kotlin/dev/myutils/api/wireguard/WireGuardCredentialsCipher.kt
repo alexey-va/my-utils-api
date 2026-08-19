@@ -10,12 +10,14 @@ class WireGuardCredentialsCipher(
 	encodedKey: String,
 	private val secureRandom: SecureRandom = SecureRandom(),
 ) {
-	private val key = SecretKeySpec(decodeKey(encodedKey), "AES")
+	private val key = encodedKey.takeIf(String::isNotBlank)?.let { SecretKeySpec(decodeKey(it), "AES") }
+	val isConfigured: Boolean
+		get() = key != null
 
 	fun encrypt(plaintext: String): EncryptedSecret {
 		val nonce = ByteArray(NONCE_SIZE).also(secureRandom::nextBytes)
 		val cipher = Cipher.getInstance(TRANSFORMATION)
-		cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce))
+		cipher.init(Cipher.ENCRYPT_MODE, requireKey(), GCMParameterSpec(TAG_BITS, nonce))
 		cipher.updateAAD(AAD)
 		val ciphertext = cipher.doFinal(plaintext.toByteArray(Charsets.UTF_8))
 		return EncryptedSecret(
@@ -29,17 +31,19 @@ class WireGuardCredentialsCipher(
 		check(nonce.size == NONCE_SIZE) { "WireGuard credential nonce has an invalid length" }
 		val ciphertext = decodeBase64(secret.ciphertext, "WireGuard credential ciphertext")
 		val cipher = Cipher.getInstance(TRANSFORMATION)
-		cipher.init(Cipher.DECRYPT_MODE, key, GCMParameterSpec(TAG_BITS, nonce))
+		cipher.init(Cipher.DECRYPT_MODE, requireKey(), GCMParameterSpec(TAG_BITS, nonce))
 		cipher.updateAAD(AAD)
 		return cipher.doFinal(ciphertext).toString(Charsets.UTF_8)
 	}
 
 	private fun decodeKey(value: String): ByteArray {
-		check(value.isNotBlank()) { "WIREGUARD_CREDENTIALS_ENCRYPTION_KEY is not configured" }
 		val decoded = decodeBase64(value, "WIREGUARD_CREDENTIALS_ENCRYPTION_KEY")
 		check(decoded.size == KEY_SIZE) { "WIREGUARD_CREDENTIALS_ENCRYPTION_KEY must decode to 32 bytes" }
 		return decoded
 	}
+
+	private fun requireKey(): SecretKeySpec =
+		checkNotNull(key) { "WIREGUARD_CREDENTIALS_ENCRYPTION_KEY is not configured" }
 
 	private fun decodeBase64(
 		value: String,

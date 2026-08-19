@@ -16,6 +16,7 @@ import org.springframework.security.web.util.matcher.AntPathRequestMatcher
 @EnableWebSecurity
 class SecurityConfig(
 	private val jwtAuthFilter: JwtAuthFilter,
+	private val wireGuardAgentAuthFilter: WireGuardAgentAuthFilter,
 ) {
 	@Bean
 	fun securityFilterChain(http: HttpSecurity): SecurityFilterChain =
@@ -46,9 +47,11 @@ class SecurityConfig(
 						AntPathRequestMatcher("/api/admin/agent-memory/**"),
 					).hasRole("ADMIN")
 					.requestMatchers("/api/admin/**").hasRole("ADMIN")
+					.requestMatchers("/api/internal/wireguard/**").hasRole("WIREGUARD_AGENT")
 					.requestMatchers("/api/auth/**").authenticated()
 					.anyRequest().denyAll()
 			}
+			.addFilterBefore(wireGuardAgentAuthFilter, UsernamePasswordAuthenticationFilter::class.java)
 			.addFilterBefore(jwtAuthFilter, UsernamePasswordAuthenticationFilter::class.java)
 			.build()
 }
