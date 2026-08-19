@@ -15,18 +15,17 @@ services:
 
 steps:
   - name: verify
-    image: gradle:9.4.1-jdk21
+    image: golang:1.26.5-alpine
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/myutils
-      SPRING_DATASOURCE_USERNAME: myutils
-      SPRING_DATASOURCE_PASSWORD: myutils
-      SPRING_DATA_REDIS_HOST: redis
-      SPRING_DATA_REDIS_PORT: 6379
+      TEST_POSTGRES_URL: postgres://myutils:myutils@postgres:5432/myutils?sslmode=disable
     commands:
-      # Compile in a separate single-use daemon so its Kotlin/Gradle state is
-      # released before the test worker starts on the shared 4 GiB host.
-      - gradle --no-daemon --max-workers=1 testClasses
-      - gradle --no-daemon --max-workers=1 test
+      - apk add --no-cache bash postgresql-client python3
+      - until pg_isready -h postgres -U myutils -d myutils; do sleep 1; done
+      # Establish the shared integration schema before Go runs packages in parallel.
+      - go test ./internal/migrate -run TestRunnerAppliesFlywaySchemaAndIsIdempotent -count=1
+      - go test ./... -count=1
+      - go vet ./...
+      - CGO_ENABLED=0 go build -trimpath -buildvcs=false ./cmd/my-utils-api
 
   - name: deploy
     image: docker:27-cli

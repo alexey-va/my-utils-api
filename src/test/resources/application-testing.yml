@@ -1,5 +1,0 @@
-myutils:
-  telegram:
-    allowed-user-ids: ""
-  temporal:
-    enabled: false

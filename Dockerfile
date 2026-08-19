@@ -1,33 +1,36 @@
 # syntax=docker/dockerfile:1
 
-# Gradle уже в образе — не качаем gradle-9.4.1-bin.zip через wrapper на каждый build.
-FROM gradle:9.4.1-jdk21 AS build
-WORKDIR /app
+FROM golang:1.26.5-alpine AS build
+WORKDIR /src
 
-COPY build.gradle.kts settings.gradle.kts gradle.properties ./
-RUN --mount=type=cache,target=/home/gradle/.gradle \
-	gradle dependencies --no-daemon -q || true
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+	/usr/local/go/bin/go mod download
+
+COPY cmd cmd
+COPY internal internal
+COPY src/main/resources/db/migration src/main/resources/db/migration
 
 ARG GIT_COMMIT=unknown
-COPY src src
-RUN --mount=type=cache,target=/home/gradle/.gradle \
-	gradle bootJar --no-daemon -x test
+RUN --mount=type=cache,target=/go/pkg/mod \
+	--mount=type=cache,target=/root/.cache/go-build \
+	CGO_ENABLED=0 /usr/local/go/bin/go build \
+	-trimpath -buildvcs=false -ldflags="-s -w -X main.gitCommit=${GIT_COMMIT}" \
+	-o /out/my-utils-api ./cmd/my-utils-api
 
-FROM eclipse-temurin:21-jre
+FROM alpine:3.23
 WORKDIR /app
 
-RUN apt-get update \
-	&& apt-get install -y --no-install-recommends curl fonts-dejavu-core \
-	&& rm -rf /var/lib/apt/lists/*
+RUN apk add --no-cache ca-certificates \
+	&& addgroup -S -g 10001 myutils \
+	&& adduser -S -D -H -u 10001 -G myutils myutils
 
-RUN groupadd -r spring && useradd -r -g spring spring
-USER spring:spring
+COPY --from=build /out/my-utils-api /app/my-utils-api
 
-COPY --from=build /app/build/libs/*.jar app.jar
-
+USER myutils:myutils
 EXPOSE 8080
 
-HEALTHCHECK --interval=10s --timeout=5s --start-period=45s --retries=8 \
-	CMD curl -fsS http://localhost:8080/api/health || exit 1
+HEALTHCHECK --interval=10s --timeout=5s --start-period=15s --retries=8 \
+	CMD ["/app/my-utils-api", "healthcheck"]
 
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["/app/my-utils-api"]

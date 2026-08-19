@@ -1,134 +1,105 @@
-# my-utils-api — architecture (short)
+# my-utils-api — architecture
 
-Полная шпаргалка для агентов: **`AGENTS.md`** в корне репо. Здесь — сжатая схема для людей.
+## Stack and process
 
-## Stack
+Go 1.26 · chi · pgx/PostgreSQL 16 · Redis 7 · Temporal Go SDK · OpenRouter ·
+Telegram Bot API. Production runs one statically linked binary in Alpine.
 
-Kotlin 2.1 · Spring Boot 3.4 · Postgres 16 · Redis 7 · Temporal 1.30 · LangChain4j → OpenRouter · Telegram long polling.
-
-## Runtime and deployment
-
-```bash
-docker compose up -d --build          # local :8080
-# production topology: docker-compose.jenkins.yml → :18080
-```
-
-Push в `main` запускает `.woodpecker.yml`, который вызывает серверный deploy
-script. `docker-compose.jenkins.yml` сохраняет историческое имя и описывает
-production topology; наличие этого имени не означает, что Jenkins является
-текущим CI.
-
-| Service | Local | Production host (127.0.0.1) |
-|---------|-------|---------------------|
-| api | 8080 | 18080 |
-| postgres | 5432 | 15432 |
-| redis | 6379 | 16379 |
-| temporal gRPC | 7233 | 17233 |
-| temporal-ui | 8233 | 18233 |
-
-Prod UI: https://utils.alexeyav.ru · Temporal: https://temporal.alexeyav.ru · Logs: Grafana `/grafana/` → Loki `{app="my-utils-api"}`.
-Promtail сохраняет исходную JSON-строку приложения; поля route telemetry
-доступны через `{app="my-utils-api"} | json | event_type="client_event"`.
+`cmd/my-utils-api/main.go` wires the process. The listener starts only after
+migrations, bootstrap admin, settings cache, JWT/Redis probes, Temporal worker
+and Telegram runner are ready. SIGTERM cancels workers and drains HTTP.
 
 ## Data
 
-- **Postgres**: `users`, `exercises`, `workout_entries`, `app_settings`,
-  `agent_conversation_messages`, `agent_test_chats`
-- Дневник всегда от пользователя `local@workout` (общий для web + Telegram)
-- Запись: `вес 3*X/МАХ` → `weight_kg`, `set_count=3`, `reps_per_set`, `max_reps`
-- **Redis**: JWT sessions `myutils:session:{id}`; LangChain4j chat memory per `chatId`
+- PostgreSQL: users, exercises, workout entries, health data, `app_settings`,
+  agent messages/facts/summaries/test sandboxes and WireGuard desired state.
+- Redis: JWT session records and per-user session indexes.
+- Agent messages keep OpenAI-compatible assistant tool calls and tool results as
+  JSON. One rolling summary covers compacted history; a verbatim tail remains.
+- SQL migrations stay under `src/main/resources/db/migration/`. The Go runner
+  preserves Flyway version/description/type/checksum semantics for the existing
+  production database.
 
 ## HTTP security
 
 | Path | Access |
-|------|--------|
-| `/api/health`, `/api/auth/login` | public |
-| `/api/workouts/**` | public (личный инстанс) |
-| `/api/health/steps`, `/api/health/weight` | public GET/POST |
-| `POST /api/telegram/files` | public security route + mandatory `X-Telegram-File-Token` application check |
-| `POST /api/client-events` | public, normalized browser telemetry with request IP/User-Agent; no raw form values |
-| `/api/admin/settings/**` | `ADMIN` |
-| `/api/admin/agent-memory/**` | `ADMIN` |
-| `/api/admin/agent-test-chats/**` | `ADMIN` |
-| `/api/admin/wireguard/**` | `ADMIN` |
+| --- | --- |
+| `/api/health`, `/actuator/health`, `/actuator/prometheus` | public |
+| `/api/auth/login`, `/api/auth/register` | public |
+| `/api/workouts/**`, steps and body-weight endpoints | public personal-instance data |
+| `POST /api/client-events` | public, sanitized telemetry |
+| `POST /api/telegram/files` | public route plus constant-time upload-token check |
+| remaining `/api/auth/**` | JWT plus live Redis session |
+| `/api/admin/**` | ready `ADMIN` only |
 | `/api/internal/wireguard/**` | relay-scoped agent token |
-| `/api/auth/**` (else) | JWT + Redis session |
-| rest | deny |
+| unknown route | anonymous `401`; authenticated `404`/`405` |
 
-Таб-пароль во frontend — только клиентский visibility gate. Источник истины
-для серверного доступа: `infra/security/SecurityConfig.kt`. Если политика
-меняется, нужно синхронно обновить эту таблицу, frontend flow и тесты.
+The frontend tab password is only a visibility gate. The route registration and
+middleware in `internal/httpapi/` are the server-side source of truth.
 
-## WireGuard relay
+## Telegram and agent
 
-Spring хранит desired state `wireguard_relays`/`wireguard_peers`; root-agent на
-`utils` атомарно синхронизирует только выделенный `wg-users` и возвращает
-heartbeat/counters. Клиентский private key хранится только как AES-256-GCM
-ciphertext. Отдельный `awg-exit` не управляется API: его ключи, PSK и Amnezia
-параметры остаются root-only host configuration.
-
-Маршрут `10.89.0.0/24` проходит через `awg-exit` без NAT на `utils`. Veesp
-владеет обратным route через выделенный AWG peer и финальным masquerade.
-Unreachable route плюс firewall REJECT запрещают fallback в обычный default
-route `utils`.
-
-## Telegram → agent
-
-```
-getUpdates → WorkoutAgentService
-  ├─ Temporal on  → WorkoutAgentWorkflow (durable)
-  └─ Temporal off → WorkoutLangChain4jAgent.run()
+```text
+Telegram getUpdates
+  → serial per-chat runner
+  → Temporal AgentTurn workflow (when enabled) or direct turner
+  → OpenRouter completion
+  ↔ validated tool execution
+  → stored final assistant message
+  → Telegram reply
 ```
 
-**Workflow loop**: `resolvePrelude` → (`llmStep` ↔ `executeTool` × N) → Telegram reply.
+OpenRouter tool names are snake_case end to end. Mutating calls require an
+explicit mutation intent in the current user text. The test console uses a
+persisted sandbox; unsupported operations fail closed instead of reaching real
+workout, health, facts, notifications or Telegram delivery.
 
-**Tools** (LangChain4j `@Tool` / `WorkoutToolsService.runTool`): `listExercises`, `logWorkout`, `createExercise`, `renameExercise`, `deleteWorkout`, progress/summary, optional Temporal notifications.
+The fresh workout/health snapshot is rebuilt for each LLM step. Historic
+messages therefore do not own current-day or current-week state. Auto
+compaction is queued outside the request path, respects tool-call boundaries,
+and keeps one rolling summary.
 
-Каждый текстовый user/assistant message из долговременной памяти получает
-абсолютную метку времени в `temporal.zone-id`. Свежий snapshot дневника остаётся
-единственным источником текущей даты и состояния недели; старые «сегодня»,
-«вчера» и «всё закрыли» не переносятся в новый запрос. Вес упражнения, пришедший
-в `lb`/`lbs`/фунтах, перед `logWorkout` детерминированно переводится в кг и
-округляется до ближайшего целого.
+## Temporal
 
-## Admin test console
-
-`/api/admin/agent-test-chats/**` создаёт отдельные именованные разговоры для
-проверки Workout-ассистента без входящего Telegram-сообщения. Каждый turn идёт
-через тот же Temporal/direct agent loop и сохраняет user/assistant/tool
-сообщения в `agent_conversation_messages`.
-
-У turn два идентификатора:
-
-- `chatId` — изолированная история тестового разговора;
-- `contextChatId` — реальный пользовательский контекст для facts и tools.
-
-Поэтому Workout-инструменты читают и меняют настоящую БД, а переписка тестового
-чата не загрязняет Telegram history. Финальный ответ turn в Telegram не
-отправляется; явно вызванные Telegram tools используют реальный context chat.
-
-## Temporal workflows
+Task queue: `myutils-go-v1`.
 
 | Workflow | ID pattern | Purpose |
-|----------|------------|---------|
-| `WorkoutAgentWorkflow` | per turn | Agent + tools |
-| `EveningWorkoutReminderWorkflow` | `evening-reminder-{chatId}` | Daily nudge |
-| `TelegramNotificationWorkflow` | `tg-notify-{chatId}-{uuid}` | Delayed message |
+| --- | --- | --- |
+| Agent turn | `go-v1-agent-turn-{chatId}-{uuid}` | durable LLM/tool turn |
+| Evening reminder | `go-v1-evening-reminder-{chatId}` | daily workout nudge |
+| Weekly health report | `go-v1-weekly-health-report-{chatId}` | Saturday PNG reports |
+| Notification | `go-v1-tg-notify-{chatId}-{uuid}` | delayed Telegram message |
 
-Task queue: `myutils-main`. Kotlin DTOs need `TemporalDataConverterConfiguration` (Jackson).
+The Go bootstrap starts only these IDs and never inspects or mutates histories
+from the removed Kotlin task queue. `time/tzdata` is embedded so workflow time
+zones work in the small Alpine image.
 
 ## Runtime settings
 
-`properties/Properties.kt` — keys in `app_settings`, reload ~1 min. Admin:
-`PUT /api/admin/settings/{key}`; current access policy is listed above.
-Evening reminder toggles reschedule Temporal workflows on apply.
+`internal/settings/catalog.go` defines typed values backed by `app_settings`.
+They refresh every minute. Model, OpenRouter retry policy, agent context and
+compaction, report/reminder timing are read through callbacks so edits apply
+without rebuilding clients. Existing values must be changed through the admin
+API and read back.
 
-## Dev
+## Observability
+
+- JSON logs to stdout → Promtail/Loki (`app=my-utils-api`).
+- `/actuator/prometheus` exposes Go runtime, process RSS, HTTP, agent, LLM and
+  tool metrics.
+- Grafana source lives in `observability/`; dashboard UID remains stable.
+- `POST /api/client-events` strips query strings/control characters and ignores
+  unknown or invalid fields before structured logging.
+
+## Development and deployment
 
 ```bash
-docker compose -f docker-compose.dev.yml up -d   # infra
-cp .env.example .env && ./gradlew bootRun
-./gradlew test                                    # Docker PG+Redis required
+docker compose -f docker-compose.dev.yml up -d
+go run ./cmd/my-utils-api
+TEST_POSTGRES_URL='postgres://myutils:myutils@localhost:5432/myutils?sslmode=disable' go test ./...
+go vet ./...
 ```
 
-Observability configs: `observability/` · Deploy runbook: `../jenkins/DEPLOY-alexeyav.md`.
+Push to `main` starts Woodpecker and the server-side deploy script. The
+production overlay binds API/Temporal only on localhost; nginx owns public
+routing. The `docker-compose.jenkins.yml` name is historical.

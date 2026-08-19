@@ -1,6 +1,6 @@
 # my-utils-api
 
-Kotlin/Spring Boot REST API for [my-utils](https://github.com/alexey-va/my-utils).
+Go REST API for [my-utils](https://github.com/alexey-va/my-utils).
 
 **Для разработки:** [AGENTS.md](AGENTS.md) ·
 **Документация:** [docs/README.md](docs/README.md) ·
@@ -8,258 +8,166 @@ Kotlin/Spring Boot REST API for [my-utils](https://github.com/alexey-va/my-utils
 
 ## Stack
 
-- **PostgreSQL** — users, exercises, workout entries (Flyway)
-- **Redis** — JWT sessions
-- **Temporal** — durable workflows (evening workout reminders, future automations)
-- **Docker** — full stack in one command
+- **Go 1.26** — один статический application binary;
+- **PostgreSQL 16** — users, workout, health, settings, agent memory; SQL-миграции совместимы с существующей таблицей Flyway history;
+- **Redis 7** — JWT sessions;
+- **Temporal Go SDK** — agent turns, reminders, notifications and Saturday reports;
+- **OpenRouter + Telegram Bot API** — прямые HTTP-клиенты без JVM/Chromium.
 
-## Run everything in Docker (recommended)
-
-Build and start API + Postgres + Redis:
+## Run everything in Docker
 
 ```bash
 DOCKER_BUILDKIT=1 docker compose up -d --build
 ```
 
-Docker build uses `gradle:9.4.1-jdk21` (no wrapper zip download each time). Local dev still uses `./gradlew`.
-
-| Service  | URL |
-|----------|-----|
-| API      | http://localhost:8080 |
+| Service | URL |
+| --- | --- |
+| API | http://localhost:8080 |
 | Postgres | localhost:5432 (`myutils` / `myutils`) |
-| Redis    | localhost:6379 |
+| Redis | localhost:6379 |
 | Temporal | `localhost:7233` (gRPC) |
 | Temporal UI | http://localhost:8233 |
 
-**Restart API after code changes:**
-
 ```bash
-docker compose up -d --build api
-```
-
-**Restart without rebuild** (config-only):
-
-```bash
-docker compose restart api
-```
-
-**Logs:**
-
-```bash
+docker compose up -d --build api  # rebuild API
 docker compose logs -f api
-```
-
-**Stop:**
-
-```bash
 docker compose down
 ```
 
-Health: `GET http://localhost:8080/api/health`
+Health: `GET http://localhost:8080/api/health`. Container healthcheck invokes
+the application binary itself and does not install curl.
 
-Route Planner sends privacy-minimized browser activity batches to
-`POST /api/client-events`. The endpoint is public, accepts `text/plain` JSON,
-returns `204` even for malformed input, and writes normalized `client_event`
-records to the application log. The server adds the nginx-verified client IP,
-User-Agent and Client Hints; the browser adds session/page-view IDs, action
-sequence, focus duration and a random stable browser ID. Raw form values,
-addresses and passwords are never sent or persisted.
+## Local development and tests
 
-Promtail keeps the complete application JSON line in Loki, so structured event
-fields remain queryable after API container restarts:
+```bash
+cp .env.example .env
+docker compose -f docker-compose.dev.yml up -d
+go run ./cmd/my-utils-api
+```
+
+The complete local gate needs PostgreSQL and Redis:
+
+```bash
+TEST_POSTGRES_URL='postgres://myutils:myutils@localhost:5432/myutils?sslmode=disable' go test ./...
+go vet ./...
+CGO_ENABLED=0 go build ./cmd/my-utils-api
+git diff --check
+```
+
+Integration tests never call real Telegram or OpenRouter endpoints. If Go is
+not installed on the host, use the same `golang:1.26.5-alpine` image as CI.
+
+## Startup contract
+
+The HTTP listener opens only after all startup warmers succeed, in order:
+
+1. SQL migrations;
+2. bootstrap admin;
+3. runtime settings cache;
+4. JWT sign/verify warmup;
+5. Redis session write/read/delete probe;
+6. Temporal worker and recurring workflow bootstrap;
+7. Telegram polling runner.
+
+A failed dependency therefore fails the container before it can report ready.
+
+## HTTP and telemetry
+
+Stable REST paths are unchanged. The detailed access matrix is in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Unknown routes are default-deny:
+anonymous requests receive `401`, authenticated requests receive `404`/`405`.
+
+`POST /api/client-events` accepts privacy-minimized browser activity batches,
+returns `204` even for malformed input and logs only normalized fields. Raw form
+values, addresses and passwords are not persisted. Loki query:
 
 ```logql
 {app="my-utils-api"} | json | event_type="client_event"
 ```
 
-Workout visits are tagged with `client_app="my-utils"` and appear in the
-provisioned Grafana dashboard `Workout Visitors` (`uid=workout-visitors`).
-The browser sends anonymous client/session/page-view markers only; the API adds
-the nginx-verified IP address and browser headers. Form values and workout data
-are not part of these events.
-
 ### Apple Health import
 
-The iOS Shortcut imports daily steps through `POST /api/health/steps` and daily
-body weight through `POST /api/health/weight/import`. Both requests contain the
-grouped daily values as a multiline string in the empty JSON key. The final
-line represents today; blank or zero lines keep missing calendar days in place.
-Dates are reconstructed by the API, so the Shortcut does not need to extract or
-format Health sample dates.
+The iOS Shortcut imports daily steps through `POST /api/health/steps` and body
+weight through `POST /api/health/weight/import`. It sends grouped daily values
+as a multiline string in the empty JSON key; the final line is today. Blank or
+zero lines preserve missing calendar days.
 
-### Temporal
+## Telegram agent and Temporal
 
-Workers and workflows live in `dev.myutils.api.temporal`. Task queue: `myutils-main`.
-For every allowed Telegram user, `WeeklyHealthReportWorkflow` generates and
-sends detailed 90-day PNG charts for steps and body weight each Saturday at
-12:00 in `temporal.zone-id` (default `Europe/Moscow`). Each PNG keeps the
-chart and summary visual and adds a readable table. The steps table covers the
-latest ten calendar days and keeps missing days as placeholders; the weight
-table lists the ten latest actual measurements regardless of gaps between them.
+Telegram uses long polling. OpenRouter handles the tool loop; every message and
+tool result is stored in PostgreSQL. Old dialogs are compressed into one rolling
+summary automatically while the configured recent tail stays verbatim.
 
-| Env | Default (Docker) | Description |
-|-----|------------------|-------------|
-| `MYUTILS_TEMPORAL_ENABLED` | `true` | Connect workers to Temporal |
-| `TEMPORAL_TARGET` | `temporal:7233` | Temporal frontend address |
+All Go workers poll task queue `myutils-go-v1`. Workflow IDs use the `go-v1-`
+generation marker. Startup deliberately does not query, terminate, signal or
+reuse histories created by the removed Kotlin worker.
 
-Evening reminder, model, TTL — **runtime settings** in Postgres
-(`PUT /api/admin/settings/{key}`). Текущая политика доступа описана в
-`docs/ARCHITECTURE.md`; не предполагайте JWT-защиту без проверки
-`SecurityConfig`.
+For every allowed Telegram user, the weekly workflow sends 90-day steps and
+body-weight PNGs each Saturday at 12:00 in `temporal.zone-id`. Steps include a
+table for the latest ten calendar days with placeholders; weight includes the
+latest ten actual measurements.
 
-**Host dev** (`./gradlew bootRun`): infra + Temporal via `docker compose -f docker-compose.dev.yml up -d`, set `TEMPORAL_TARGET=127.0.0.1:7233` in `.env`.
+| Variable | Description |
+| --- | --- |
+| `MYUTILS_TELEGRAM_ENABLED` | Enable Bot API integration |
+| `MYUTILS_TELEGRAM_POLLING_ENABLED` | Enable inbound long polling |
+| `TELEGRAM_BOT_TOKEN` | Bot token |
+| `TELEGRAM_ALLOWED_USER_IDS` | Comma-separated Telegram user IDs |
+| `TELEGRAM_FILE_UPLOAD_TOKEN` | Optional override for file delivery |
+| `OPENROUTER_API_KEY` | OpenRouter API key |
+| `OPENROUTER_PROXY_*` | Optional HTTP proxy for OpenRouter |
+| `MYUTILS_TEMPORAL_ENABLED` | Enable Temporal workers |
+| `TEMPORAL_TARGET` | Temporal frontend address |
 
-Production compose topology starts Temporal + UI
-(`127.0.0.1:17233` gRPC, `127.0.0.1:18233` UI) with workers enabled. Файл
-сохраняет историческое имя `docker-compose.jenkins.yml`, но deployment
-запускается Woodpecker pipeline из `.woodpecker.yml`. Agent tools:
-`send_notification`, `schedule_notification`, `cancel_notification`.
+Model, retry policy, recent memory, compaction threshold and reminders are
+runtime settings in PostgreSQL. Change existing values only through
+`PUT /api/admin/settings/{key}` and read them back.
 
-## Local development (Gradle on host)
+### Agent test console
 
-Copy secrets (gitignored):
+`/api/admin/agent-test-chats/**` creates isolated sandbox conversations through
+the same LLM/tool loop. Sandbox tools never read or mutate real workout,
+body-weight, fact, notification or Telegram data.
 
-```bash
-cp .env.example .env
-# edit .env — TELEGRAM_BOT_TOKEN, OPENROUTER_API_KEY, TELEGRAM_ALLOWED_USER_IDS, etc.
-```
+### Send a file through Telegram
 
-Infra in Docker, API via Gradle (loads `.env` via `spring.config.import`):
-
-```bash
-docker compose -f docker-compose.dev.yml up -d
-./gradlew bootRun
-```
-
-Or full stack in Docker (reads `.env`):
-
-```bash
-docker compose up -d --build
-```
-
-## Tests
-
-Requires Postgres + Redis on localhost (use either compose file):
-
-```bash
-docker compose -f docker-compose.dev.yml up -d
-./gradlew test
-```
-
-Перед завершением изменения также выполните:
-
-```bash
-git diff --check
-```
-
-Тесты используют профиль `testing` и локальные PostgreSQL/Redis. Внешние
-запросы к Telegram и OpenRouter заменяются тестовыми клиентами.
-
-## Dev login
-
-| Email | Password |
-|-------|----------|
-| `dev@example.com` | `password` |
-
-Workout tab uses shared `local@workout` (no sign-in required).
+`POST /api/telegram/files` accepts multipart `file` and optional `caption`, up
+to 20 MB. `X-Telegram-File-Token` must match the configured token; if the
+override is empty it is derived from the bot token.
 
 ## Configuration
 
-Environment variables (set in `docker-compose.yml` for the `api` service):
+See [.env.example](.env.example). Important variables:
 
 | Variable | Default |
-|----------|---------|
-| `POSTGRES_HOST` | `localhost` |
-| `POSTGRES_PORT` | `5432` |
-| `POSTGRES_DB` | `myutils` |
-| `POSTGRES_USER` | `myutils` |
-| `POSTGRES_PASSWORD` | `myutils` |
-| `REDIS_HOST` | `localhost` |
-| `REDIS_PORT` | `6379` |
+| --- | --- |
+| `POSTGRES_HOST` / `POSTGRES_PORT` | `localhost` / `5432` |
+| `POSTGRES_DB` / `POSTGRES_USER` / `POSTGRES_PASSWORD` | `myutils` |
+| `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` |
+| `MYUTILS_JWT_SECRET` | development-only built-in value |
+| `MYUTILS_JWT_EXPIRATION_HOURS` | `24` |
+| `WIREGUARD_CREDENTIALS_ENCRYPTION_KEY` | required for recoverable client keys |
 
-JWT secret: `myutils.jwt.secret` in `application.yml` — override in production.
-
-## Telegram workout bot (optional)
-
-Log workouts by messaging a Telegram bot. Messages are parsed by an OpenRouter model that calls tools to write into the same workout log as the web UI.
-
-| Variable | Description |
-|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | From [@BotFather](https://t.me/BotFather) — bot starts when this is set |
-| `TELEGRAM_ALLOWED_USER_IDS` | Your Telegram user id (comma-separated) |
-| `TELEGRAM_FILE_UPLOAD_TOKEN` | Optional secret override for file delivery |
-| `OPENROUTER_API_KEY` | [OpenRouter](https://openrouter.ai/) API key |
-| `OPENROUTER_PROXY_*` | Optional HTTP proxy for Telegram + OpenRouter (see `.env.example`) |
-
-Set `TELEGRAM_BOT_TOKEN`, `TELEGRAM_ALLOWED_USER_IDS`, and `OPENROUTER_API_KEY` in `.env`. The API receives messages via **long polling** (`getUpdates`) — no public URL required.
-
-Example message: `bench 80kg 3x5`, `сегодня присед 100 на 5х5` or
-`71 фунт трицепс 12/15` (the agent records approximately `32 кг`, without a
-unit clarification round-trip).
-
-**Get your Telegram user id:** message [@userinfobot](https://t.me/userinfobot).
-
-### Admin Workout AI test console
-
-В защищённой вкладке **Agents → Test console** можно создавать отдельные
-тестовые чаты и отправлять сообщения через настоящий LLM/Temporal/tool loop.
-История, `tool_call`, `tool_result` и отдельное состояние инструментов
-сохраняются в PostgreSQL. Каждый чат стартует с пустым sandbox: упражнения,
-тренировки, вес, facts и тестовые уведомления существуют только внутри него.
-Telegram и реальные Workout-данные test console не читает и не изменяет.
-Очистка истории одновременно сбрасывает sandbox.
-
-HTTP-контракт: `/api/admin/agent-test-chats/**`, доступ только `ROLE_ADMIN`.
-
-### Send a file through the bot
-
-`POST /api/telegram/files` accepts a multipart `file` and optional `caption`,
-then sends the document to every configured `TELEGRAM_ALLOWED_USER_IDS` chat.
-The request is rejected unless `X-Telegram-File-Token` matches
-`TELEGRAM_FILE_UPLOAD_TOKEN`. If the override is empty, the expected token is
-the SHA-256 hex digest of `my-utils-file-upload:` followed by
-`TELEGRAM_BOT_TOKEN`. Files are limited to 20 MB.
-
-```bash
-curl -X POST https://utils.alexeyav.ru/api/telegram/files \
-  -H "X-Telegram-File-Token: $TELEGRAM_FILE_UPLOAD_TOKEN" \
-  -F "file=@report.pdf" \
-  -F "caption=Weekly report"
-```
+Set `MYUTILS_ENV=production` together with an explicit secret of at least 32
+bytes; production mode refuses the development JWT default.
 
 ## Deployment
 
-Push в `main` запускает Woodpecker pipeline, который вызывает серверный
-`deploy-my-utils-api.sh`. Push является production-действием и не заменяет
-локальные тесты.
-
-Compose-файлы:
+Push to `main` starts Woodpecker: tests and vet run first, then the server-side
+deploy script builds the multi-stage Go image. `docker-compose.jenkins.yml`
+keeps a historical filename; Jenkins is not the active CI.
 
 | File | Purpose |
 | --- | --- |
-| `docker-compose.yml` | полный локальный stack |
-| `docker-compose.dev.yml` | инфраструктура для запуска API через Gradle |
-| `docker-compose.jenkins.yml` | production topology; имя сохранено исторически |
-| `docker-compose.bundled.yml` | bundled deployment variant |
+| `docker-compose.yml` | local API + Temporal |
+| `docker-compose.bundled.yml` | add local PostgreSQL + Redis |
+| `docker-compose.dev.yml` | infrastructure for host Go process |
+| `docker-compose.jenkins.yml` | production topology |
 | `docker-compose.utils.yml` | shared/utility deployment variant |
-
-Не изменяйте production secrets или серверные файлы через документацию.
 
 ## WireGuard relay
 
-Администраторский API `/api/admin/wireguard/**` хранит desired state relay и
-пиров, шифрует восстанавливаемые клиентские private keys через
-`WIREGUARD_CREDENTIALS_ENCRYPTION_KEY` и выдаёт `.conf` только с
-`Cache-Control: no-store`. Host-agent использует отдельный hashed token и
-узкий контракт `/api/internal/wireguard/relays/{id}/**`.
-
-Host scripts и полный безопасный порядок установки находятся в
-[`ops/wireguard/README.md`](ops/wireguard/README.md). Клиент входит через
-`wg-users` на `utils`. Валидированные российские IPv4-назначения получают
-отдельную mark и выходят напрямую с узким masquerade; остальной трафик идёт
-через `awg-exit -> Veesp`, сохраняя клиентский `/32` до финального NAT. При
-падении `awg-exit` этот основной маршрут закрывается через unreachable fallback
-и firewall REJECT. Heartbeat сохраняет минутные дельты общего трафика и его
-разрез RU-напрямую / не-RU-через-Veesp для 30-дневного графика. Он также
-сообщает UI текущий статус RU-маршрутизатора и свежую оценку потерь/RTT для
-прямого маршрута и базового пути от `utils` до публичного AWG endpoint Veesp.
+`/api/admin/wireguard/**` stores relay desired state and encrypts recoverable
+private keys with AES-256-GCM. The host agent uses a relay-scoped hashed token
+on `/api/internal/wireguard/relays/{id}/**`. Operational scripts and the safe
+installation procedure live in [ops/wireguard/README.md](ops/wireguard/README.md).

@@ -1,4 +1,4 @@
-# Infra only — run API on host with `./gradlew bootRun` (faster iteration).
+# Infra only — run the Go API on the host with `go run ./cmd/my-utils-api`.
 services:
   postgres:
     image: postgres:16-alpine

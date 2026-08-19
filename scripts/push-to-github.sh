@@ -33,7 +33,7 @@ push_repo() {
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
-push_repo "${ROOT}/my-utils-api" "my-utils-api" "Spring Boot API for my-utils"
+push_repo "${ROOT}/my-utils-api" "my-utils-api" "Go API for my-utils"
 push_repo "${ROOT}/my-utils" "my-utils" "Refine + Vite frontend for my-utils"
 
 echo "Готово."

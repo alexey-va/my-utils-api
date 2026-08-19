@@ -1,4 +1,4 @@
-# Optional bundled Postgres + Redis for local all-in-Docker (not used on utils Jenkins).
+# Optional bundled Postgres + Redis for local all-in-Docker (not used by the utils production deployment).
 services:
   postgres:
     image: postgres:16-alpine

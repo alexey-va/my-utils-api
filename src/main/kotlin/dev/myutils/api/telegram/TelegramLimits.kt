@@ -1,8 +1,0 @@
-package dev.myutils.api.telegram
-
-object TelegramLimits {
-	const val MESSAGE_MAX_LENGTH = 4096
-	const val CAPTION_MAX_LENGTH = 1024
-	const val CALLBACK_ANSWER_MAX_LENGTH = 200
-	const val CALLBACK_DATA_MAX_LENGTH = 64
-}

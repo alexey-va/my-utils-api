@@ -1,4 +1,4 @@
-# Jenkins deploy: bind only on localhost, non-default ports (no clash with 8080/5432/6379).
+# Production deploy overlay (historical filename): bind only on localhost, non-default ports.
 # Telegram: long polling via getUpdates.
 # !override — replace base compose ports (merge would keep 8080:8080 and break vs reposilite).
 # Postgres + Redis: native systemd on utils (127.0.0.1:15432 / :16379). See mcserver push-myutils-datastores.sh.
@@ -32,7 +32,6 @@ services:
       OPENROUTER_PROXY_HOST: "185.242.106.81"
       OPENROUTER_PROXY_PORT: "8888"
       MYUTILS_TEMPORAL_ENABLED: "true"
-      MYUTILS_TRACING_ENABLED: "false"
       TEMPORAL_TARGET: "temporal:7233"
     extra_hosts:
       - "host.docker.internal:host-gateway"

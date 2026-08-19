@@ -9,8 +9,8 @@ Git-репозиториях. Этот документ описывает гр�
 | Concern | Frontend (`my-utils`) | Backend (`my-utils-api`) |
 | --- | --- | --- |
 | UI routes and tabs | `src/config/featureCatalog.tsx` | — |
-| REST paths | `src/api/endpoints.ts` | `web/*Controller.kt` |
-| Client payload types | `src/api/types.ts`, feature API modules | `web/dto/` |
+| REST paths | `src/api/endpoints.ts` | `internal/httpapi/` |
+| Client payload types | `src/api/types.ts`, feature API modules | request/response structs in `internal/httpapi/` and services |
 | Authentication state | `src/auth/session.ts` | JWT + Redis session |
 | Workout UI/data fetching | `src/features/workout/` | `WorkoutController`, `WorkoutService` |
 | Runtime settings UI | `src/features/properties/` | `AdminSettingsController` |
@@ -22,7 +22,7 @@ Git-репозиториях. Этот документ описывает гр�
 | Browser path | Destination |
 | --- | --- |
 | `/` | SPA workout page |
-| `/api/**` | Spring Boot API |
+| `/api/**` | Go API |
 | `/grafana/**` | Grafana |
 | `/temporal/**` | Temporal UI |
 | `/workflows` | SPA page embedding `/temporal/` |
@@ -35,7 +35,7 @@ empty `VITE_API_BASE_URL`; a value ending in `/api` produces duplicated
 
 - `requiresTabPassword` is a client-side gate.
 - `requiresAuth` controls the frontend login flow.
-- Only `SecurityConfig.kt` determines backend authorization.
+- Only route middleware in `internal/httpapi/` determines backend authorization.
 - Current public/protected paths are documented in `ARCHITECTURE.md`.
 
 Do not describe a route as protected based only on the sidebar or page wrapper.
@@ -43,10 +43,10 @@ Do not describe a route as protected based only on the sidebar or page wrapper.
 ## Cross-repo change workflow
 
 1. Define the backend path and DTO.
-2. Implement service/controller changes and a focused backend test.
+2. Implement service/handler changes and a focused backend test.
 3. Update `src/api/endpoints.ts` and frontend types.
 4. Update the consuming page or hook.
-5. Run `./gradlew test` in backend and `npm run build` in frontend.
+5. Run `go test ./...` plus `go vet ./...` in backend and `npm run build` in frontend.
 6. Review and commit each repository separately.
 
 ## Local development
