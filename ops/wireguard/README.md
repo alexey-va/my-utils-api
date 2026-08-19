@@ -65,6 +65,11 @@ actual return interface. These are forwarded IP bytes, so their sum can differ
 slightly from WireGuard's encrypted interface counters because tunnel overhead
 is not included.
 
+The systemd timer reports counters every 15 seconds. This keeps live rates
+useful without running a permanent daemon; the administrator page polls the
+lightweight relay/peer snapshot every five seconds and refreshes historical
+previews once per minute.
+
 The agent also sends a current route-quality snapshot on every heartbeat. The
 direct probe pings `77.88.8.8` through `eth0`; the Veesp probe pings the public
 endpoint reported by `awg show awg-exit endpoints`, also through `eth0`. The

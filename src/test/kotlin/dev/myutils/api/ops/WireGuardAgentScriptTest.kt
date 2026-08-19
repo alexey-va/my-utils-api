@@ -43,4 +43,11 @@ class WireGuardAgentScriptTest {
 		assertThat(script).contains("packetLossPercent")
 		assertThat(script).contains("awg show \"\$WIREGUARD_AWG_INTERFACE\" endpoints")
 	}
+
+	@Test
+	fun `agent timer refreshes live counters every fifteen seconds`() {
+		val timer = Files.readString(Path.of("ops/wireguard/systemd/my-utils-wireguard-agent.timer"))
+
+		assertThat(timer).contains("OnUnitActiveSec=15s")
+	}
 }
