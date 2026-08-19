@@ -126,6 +126,8 @@ myutils:
   temporal:
     enabled: ${MYUTILS_TEMPORAL_ENABLED:false}
     task-queue: myutils-main
+  wireguard:
+    credentials-encryption-key: ${WIREGUARD_CREDENTIALS_ENCRYPTION_KEY:}
   openrouter:
     api-key: ${OPENROUTER_API_KEY:}
     proxy:

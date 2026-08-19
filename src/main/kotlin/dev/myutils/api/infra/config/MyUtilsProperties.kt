@@ -11,6 +11,7 @@ data class MyUtilsProperties(
 	val telegram: TelegramProperties = TelegramProperties(),
 	val openrouter: OpenRouterProperties = OpenRouterProperties(),
 	val temporal: TemporalProperties = TemporalProperties(),
+	val wireguard: WireGuardProperties = WireGuardProperties(),
 ) {
 	data class JwtProperties(
 		val secret: String = "dev-secret",
@@ -56,6 +57,10 @@ data class MyUtilsProperties(
 	data class TemporalProperties(
 		val enabled: Boolean = false,
 		val taskQueue: String = "myutils-main",
+	)
+
+	data class WireGuardProperties(
+		val credentialsEncryptionKey: String = "",
 	)
 
 	data class OpenRouterProperties(
