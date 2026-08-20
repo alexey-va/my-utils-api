@@ -10,6 +10,7 @@ client_cidr=${WIREGUARD_DNS_CLIENT_CIDR:?}
 ingress_interface=${WIREGUARD_DNS_INGRESS_INTERFACE:?}
 resolver_address=${WIREGUARD_DNS_RESOLVER_ADDRESS:?}
 chain=MYUTILS-WG-DNS
+input_chain=MYUTILS-WG-DNS-IN
 
 start() {
   [[ -d "/sys/class/net/$ingress_interface" ]] || { echo "Interface is not active: $ingress_interface" >&2; exit 1; }
@@ -21,9 +22,19 @@ start() {
   iptables -t nat -A "$chain" -i "$ingress_interface" -s "$client_cidr" -p tcp --dport 53 -j DNAT --to-destination "$resolver_address:53"
   iptables -t nat -A "$chain" -j RETURN
   iptables -t nat -C PREROUTING -j "$chain" 2>/dev/null || iptables -t nat -I PREROUTING 1 -j "$chain"
+
+  iptables -N "$input_chain" 2>/dev/null || true
+  iptables -F "$input_chain"
+  iptables -A "$input_chain" -i "$ingress_interface" -s "$client_cidr" -d "$resolver_address" -p udp --dport 53 -j ACCEPT
+  iptables -A "$input_chain" -i "$ingress_interface" -s "$client_cidr" -d "$resolver_address" -p tcp --dport 53 -j ACCEPT
+  iptables -A "$input_chain" -j RETURN
+  iptables -C INPUT -j "$input_chain" 2>/dev/null || iptables -I INPUT 1 -j "$input_chain"
 }
 
 stop() {
+  while iptables -D INPUT -j "$input_chain" 2>/dev/null; do :; done
+  iptables -F "$input_chain" 2>/dev/null || true
+  iptables -X "$input_chain" 2>/dev/null || true
   while iptables -t nat -D PREROUTING -j "$chain" 2>/dev/null; do :; done
   iptables -t nat -F "$chain" 2>/dev/null || true
   iptables -t nat -X "$chain" 2>/dev/null || true

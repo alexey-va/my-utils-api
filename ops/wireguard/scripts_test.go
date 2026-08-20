@@ -46,6 +46,10 @@ func TestHeartbeatKeepsRoutingStatusAndCountersNonSecret(t *testing.T) {
 		`mode == "RU_DIRECT_AWG_DEFAULT"`,
 		"my-utils-awg-failover.timer",
 		"my-utils-geo-routing.service",
+		"my-utils-wireguard-dns.service",
+		"MYUTILS-WG-DNS-IN",
+		"MYUTILS-WG-DNS",
+		`dig +time=2 +tries=1 +short @"$WIREGUARD_DNS_RESOLVER_ADDRESS" example.com A`,
 		"routingHealthy",
 		"MYUTILS-WG-TRAFFIC",
 		"routingTraffic",
@@ -129,9 +133,14 @@ func TestClientDNSInstallerKeepsExistingProfilesIndependentFromAWG(t *testing.T)
 	routing := readFile(t, "client-dns.sh")
 	for _, want := range []string{
 		"MYUTILS-WG-DNS",
+		"MYUTILS-WG-DNS-IN",
 		`-i "$ingress_interface" -s "$client_cidr" -p udp --dport 53`,
 		`-i "$ingress_interface" -s "$client_cidr" -p tcp --dport 53`,
 		`DNAT --to-destination "$resolver_address:53"`,
+		`-i "$ingress_interface" -s "$client_cidr" -d "$resolver_address" -p udp --dport 53 -j ACCEPT`,
+		`-i "$ingress_interface" -s "$client_cidr" -d "$resolver_address" -p tcp --dport 53 -j ACCEPT`,
+		`iptables -C INPUT -j "$input_chain"`,
+		`iptables -D INPUT -j "$input_chain"`,
 	} {
 		if !strings.Contains(routing, want) {
 			t.Errorf("client DNS routing does not contain %q", want)

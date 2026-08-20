@@ -108,7 +108,10 @@ fails.
 `my-utils-awg-failover.timer` runs every five seconds. Its status file contains
 only non-secret interface, handshake-age, latency, expected/observed egress,
 counter and selection data. The relay agent sends that snapshot plus a fresh
-policy-routing check to the API. The administrator page therefore reports
+policy-routing check to the API. `READY` additionally requires the private
+client DNS unit, its owned INPUT/NAT firewall jumps, and a live resolver answer;
+losing that ingress dependency degrades the relay instead of leaving a false
+green status. The administrator page therefore reports
 `READY`, `DEGRADED`, or `DOWN` from the data plane instead of treating a live
 agent heartbeat as proof that VPN traffic works.
 
@@ -133,7 +136,9 @@ The local dnsmasq instance listens on `10.89.0.1` and loopback only. The owned
 arrive on `wg-users` from `10.89.0.0/24`; it is not a public resolver. Upstream
 queries originate from the utils host and use its ordinary main route, so RU
 domain resolution remains available during AWG failure. This fixes DNS
-dependency, but country selection itself remains IP-prefix based.
+dependency, but country selection itself remains IP-prefix based. The companion
+`MYUTILS-WG-DNS-IN` filter chain explicitly accepts those intercepted queries
+to `10.89.0.1:53` before the host firewall and no other local or public traffic.
 
 ## RU-direct routing safety
 

@@ -20,6 +20,7 @@ WIREGUARD_DIRECT_INTERFACE="${WIREGUARD_DIRECT_INTERFACE:-eth0}"
 WIREGUARD_DIRECT_PROBE_TARGET="${WIREGUARD_DIRECT_PROBE_TARGET:-77.88.8.8}"
 WIREGUARD_TRAFFIC_CHAIN="${WIREGUARD_TRAFFIC_CHAIN:-MYUTILS-WG-TRAFFIC}"
 WIREGUARD_ROUTING_MARK="${WIREGUARD_ROUTING_MARK:-0x51890}"
+WIREGUARD_DNS_RESOLVER_ADDRESS="${WIREGUARD_DNS_RESOLVER_ADDRESS:-10.89.0.1}"
 
 required=(WIREGUARD_API_BASE_URL WIREGUARD_RELAY_ID WIREGUARD_AGENT_TOKEN WIREGUARD_INTERFACE WIREGUARD_PUBLIC_ENDPOINT)
 for name in "${required[@]}"; do
@@ -63,7 +64,7 @@ if [[ "$WIREGUARD_PUBLIC_ENDPOINT" == *$'\n'* || "$WIREGUARD_PUBLIC_ENDPOINT" ==
   echo "WIREGUARD_PUBLIC_ENDPOINT is invalid" >&2
   exit 1
 fi
-for command in awg awk curl date grep ip iptables jq mktemp nft ping systemctl wg; do
+for command in awg awk curl date dig grep ip iptables jq mktemp nft ping systemctl wg; do
   command -v "$command" >/dev/null || {
     echo "Required command is missing: $command" >&2
     exit 1
@@ -259,6 +260,16 @@ if [[ -r "$WIREGUARD_ROUTING_STATUS_FILE" ]]; then
     if systemctl is-active --quiet my-utils-wireguard-routing.service &&
       grep -Eq '(^|[[:space:]])1089:.*from 10\.89\.0\.0/24 lookup 51889([[:space:]]|$)' <<<"$routing_rules"; then
       routingHealthy=true
+    fi
+    dns_answer=""
+    if valid_ipv4 "$WIREGUARD_DNS_RESOLVER_ADDRESS" &&
+      systemctl is-active --quiet my-utils-wireguard-dns.service &&
+      iptables -C INPUT -j MYUTILS-WG-DNS-IN 2>/dev/null &&
+      iptables -t nat -C PREROUTING -j MYUTILS-WG-DNS 2>/dev/null; then
+      dns_answer="$(dig +time=2 +tries=1 +short @"$WIREGUARD_DNS_RESOLVER_ADDRESS" example.com A 2>/dev/null || true)"
+    fi
+    if ! grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}$' <<<"$dns_answer"; then
+      routingHealthy=false
     fi
     if [[ "$routing_mode" == "RU_DIRECT_AWG_DEFAULT" ]] && {
       ! systemctl is-active --quiet my-utils-geo-routing.service ||
