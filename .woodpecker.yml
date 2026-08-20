@@ -40,5 +40,9 @@ steps:
       MYUTILS_DATASTORE_HOST: 127.0.0.1
     commands:
       - apk add --no-cache bash git
+      # The checkout is mounted with a host-side owner. Without this, the
+      # deploy script's `git rev-parse HEAD` is rejected as dubious ownership
+      # and the image silently falls back to gitCommit=local.
+      - git config --global --add safe.directory "$${CI_WORKSPACE}"
       - export WORKSPACE=$${CI_WORKSPACE}
       - bash /opt/ci/deploy-my-utils-api.sh
