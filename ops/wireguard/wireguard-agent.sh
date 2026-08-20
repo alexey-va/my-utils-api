@@ -14,6 +14,7 @@ source "$ENV_FILE"
 
 WIREGUARD_ROUTING_STATUS_FILE="${WIREGUARD_ROUTING_STATUS_FILE:-/var/lib/my-utils-wireguard/geo-routing-status.json}"
 WIREGUARD_EXIT_HEALTH_FILE="${WIREGUARD_EXIT_HEALTH_FILE:-/var/lib/my-utils-wireguard/exit-health.json}"
+WIREGUARD_EXIT_PREFERENCE_FILE="${WIREGUARD_EXIT_PREFERENCE_FILE:-/var/lib/my-utils-wireguard/exit-preference}"
 WIREGUARD_AWG_INTERFACE="${WIREGUARD_AWG_INTERFACE:-awg-exit}"
 WIREGUARD_AWG_INTERFACE_PATTERN="${WIREGUARD_AWG_INTERFACE_PATTERN:-awg-exit+}"
 WIREGUARD_DIRECT_INTERFACE="${WIREGUARD_DIRECT_INTERFACE:-eth0}"
@@ -172,6 +173,7 @@ jq -e --arg interface "$WIREGUARD_INTERFACE" '
   type == "object" and
   (.revision | type == "number" and . >= 0 and floor == .) and
   .interfaceName == $interface and
+  (.exitPreference == "AUTO" or .exitPreference == "PRIMARY" or .exitPreference == "SECONDARY") and
   (.peers | type == "array") and
   all(.peers[];
     (.publicKey | type == "string" and test("^[A-Za-z0-9+/]{43}=$")) and
@@ -195,6 +197,16 @@ fi
 unset private_key
 
 wg syncconf "$WIREGUARD_INTERFACE" "$sync_conf"
+
+preference_dir="$(dirname -- "$WIREGUARD_EXIT_PREFERENCE_FILE")"
+install -d -m 700 "$preference_dir"
+preference_tmp="$(mktemp "$preference_dir/.exit-preference.XXXXXX")"
+jq -r '.exitPreference' "$desired_json" >"$preference_tmp"
+chmod 644 "$preference_tmp"
+mv -f -- "$preference_tmp" "$WIREGUARD_EXIT_PREFERENCE_FILE"
+if systemctl is-active --quiet my-utils-awg-failover.timer; then
+  systemctl start my-utils-awg-failover.service
+fi
 
 counters_json="$tmp_dir/counters.json"
 wg show "$WIREGUARD_INTERFACE" dump |
@@ -256,9 +268,11 @@ if [[ -r "$WIREGUARD_ROUTING_STATUS_FILE" ]]; then
   ' "$WIREGUARD_ROUTING_STATUS_FILE" >/dev/null; then
     routingHealthy=false
     routing_rules="$(ip -4 rule show)"
+    routing_table_routes="$(ip -4 route show table 51889)"
     routing_mode="$(jq -r '.mode' "$WIREGUARD_ROUTING_STATUS_FILE")"
     if systemctl is-active --quiet my-utils-wireguard-routing.service &&
-      grep -Eq '(^|[[:space:]])1089:.*from 10\.89\.0\.0/24 lookup 51889([[:space:]]|$)' <<<"$routing_rules"; then
+      grep -Eq '(^|[[:space:]])1089:.*from 10\.89\.0\.0/24 lookup 51889([[:space:]]|$)' <<<"$routing_rules" &&
+      grep -Eq '^10\.89\.0\.0/24 dev wg-users([[:space:]]|$)' <<<"$routing_table_routes"; then
       routingHealthy=true
     fi
     dns_answer=""

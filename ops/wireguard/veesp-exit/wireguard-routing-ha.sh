@@ -21,6 +21,7 @@ start() {
   local current_managed_default
   sysctl -q -w net.ipv4.ip_forward=1
   ip route replace unreachable default table "$WIREGUARD_ROUTE_TABLE" metric 32767
+  ip route replace "$WIREGUARD_CLIENT_CIDR" dev "$WIREGUARD_INGRESS_INTERFACE" table "$WIREGUARD_ROUTE_TABLE" scope link
   current_managed_default=$(ip -4 route show table "$WIREGUARD_ROUTE_TABLE" | awk \
     -v primary="$WIREGUARD_PRIMARY_EXIT" -v secondary="$WIREGUARD_SECONDARY_EXIT" \
     '$1 == "default" && $2 == "dev" && ($3 == primary || $3 == secondary) { print $3; exit }')

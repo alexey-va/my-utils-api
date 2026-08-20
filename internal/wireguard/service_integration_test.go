@@ -167,4 +167,18 @@ func TestControlPlaneProvisionHeartbeatAndCounters(t *testing.T) {
 	if latestHealth.PrimaryFailureReason == nil || *latestHealth.PrimaryFailureReason != "egress_probe_failed" {
 		t.Fatalf("Snapshot latest primary failure reason = %#v", latestHealth.PrimaryFailureReason)
 	}
+	if _, err := service.UpdateExitPreference(ctx, relay.ID, UpdateExitPreferenceRequest{Preference: "PRIMARY"}); err == nil || !strings.Contains(err.Error(), "not healthy") {
+		t.Fatalf("UpdateExitPreference(PRIMARY) error = %v", err)
+	}
+	updatedRelay, err := service.UpdateExitPreference(ctx, relay.ID, UpdateExitPreferenceRequest{Preference: "SECONDARY"})
+	if err != nil {
+		t.Fatalf("UpdateExitPreference(SECONDARY) error = %v", err)
+	}
+	if updatedRelay.ExitPreference != "SECONDARY" || updatedRelay.DesiredRevision != 2 {
+		t.Fatalf("updated relay = %#v", updatedRelay)
+	}
+	desired, err = service.Desired(ctx, relay.ID)
+	if err != nil || desired.ExitPreference != "SECONDARY" || desired.Revision != 2 {
+		t.Fatalf("Desired() after exit preference = %#v, %v", desired, err)
+	}
 }

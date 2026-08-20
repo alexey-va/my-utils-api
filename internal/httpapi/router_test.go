@@ -77,6 +77,18 @@ type wireGuardSnapshotService struct {
 	rangeIn  string
 }
 
+type wireGuardExitPreferenceService struct {
+	WireGuardService
+	relayID    string
+	preference string
+}
+
+func (service *wireGuardExitPreferenceService) UpdateExitPreference(_ context.Context, relayID string, body wireguard.UpdateExitPreferenceRequest) (wireguard.Relay, error) {
+	service.relayID = relayID
+	service.preference = body.Preference
+	return wireguard.Relay{ID: relayID, ExitPreference: body.Preference}, nil
+}
+
 func (service *wireGuardSnapshotService) Snapshot(_ context.Context, _ string, rangeName string) (wireguard.Snapshot, error) {
 	service.rangeIn = rangeName
 	return service.snapshot, nil
@@ -137,6 +149,33 @@ func TestWireGuardSnapshotRouteReturnsOneDashboardPayload(t *testing.T) {
 	}
 	if snapshot.Relay.ID != "relay-1" || len(snapshot.Peers) != 1 || snapshot.PeerMetrics["peer-1"].Range != "WEEK" {
 		t.Fatalf("snapshot = %#v", snapshot)
+	}
+}
+
+func TestWireGuardExitPreferenceRouteUpdatesRelay(t *testing.T) {
+	t.Parallel()
+
+	service := &wireGuardExitPreferenceService{}
+	router := NewRouter(Dependencies{Auth: fakeAuth{}, Settings: fakeSettings{}, WireGuard: service})
+	request := httptest.NewRequest(http.MethodPut, "/api/admin/wireguard/relays/relay-1/exit-preference", strings.NewReader(`{"preference":"SECONDARY"}`))
+	request.Header.Set("Authorization", "Bearer ready-admin")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if service.relayID != "relay-1" || service.preference != "SECONDARY" {
+		t.Fatalf("update = relay %q preference %q", service.relayID, service.preference)
+	}
+	var relay wireguard.Relay
+	if err := json.Unmarshal(response.Body.Bytes(), &relay); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if relay.ID != "relay-1" || relay.ExitPreference != "SECONDARY" {
+		t.Fatalf("relay = %#v", relay)
 	}
 }
 

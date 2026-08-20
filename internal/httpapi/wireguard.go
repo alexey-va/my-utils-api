@@ -17,6 +17,7 @@ func (a *API) registerWireGuardAdminRoutes(router chi.Router) {
 		routes.Post("/", a.createWireGuardRelay)
 		routes.Post("/{relayId}/rotate-token", a.rotateWireGuardToken)
 		routes.Delete("/{relayId}", a.deleteWireGuardRelay)
+		routes.Put("/{relayId}/exit-preference", a.updateWireGuardExitPreference)
 		routes.Get("/{relayId}/snapshot", a.wireGuardSnapshot)
 		routes.Get("/{relayId}/peers", a.listWireGuardPeers)
 		routes.Post("/{relayId}/peers", a.createWireGuardPeer)
@@ -25,6 +26,15 @@ func (a *API) registerWireGuardAdminRoutes(router chi.Router) {
 		routes.Patch("/{relayId}/peers/{peerId}", a.updateWireGuardPeer)
 		routes.Delete("/{relayId}/peers/{peerId}", a.deleteWireGuardPeer)
 	})
+}
+func (a *API) updateWireGuardExitPreference(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	var b wireguard.UpdateExitPreferenceRequest
+	if !decodeJSON(w, r, &b) {
+		return
+	}
+	v, e := a.wireGuard.UpdateExitPreference(r.Context(), chi.URLParam(r, "relayId"), b)
+	writeDomainResult(w, v, e)
 }
 
 func (a *API) registerWireGuardAgentRoutes(router chi.Router) {

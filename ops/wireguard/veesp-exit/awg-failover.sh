@@ -8,16 +8,18 @@ env_file=${AWG_FAILOVER_ENV_FILE:-/etc/my-utils/awg-failover.env}
 # shellcheck source=/dev/null
 source "$env_file"
 
+AWG_PREFERENCE_FILE="${AWG_PREFERENCE_FILE:-/var/lib/my-utils-wireguard/exit-preference}"
+
 required=(
   AWG_PRIMARY_INTERFACE AWG_PRIMARY_EXPECTED_EGRESS
   AWG_SECONDARY_INTERFACE AWG_SECONDARY_EXPECTED_EGRESS
   AWG_ROUTE_TABLE AWG_FAILURE_THRESHOLD AWG_RECOVERY_THRESHOLD
-  AWG_HANDSHAKE_MAX_AGE AWG_PROBE_URL AWG_STATE_FILE AWG_STATUS_FILE
+  AWG_HANDSHAKE_MAX_AGE AWG_PROBE_URL AWG_LATENCY_TARGET AWG_STATE_FILE AWG_STATUS_FILE
 )
 for name in "${required[@]}"; do
   [[ -n "${!name:-}" ]] || { echo "Missing AWG failover setting: $name" >&2; exit 1; }
 done
-for command in awg curl flock install ip jq mktemp python3; do
+for command in awg curl flock install ip jq mktemp ping python3; do
   command -v "$command" >/dev/null || { echo "Required command is missing: $command" >&2; exit 1; }
 done
 for interface in "$AWG_PRIMARY_INTERFACE" "$AWG_SECONDARY_INTERFACE"; do
@@ -34,6 +36,7 @@ done
 ((AWG_RECOVERY_THRESHOLD >= 1 && AWG_RECOVERY_THRESHOLD <= 20))
 ((AWG_HANDSHAKE_MAX_AGE >= 30 && AWG_HANDSHAKE_MAX_AGE <= 900))
 [[ "$AWG_PROBE_URL" =~ ^https://[^[:space:]]+$ ]]
+[[ "$AWG_LATENCY_TARGET" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]
 
 exec 9>/run/my-utils-awg-failover.lock
 flock -n 9 || exit 0
@@ -44,13 +47,13 @@ trap cleanup EXIT INT TERM
 
 probe_exit() {
   local exit_id=$1 interface=$2 expected_egress=$3
-  local now handshake age body latency_seconds observed_egress reason handshake_output
+  local now handshake age body latency_ms observed_egress reason handshake_output ping_output
   now=$(date +%s)
   body=$tmp_dir/$exit_id.egress
   reason=""
   handshake=0
   age=null
-  latency_seconds=""
+  latency_ms=""
   observed_egress=""
 
   if ! ip link show dev "$interface" >/dev/null 2>&1; then
@@ -68,14 +71,18 @@ probe_exit() {
       age=$((now - handshake))
       if ((age < 0 || age > AWG_HANDSHAKE_MAX_AGE)); then
         reason=handshake_stale
-      elif ! latency_seconds=$(curl --fail --silent --show-error \
+      elif ! curl --fail --silent --show-error \
         --connect-timeout 2 --max-time 5 --interface "$interface" \
-        --output "$body" --write-out '%{time_total}' "$AWG_PROBE_URL"); then
+        --output "$body" "$AWG_PROBE_URL"; then
         reason=egress_probe_failed
       else
         observed_egress=$(tr -d '\r\n' <"$body")
         if [[ "$observed_egress" != "$expected_egress" ]]; then
           reason=unexpected_egress
+        else
+          ping_output=$(ping -n -I "$interface" -c 2 -W 2 "$AWG_LATENCY_TARGET" 2>/dev/null || true)
+          latency_ms=$(awk -F'= ' '/^rtt / { split($2, values, "/"); print values[2] }' <<<"$ping_output")
+          [[ "$latency_ms" =~ ^[0-9]+([.][0-9]+)?$ ]] || latency_ms=""
         fi
       fi
     fi
@@ -87,7 +94,7 @@ probe_exit() {
     --arg expectedEgress "$expected_egress" \
     --arg observedEgress "$observed_egress" \
     --arg reason "$reason" \
-    --arg latency "$latency_seconds" \
+    --arg latency "$latency_ms" \
     --argjson handshake "$handshake" \
     --argjson age "$age" \
     '{
@@ -99,7 +106,7 @@ probe_exit() {
       observedEgressIp: (if $observedEgress == "" then null else $observedEgress end),
       handshakeAtEpoch: $handshake,
       handshakeAgeSeconds: $age,
-      latencyMs: (if $latency == "" then null else (($latency | tonumber) * 1000 | round) end)
+      latencyMs: (if $latency == "" then null else ($latency | tonumber) end)
     }'
 }
 
@@ -107,6 +114,15 @@ probe_exit primary "$AWG_PRIMARY_INTERFACE" "$AWG_PRIMARY_EXPECTED_EGRESS" >"$tm
 probe_exit secondary "$AWG_SECONDARY_INTERFACE" "$AWG_SECONDARY_EXPECTED_EGRESS" >"$tmp_dir/secondary.json"
 jq -n --slurpfile primary "$tmp_dir/primary.json" --slurpfile secondary "$tmp_dir/secondary.json" \
   '{primary: $primary[0], secondary: $secondary[0]}' >"$tmp_dir/probes.json"
+
+preference=AUTO
+if [[ -r "$AWG_PREFERENCE_FILE" ]]; then
+  preference=$(tr -d '\r\n' <"$AWG_PREFERENCE_FILE")
+fi
+case "$preference" in
+  AUTO|PRIMARY|SECONDARY) ;;
+  *) echo "Ignoring invalid AWG exit preference" >&2; preference=AUTO ;;
+esac
 
 state_dir=$(dirname -- "$AWG_STATE_FILE")
 status_dir=$(dirname -- "$AWG_STATUS_FILE")
@@ -134,7 +150,8 @@ python3 "$script_dir/decide-failover.py" \
   --state "$state_input" \
   --probes "$tmp_dir/probes.json" \
   --failure-threshold "$AWG_FAILURE_THRESHOLD" \
-  --recovery-threshold "$AWG_RECOVERY_THRESHOLD" >"$tmp_dir/decision.json"
+  --recovery-threshold "$AWG_RECOVERY_THRESHOLD" \
+  --preference "$preference" >"$tmp_dir/decision.json"
 
 desired_id=$(jq -r '.active // ""' "$tmp_dir/decision.json")
 desired_interface=""

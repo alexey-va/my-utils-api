@@ -24,7 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const relayColumns = `id::text,name,public_endpoint,client_cidr,client_dns,interface_name,agent_token_hash,server_public_key,desired_revision,applied_revision,last_seen_at,routing_mode,ru_prefix_count,routing_updated_at,routing_healthy,routing_checked_at,exit_health,direct_probe_target,direct_packet_loss_percent,direct_average_rtt_ms,veesp_probe_target,veesp_packet_loss_percent,veesp_average_rtt_ms,route_quality_updated_at,created_at,updated_at`
+const relayColumns = `id::text,name,public_endpoint,client_cidr,client_dns,interface_name,agent_token_hash,server_public_key,desired_revision,applied_revision,last_seen_at,routing_mode,ru_prefix_count,routing_updated_at,routing_healthy,routing_checked_at,exit_health,exit_preference,direct_probe_target,direct_packet_loss_percent,direct_average_rtt_ms,veesp_probe_target,veesp_packet_loss_percent,veesp_average_rtt_ms,route_quality_updated_at,created_at,updated_at`
 
 type Service struct {
 	pool   *pgxpool.Pool
@@ -53,7 +53,7 @@ func scanRelay(source row, now time.Time) (relayRecord, error) {
 		&value.ID, &value.Name, &value.PublicEndpoint, &value.ClientCIDR, &value.ClientDNS,
 		&value.InterfaceName, &value.TokenHash, &value.ServerPublicKey, &value.DesiredRevision,
 		&value.AppliedRevision, &value.LastSeenAt, &value.RoutingMode, &value.RUPrefixCount,
-		&value.RoutingUpdatedAt, &value.RoutingHealthy, &value.RoutingCheckedAt, &value.ExitHealthJSON,
+		&value.RoutingUpdatedAt, &value.RoutingHealthy, &value.RoutingCheckedAt, &value.ExitHealthJSON, &value.ExitPreference,
 		&value.DirectTarget, &value.DirectLoss, &value.DirectRTT,
 		&value.VeespTarget, &value.VeespLoss, &value.VeespRTT, &value.QualityUpdated,
 		&value.CreatedAt, &value.UpdatedAt,
@@ -368,6 +368,46 @@ func (s *Service) DeletePeer(ctx context.Context, relayID, peerID string) error 
 	return tx.Commit(ctx)
 }
 
+func (s *Service) UpdateExitPreference(ctx context.Context, relayID string, body UpdateExitPreferenceRequest) (Relay, error) {
+	preference := strings.ToUpper(strings.TrimSpace(body.Preference))
+	if preference != "AUTO" && preference != "PRIMARY" && preference != "SECONDARY" {
+		return Relay{}, badRequest("Exit preference is invalid")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return Relay{}, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	relay, err := scanRelay(tx.QueryRow(ctx, `SELECT `+relayColumns+` FROM wireguard_relays WHERE id=$1::uuid FOR UPDATE`, relayID), s.now())
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Relay{}, notFound("WireGuard relay not found")
+	}
+	if err != nil {
+		return Relay{}, err
+	}
+	if preference != "AUTO" {
+		if relay.ExitHealth == nil || relay.ExitHealth.CheckedAt.After(s.now().Add(5*time.Second)) || s.now().Sub(relay.ExitHealth.CheckedAt) > 45*time.Second {
+			return Relay{}, conflict("Selected exit is not healthy")
+		}
+		exitID := strings.ToLower(preference)
+		probe, ok := relay.ExitHealth.Exits[exitID]
+		if !ok || !probe.Healthy {
+			return Relay{}, conflict("Selected exit is not healthy")
+		}
+	}
+	if relay.ExitPreference == preference {
+		return relay.Relay, tx.Commit(ctx)
+	}
+	updated, err := scanRelay(tx.QueryRow(ctx, `UPDATE wireguard_relays SET exit_preference=$2,desired_revision=desired_revision+1,updated_at=$3 WHERE id=$1::uuid RETURNING `+relayColumns, relayID, preference, s.now()), s.now())
+	if err != nil {
+		return Relay{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return Relay{}, err
+	}
+	return updated.Relay, nil
+}
+
 func (s *Service) Desired(ctx context.Context, relayID string) (DesiredState, error) {
 	relay, err := s.relay(ctx, relayID)
 	if err != nil {
@@ -378,7 +418,7 @@ func (s *Service) Desired(ctx context.Context, relayID string) (DesiredState, er
 		return DesiredState{}, err
 	}
 	defer rows.Close()
-	result := DesiredState{Revision: relay.DesiredRevision, InterfaceName: relay.InterfaceName, Peers: []DesiredPeer{}}
+	result := DesiredState{Revision: relay.DesiredRevision, InterfaceName: relay.InterfaceName, ExitPreference: relay.ExitPreference, Peers: []DesiredPeer{}}
 	for rows.Next() {
 		var peer DesiredPeer
 		if err := rows.Scan(&peer.PublicKey, &peer.AllowedIP); err != nil {
@@ -944,7 +984,7 @@ func validateExitHealth(value *ExitHealth, now time.Time) error {
 			return badRequest("Exit health is invalid")
 		}
 		if probe.Healthy {
-			if probe.Reason != nil || probe.ObservedEgressIP == nil || *probe.ObservedEgressIP != probe.ExpectedEgressIP || probe.HandshakeAtEpoch == 0 || probe.HandshakeAgeSeconds == nil || probe.LatencyMs == nil {
+			if probe.Reason != nil || probe.ObservedEgressIP == nil || *probe.ObservedEgressIP != probe.ExpectedEgressIP || probe.HandshakeAtEpoch == 0 || probe.HandshakeAgeSeconds == nil {
 				return badRequest("Exit health is invalid")
 			}
 		} else if probe.Reason == nil {

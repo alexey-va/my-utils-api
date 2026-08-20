@@ -9,6 +9,10 @@ type CreateRelayRequest struct {
 	ClientDNS      string `json:"clientDns"`
 }
 
+type UpdateExitPreferenceRequest struct {
+	Preference string `json:"preference"`
+}
+
 type RouteProbe struct {
 	Target            string   `json:"target"`
 	PacketLossPercent float64  `json:"packetLossPercent"`
@@ -68,6 +72,7 @@ type Relay struct {
 	RoutingCheckedAt *time.Time    `json:"routingCheckedAt"`
 	RouteQuality     *RouteQuality `json:"routeQuality"`
 	ExitHealth       *ExitHealth   `json:"exitHealth"`
+	ExitPreference   string        `json:"exitPreference"`
 	CreatedAt        time.Time     `json:"createdAt"`
 	UpdatedAt        time.Time     `json:"updatedAt"`
 }
@@ -110,9 +115,10 @@ type DesiredPeer struct {
 }
 
 type DesiredState struct {
-	Revision      int64         `json:"revision"`
-	InterfaceName string        `json:"interfaceName"`
-	Peers         []DesiredPeer `json:"peers"`
+	Revision       int64         `json:"revision"`
+	InterfaceName  string        `json:"interfaceName"`
+	ExitPreference string        `json:"exitPreference"`
+	Peers          []DesiredPeer `json:"peers"`
 }
 
 type Heartbeat struct {

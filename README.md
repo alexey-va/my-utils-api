@@ -180,3 +180,6 @@ endpoint returns the same period summary together with chart buckets.
 model: one request returns the relay, every peer, all compact traffic previews,
 and persisted healthcheck history for both AWG exits. Exit samples are recorded
 from validated agent heartbeats and retained for 31 days.
+`PUT .../relays/{id}/exit-preference` accepts `AUTO`, `PRIMARY`, or `SECONDARY`.
+The preference is delivered through agent desired state and keeps a safe
+fallback to the other healthy exit.

@@ -141,6 +141,7 @@ listen_port='$listen_port'
 start() {
   sysctl -q -w net.ipv4.ip_forward=1
   ip route replace unreachable default table "\$table" metric 32767
+  ip route replace "\$client_cidr" dev "\$ingress" table "\$table" scope link
   ip route replace default dev "\$egress" table "\$table" metric 10
   ip rule show | grep -Fq "from \$client_cidr lookup \$table" || ip rule add priority "\$priority" from "\$client_cidr" table "\$table"
   iptables -N "\$chain" 2>/dev/null || true
@@ -201,6 +202,7 @@ WIREGUARD_RELAY_ID=$relay_id
 WIREGUARD_AGENT_TOKEN=$agent_token
 WIREGUARD_INTERFACE=$interface
 WIREGUARD_PUBLIC_ENDPOINT=$public_endpoint
+WIREGUARD_EXIT_PREFERENCE_FILE=/var/lib/my-utils-wireguard/exit-preference
 EOF
 unset agent_token
 install -m 600 -o root -g root "$tmp_dir/wireguard-agent.env" /etc/my-utils/wireguard-agent.env

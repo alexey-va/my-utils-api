@@ -30,7 +30,7 @@ while (($#)); do
 done
 
 [[ $EUID -eq 0 ]] || { echo "Run as root" >&2; exit 1; }
-for command in awg curl flock install ip jq python3 systemctl; do
+for command in awg curl flock install ip jq ping python3 systemctl; do
   command -v "$command" >/dev/null || { echo "Required command is missing: $command" >&2; exit 1; }
 done
 for interface in "$primary_interface" "$secondary_interface"; do
@@ -94,11 +94,17 @@ AWG_FAILURE_THRESHOLD=3
 AWG_RECOVERY_THRESHOLD=2
 AWG_HANDSHAKE_MAX_AGE=180
 AWG_PROBE_URL=https://api.ipify.org
+AWG_LATENCY_TARGET=1.1.1.1
 AWG_STATE_FILE=/var/lib/my-utils-wireguard/awg-failover-state.json
 AWG_STATUS_FILE=/var/lib/my-utils-wireguard/exit-health.json
+AWG_PREFERENCE_FILE=/var/lib/my-utils-wireguard/exit-preference
 EOF
 chmod 600 "$env_tmp"
 mv -f -- "$env_tmp" "$env_file"
+if [[ ! -e /var/lib/my-utils-wireguard/exit-preference ]]; then
+  printf 'AUTO\n' >/var/lib/my-utils-wireguard/exit-preference
+  chmod 644 /var/lib/my-utils-wireguard/exit-preference
+fi
 routing_env_tmp=$(mktemp /etc/my-utils/.wireguard-routing-ha.XXXXXX)
 cat >"$routing_env_tmp" <<EOF
 # managed-by-my-utils

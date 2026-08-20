@@ -41,6 +41,10 @@ func TestHeartbeatKeepsRoutingStatusAndCountersNonSecret(t *testing.T) {
 	for _, want := range []string{
 		"WIREGUARD_ROUTING_STATUS_FILE",
 		"WIREGUARD_EXIT_HEALTH_FILE",
+		"WIREGUARD_EXIT_PREFERENCE_FILE",
+		`(.exitPreference == "AUTO" or .exitPreference == "PRIMARY" or .exitPreference == "SECONDARY")`,
+		`jq -r '.exitPreference' "$desired_json"`,
+		"systemctl start my-utils-awg-failover.service",
 		"routingStatus: $routingStatus[0]",
 		"exitHealth: $exitHealth[0]",
 		`mode == "RU_DIRECT_AWG_DEFAULT"`,
@@ -50,6 +54,8 @@ func TestHeartbeatKeepsRoutingStatusAndCountersNonSecret(t *testing.T) {
 		"MYUTILS-WG-DNS-IN",
 		"MYUTILS-WG-DNS",
 		`dig +time=2 +tries=1 +short @"$WIREGUARD_DNS_RESOLVER_ADDRESS" example.com A`,
+		`routing_table_routes="$(ip -4 route show table 51889)"`,
+		`^10\.89\.0\.0/24 dev wg-users([[:space:]]|$)`,
 		"routingHealthy",
 		"MYUTILS-WG-TRAFFIC",
 		"routingTraffic",
@@ -197,6 +203,7 @@ func TestRelayAndAPIProxyRoutingAcceptManagedExitPool(t *testing.T) {
 	relayInstaller := readFile(t, "install-relay.sh")
 	for _, want := range []string{
 		"egress_pattern='awg-exit+'",
+		`ip route replace "\$client_cidr" dev "\$ingress" table "\$table" scope link`,
 		`-o "\$egress_pattern"`,
 		`-i "\$egress_pattern"`,
 		"Wants=my-utils-awg-exit.service",
@@ -480,11 +487,24 @@ func TestAWGFailoverDecisionUsesHysteresisAndFailClosed(t *testing.T) {
 	}
 }
 
+func TestAWGFailoverDecisionHonorsManualPreferenceWithSafeFallback(t *testing.T) {
+	state := `{"active":"primary","counters":{}}`
+	state = runFailoverDecisionWithPreference(t, state, true, true, "SECONDARY")
+	if got := failoverActive(t, state); got != "secondary" {
+		t.Fatalf("active with healthy preferred secondary = %q, want secondary", got)
+	}
+	state = runFailoverDecisionWithPreference(t, state, true, false, "SECONDARY")
+	if got := failoverActive(t, state); got != "primary" {
+		t.Fatalf("active with failed preferred secondary = %q, want safe primary fallback", got)
+	}
+}
+
 func TestAWGFailoverRunnerUsesEndToEndProbesAndAtomicPolicyRoute(t *testing.T) {
 	runner := readFile(t, "veesp-exit/awg-failover.sh")
 	for _, want := range []string{
 		"latest-handshakes",
 		`--interface "$interface"`,
+		`ping -n -I "$interface" -c 2 -W 2 "$AWG_LATENCY_TARGET"`,
 		"expected_egress",
 		`ip route replace default dev "$desired_interface" table "$AWG_ROUTE_TABLE"`,
 		`ip route del default dev "$interface" table "$AWG_ROUTE_TABLE"`,
@@ -492,6 +512,8 @@ func TestAWGFailoverRunnerUsesEndToEndProbesAndAtomicPolicyRoute(t *testing.T) {
 		"flock -n",
 		"exit-health.json",
 		"overallStatus",
+		"AWG_PREFERENCE_FILE",
+		`--preference "$preference"`,
 	} {
 		if !strings.Contains(runner, want) {
 			t.Errorf("AWG failover runner does not contain %q", want)
@@ -503,6 +525,8 @@ func TestAWGFailoverRunnerUsesEndToEndProbesAndAtomicPolicyRoute(t *testing.T) {
 		"Plan only; no host changes were made",
 		"AWG_PRIMARY_INTERFACE",
 		"AWG_SECONDARY_INTERFACE",
+		"AWG_LATENCY_TARGET=1.1.1.1",
+		"AWG_PREFERENCE_FILE=/var/lib/my-utils-wireguard/exit-preference",
 		"chmod 600",
 		"systemctl enable --now my-utils-awg-failover.timer",
 		"systemctl start my-utils-awg-failover.service",
@@ -544,6 +568,7 @@ func TestHAWireGuardRoutingPreservesManagedSelectionAndAllowsBothExits(t *testin
 	routing := readFile(t, "veesp-exit/wireguard-routing-ha.sh")
 	for _, want := range []string{
 		"WIREGUARD_EXIT_PATTERN",
+		`ip route replace "$WIREGUARD_CLIENT_CIDR" dev "$WIREGUARD_INGRESS_INTERFACE" table "$WIREGUARD_ROUTE_TABLE" scope link`,
 		`-o "$WIREGUARD_EXIT_PATTERN"`,
 		`-i "$WIREGUARD_EXIT_PATTERN"`,
 		"current_managed_default",
@@ -667,6 +692,10 @@ func writeExecutable(t *testing.T, path, contents string) {
 }
 
 func runFailoverDecision(t *testing.T, state string, primaryHealthy, secondaryHealthy bool) string {
+	return runFailoverDecisionWithPreference(t, state, primaryHealthy, secondaryHealthy, "AUTO")
+}
+
+func runFailoverDecisionWithPreference(t *testing.T, state string, primaryHealthy, secondaryHealthy bool, preference string) string {
 	t.Helper()
 	tempDir := t.TempDir()
 	stateFile := tempDir + "/state.json"
@@ -683,6 +712,7 @@ func runFailoverDecision(t *testing.T, state string, primaryHealthy, secondaryHe
 		"--probes", probesFile,
 		"--failure-threshold", "3",
 		"--recovery-threshold", "2",
+		"--preference", preference,
 	)
 	output, err := command.CombinedOutput()
 	if err != nil {

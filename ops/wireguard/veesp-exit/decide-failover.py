@@ -33,6 +33,7 @@ def main() -> None:
     parser.add_argument("--probes", required=True)
     parser.add_argument("--failure-threshold", required=True, type=positive_threshold)
     parser.add_argument("--recovery-threshold", required=True, type=positive_threshold)
+    parser.add_argument("--preference", choices=("AUTO", "PRIMARY", "SECONDARY"), default="AUTO")
     args = parser.parse_args()
 
     state = read_object(args.state)
@@ -65,24 +66,30 @@ def main() -> None:
     primary_failed = counters["primary"]["failures"] >= args.failure_threshold
     secondary_failed = counters["secondary"]["failures"] >= args.failure_threshold
 
-    active = previous_active
-    if active == "primary":
-        if primary_failed:
-            active = "secondary" if secondary_ready else None
-    elif active == "secondary":
-        if primary_ready:
+    if args.preference == "PRIMARY":
+        active = "primary" if probes["primary"]["healthy"] else ("secondary" if probes["secondary"]["healthy"] else None)
+    elif args.preference == "SECONDARY":
+        active = "secondary" if probes["secondary"]["healthy"] else ("primary" if probes["primary"]["healthy"] else None)
+    else:
+        active = previous_active
+        if active == "primary":
+            if primary_failed:
+                active = "secondary" if secondary_ready else None
+        elif active == "secondary":
+            if primary_ready:
+                active = "primary"
+            elif secondary_failed:
+                active = None
+        elif primary_ready:
             active = "primary"
-        elif secondary_failed:
-            active = None
-    elif primary_ready:
-        active = "primary"
-    elif secondary_ready:
-        active = "secondary"
+        elif secondary_ready:
+            active = "secondary"
 
     result = {
         "schemaVersion": 1,
         "active": active,
         "previousActive": previous_active,
+        "preference": args.preference,
         "changed": active != previous_active,
         "counters": counters,
     }

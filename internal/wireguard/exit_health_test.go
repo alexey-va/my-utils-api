@@ -13,6 +13,17 @@ func TestValidateExitHealthAcceptsHealthyIndependentExits(t *testing.T) {
 	}
 }
 
+func TestValidateExitHealthAcceptsHealthyExitWithoutOptionalLatency(t *testing.T) {
+	now := time.Date(2026, time.August, 20, 14, 0, 0, 0, time.UTC)
+	health := healthyExitHealth(now)
+	primary := health.Exits["primary"]
+	primary.LatencyMs = nil
+	health.Exits["primary"] = primary
+	if err := validateExitHealth(&health, now); err != nil {
+		t.Fatalf("validateExitHealth() without optional latency error = %v", err)
+	}
+}
+
 func TestValidateExitHealthRejectsContradictoryOverallStatus(t *testing.T) {
 	now := time.Date(2026, time.August, 20, 14, 0, 0, 0, time.UTC)
 	health := healthyExitHealth(now)

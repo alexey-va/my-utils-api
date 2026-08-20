@@ -115,6 +115,18 @@ green status. The administrator page therefore reports
 `READY`, `DEGRADED`, or `DOWN` from the data plane instead of treating a live
 agent heartbeat as proof that VPN traffic works.
 
+Exit availability still comes from the HTTPS probe and expected public egress
+IP. `latencyMs` is the ICMP RTT through that AWG interface to `1.1.1.1`, not the
+full DNS/TCP/TLS time of the HTTPS probe. If ICMP measurement is unavailable,
+latency is omitted without declaring an otherwise working HTTPS exit down.
+
+The admin API stores `AUTO`, `PRIMARY`, or `SECONDARY` in relay desired state.
+The host agent writes it atomically to
+`/var/lib/my-utils-wireguard/exit-preference`; the failover runner reads it on
+every cycle. Manual mode prefers the selected healthy exit but still falls back
+to the other provider when necessary. `AUTO` retains hysteresis and automatic
+primary recovery.
+
 Each validated exit-health snapshot is also stored by the API for 31 days. The
 dashboard endpoint buckets these samples into the selected hour/day/week/month
 range and returns availability, average probe latency, failure reason, overall
@@ -154,6 +166,10 @@ The owned rule order is:
 
 - priority `1088`: mark `0x51890` uses `main` and `eth0`;
 - priority `1089`: unmarked `10.89.0.0/24` uses table `51889` and its selected managed AWG exit.
+
+Table `51889` also contains the connected `10.89.0.0/24 dev wg-users` route.
+Without it, locally generated replies from `10.89.0.1` (notably DNS) would
+follow the AWG default instead of returning to the client.
 
 The updater runs daily through `my-utils-geo-routing-update.timer`. Its
 non-secret status file is read by the existing agent and shown in the admin UI.
