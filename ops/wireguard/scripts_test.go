@@ -80,6 +80,10 @@ func TestHeartbeatKeepsRoutingStatusAndCountersNonSecret(t *testing.T) {
 	if !strings.Contains(timer, "OnUnitActiveSec=15s") {
 		t.Fatal("WireGuard timer no longer refreshes counters every 15 seconds")
 	}
+	agentUnit := readFile(t, "systemd/my-utils-wireguard-agent.service")
+	if !strings.Contains(agentUnit, "ReadWritePaths=/run /var/lib/my-utils-wireguard") {
+		t.Fatal("WireGuard agent sandbox must permit its managed preference state")
+	}
 }
 
 func TestGeoPrefixRendererProducesDeterministicAtomicTransaction(t *testing.T) {

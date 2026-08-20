@@ -12,7 +12,7 @@ Group=root
 PrivateTmp=true
 ProtectHome=true
 ProtectSystem=strict
-ReadWritePaths=/run
+ReadWritePaths=/run /var/lib/my-utils-wireguard
 NoNewPrivileges=true
 
 [Install]
