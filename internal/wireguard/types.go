@@ -51,17 +51,20 @@ type AgentTokenResponse struct {
 }
 
 type Peer struct {
-	ID                 string     `json:"id"`
-	Name               string     `json:"name"`
-	PublicKey          string     `json:"publicKey"`
-	AssignedIP         string     `json:"assignedIp"`
-	Enabled            bool       `json:"enabled"`
-	LatestHandshakeAt  *time.Time `json:"latestHandshakeAt"`
-	TotalReceiveBytes  int64      `json:"totalReceiveBytes"`
-	TotalTransmitBytes int64      `json:"totalTransmitBytes"`
-	MetricsUpdatedAt   *time.Time `json:"metricsUpdatedAt"`
-	CreatedAt          time.Time  `json:"createdAt"`
-	UpdatedAt          time.Time  `json:"updatedAt"`
+	ID                            string        `json:"id"`
+	Name                          string        `json:"name"`
+	PublicKey                     string        `json:"publicKey"`
+	AssignedIP                    string        `json:"assignedIp"`
+	Enabled                       bool          `json:"enabled"`
+	LatestHandshakeAt             *time.Time    `json:"latestHandshakeAt"`
+	TotalReceiveBytes             int64         `json:"totalReceiveBytes"`
+	TotalTransmitBytes            int64         `json:"totalTransmitBytes"`
+	CurrentDownloadBytesPerSecond float64       `json:"currentDownloadBytesPerSecond"`
+	CurrentUploadBytesPerSecond   float64       `json:"currentUploadBytesPerSecond"`
+	MetricsUpdatedAt              *time.Time    `json:"metricsUpdatedAt"`
+	Traffic                       PeriodTraffic `json:"traffic"`
+	CreatedAt                     time.Time     `json:"createdAt"`
+	UpdatedAt                     time.Time     `json:"updatedAt"`
 }
 
 type PeerCredentials struct {
@@ -121,10 +124,27 @@ type MetricPoint struct {
 	NonRUUploadBytes   int64     `json:"nonRuUploadBytes"`
 }
 
+type TrafficTotals struct {
+	DownloadBytes      int64 `json:"downloadBytes"`
+	UploadBytes        int64 `json:"uploadBytes"`
+	RUDownloadBytes    int64 `json:"ruDownloadBytes"`
+	RUUploadBytes      int64 `json:"ruUploadBytes"`
+	NonRUDownloadBytes int64 `json:"nonRuDownloadBytes"`
+	NonRUUploadBytes   int64 `json:"nonRuUploadBytes"`
+}
+
+type PeriodTraffic struct {
+	TrafficTotals
+	Range string    `json:"range"`
+	From  time.Time `json:"from"`
+	To    time.Time `json:"to"`
+}
+
 type Metrics struct {
-	PeerID string        `json:"peerId"`
-	Range  string        `json:"range"`
-	From   time.Time     `json:"from"`
-	To     time.Time     `json:"to"`
-	Points []MetricPoint `json:"points"`
+	PeerID  string        `json:"peerId"`
+	Range   string        `json:"range"`
+	From    time.Time     `json:"from"`
+	To      time.Time     `json:"to"`
+	Summary TrafficTotals `json:"summary"`
+	Points  []MetricPoint `json:"points"`
 }

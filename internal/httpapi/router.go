@@ -63,7 +63,7 @@ type WireGuardService interface {
 	CreateRelay(context.Context, wireguard.CreateRelayRequest) (wireguard.CreatedRelay, error)
 	RotateToken(context.Context, string) (wireguard.AgentTokenResponse, error)
 	DeleteRelay(context.Context, string) error
-	ListPeers(context.Context, string) ([]wireguard.Peer, error)
+	ListPeers(context.Context, string, string) ([]wireguard.Peer, error)
 	CreatePeer(context.Context, string, string) (wireguard.PeerCredentials, error)
 	Credentials(context.Context, string, string) (wireguard.PeerCredentials, error)
 	UpdatePeer(context.Context, string, string, bool) (wireguard.Peer, error)

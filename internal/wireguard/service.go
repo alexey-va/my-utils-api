@@ -151,20 +151,25 @@ func (s *Service) DeleteRelay(ctx context.Context, relayID string) error {
 
 type peerRecord struct {
 	Peer
-	Ciphertext, Nonce       string
-	RawReceive, RawTransmit int64
+	Ciphertext, Nonce                                            string
+	RawReceive, RawTransmit                                      int64
+	RawRUDownload, RawRUUpload, RawNonRUDownload, RawNonRUUpload int64
 }
 
-const peerColumns = `id::text,name,public_key,assigned_ip,enabled,latest_handshake_at,total_receive_bytes,total_transmit_bytes,metrics_updated_at,created_at,updated_at,private_key_ciphertext,private_key_nonce,raw_receive_bytes,raw_transmit_bytes`
+const peerColumns = `id::text,name,public_key,assigned_ip,enabled,latest_handshake_at,total_receive_bytes,total_transmit_bytes,current_download_bytes_per_second,current_upload_bytes_per_second,metrics_updated_at,created_at,updated_at,private_key_ciphertext,private_key_nonce,raw_receive_bytes,raw_transmit_bytes,raw_ru_download_bytes,raw_ru_upload_bytes,raw_non_ru_download_bytes,raw_non_ru_upload_bytes`
 
 func scanPeer(source row) (peerRecord, error) {
 	var value peerRecord
-	err := source.Scan(&value.ID, &value.Name, &value.PublicKey, &value.AssignedIP, &value.Enabled, &value.LatestHandshakeAt, &value.TotalReceiveBytes, &value.TotalTransmitBytes, &value.MetricsUpdatedAt, &value.CreatedAt, &value.UpdatedAt, &value.Ciphertext, &value.Nonce, &value.RawReceive, &value.RawTransmit)
+	err := source.Scan(&value.ID, &value.Name, &value.PublicKey, &value.AssignedIP, &value.Enabled, &value.LatestHandshakeAt, &value.TotalReceiveBytes, &value.TotalTransmitBytes, &value.CurrentDownloadBytesPerSecond, &value.CurrentUploadBytesPerSecond, &value.MetricsUpdatedAt, &value.CreatedAt, &value.UpdatedAt, &value.Ciphertext, &value.Nonce, &value.RawReceive, &value.RawTransmit, &value.RawRUDownload, &value.RawRUUpload, &value.RawNonRUDownload, &value.RawNonRUUpload)
 	return value, err
 }
 
-func (s *Service) ListPeers(ctx context.Context, relayID string) ([]Peer, error) {
+func (s *Service) ListPeers(ctx context.Context, relayID, rangeName string) ([]Peer, error) {
 	if _, err := s.relay(ctx, relayID); err != nil {
+		return nil, err
+	}
+	rangeName, from, to, _, err := metricRange(rangeName, s.now())
+	if err != nil {
 		return nil, err
 	}
 	rows, err := s.pool.Query(ctx, `SELECT `+peerColumns+` FROM wireguard_peers WHERE relay_id=$1::uuid ORDER BY created_at ASC`, relayID)
@@ -180,7 +185,17 @@ func (s *Service) ListPeers(ctx context.Context, relayID string) ([]Peer, error)
 		}
 		result = append(result, value.Peer)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	totals, err := s.peerTrafficTotals(ctx, relayID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	for index := range result {
+		result[index].Traffic = PeriodTraffic{TrafficTotals: totals[result[index].ID], Range: rangeName, From: from, To: to}
+	}
+	return result, nil
 }
 
 func (s *Service) CreatePeer(ctx context.Context, relayID, nameInput string) (PeerCredentials, error) {
@@ -446,6 +461,28 @@ func (s *Service) Heartbeat(ctx context.Context, relayID string, body Heartbeat)
 		transmitDelta := counterDelta(peer.RawTransmit, counter.TransmitBytes)
 		peer.TotalReceiveBytes += receiveDelta
 		peer.TotalTransmitBytes += transmitDelta
+		downloadRate, uploadRate := 0.0, 0.0
+		if peer.MetricsUpdatedAt != nil {
+			elapsedSeconds := now.Sub(*peer.MetricsUpdatedAt).Seconds()
+			if elapsedSeconds > 0 {
+				downloadRate = float64(transmitDelta) / elapsedSeconds
+				uploadRate = float64(receiveDelta) / elapsedSeconds
+			}
+		}
+		rawTraffic := RoutingTraffic{
+			RUDownloadBytes: peer.RawRUDownload, RUUploadBytes: peer.RawRUUpload,
+			NonRUDownloadBytes: peer.RawNonRUDownload, NonRUUploadBytes: peer.RawNonRUUpload,
+		}
+		trafficDelta := RoutingTraffic{}
+		if counter.RoutingTraffic != nil {
+			trafficDelta = RoutingTraffic{
+				RUDownloadBytes:    counterDelta(peer.RawRUDownload, counter.RoutingTraffic.RUDownloadBytes),
+				RUUploadBytes:      counterDelta(peer.RawRUUpload, counter.RoutingTraffic.RUUploadBytes),
+				NonRUDownloadBytes: counterDelta(peer.RawNonRUDownload, counter.RoutingTraffic.NonRUDownloadBytes),
+				NonRUUploadBytes:   counterDelta(peer.RawNonRUUpload, counter.RoutingTraffic.NonRUUploadBytes),
+			}
+			rawTraffic = *counter.RoutingTraffic
+		}
 		var handshake *time.Time
 		if counter.LatestHandshakeEpochSecond > 0 {
 			v := time.Unix(counter.LatestHandshakeEpochSecond, 0).UTC()
@@ -453,14 +490,10 @@ func (s *Service) Heartbeat(ctx context.Context, relayID string, body Heartbeat)
 		} else {
 			handshake = peer.LatestHandshakeAt
 		}
-		if _, err := tx.Exec(ctx, `UPDATE wireguard_peers SET raw_receive_bytes=$2,raw_transmit_bytes=$3,total_receive_bytes=$4,total_transmit_bytes=$5,latest_handshake_at=$6,metrics_updated_at=$7,updated_at=$7 WHERE id=$1::uuid`, peer.ID, counter.ReceiveBytes, counter.TransmitBytes, peer.TotalReceiveBytes, peer.TotalTransmitBytes, handshake, now); err != nil {
+		if _, err := tx.Exec(ctx, `UPDATE wireguard_peers SET raw_receive_bytes=$2,raw_transmit_bytes=$3,total_receive_bytes=$4,total_transmit_bytes=$5,current_download_bytes_per_second=$6,current_upload_bytes_per_second=$7,raw_ru_download_bytes=$8,raw_ru_upload_bytes=$9,raw_non_ru_download_bytes=$10,raw_non_ru_upload_bytes=$11,latest_handshake_at=$12,metrics_updated_at=$13,updated_at=$13 WHERE id=$1::uuid`, peer.ID, counter.ReceiveBytes, counter.TransmitBytes, peer.TotalReceiveBytes, peer.TotalTransmitBytes, downloadRate, uploadRate, rawTraffic.RUDownloadBytes, rawTraffic.RUUploadBytes, rawTraffic.NonRUDownloadBytes, rawTraffic.NonRUUploadBytes, handshake, now); err != nil {
 			return err
 		}
-		traffic := RoutingTraffic{}
-		if counter.RoutingTraffic != nil {
-			traffic = *counter.RoutingTraffic
-		}
-		if _, err := tx.Exec(ctx, `INSERT INTO wireguard_peer_metric_samples(id,peer_id,recorded_at,download_bytes,upload_bytes,ru_download_bytes,ru_upload_bytes,non_ru_download_bytes,non_ru_upload_bytes,latest_handshake_at) VALUES(gen_random_uuid(),$1::uuid,$2,$3,$4,$5,$6,$7,$8,$9)`, peer.ID, now, transmitDelta, receiveDelta, traffic.RUDownloadBytes, traffic.RUUploadBytes, traffic.NonRUDownloadBytes, traffic.NonRUUploadBytes, handshake); err != nil {
+		if _, err := tx.Exec(ctx, `INSERT INTO wireguard_peer_metric_samples(id,peer_id,recorded_at,download_bytes,upload_bytes,ru_download_bytes,ru_upload_bytes,non_ru_download_bytes,non_ru_upload_bytes,latest_handshake_at) VALUES(gen_random_uuid(),$1::uuid,$2,$3,$4,$5,$6,$7,$8,$9)`, peer.ID, now, transmitDelta, receiveDelta, trafficDelta.RUDownloadBytes, trafficDelta.RUUploadBytes, trafficDelta.NonRUDownloadBytes, trafficDelta.NonRUUploadBytes, handshake); err != nil {
 			return err
 		}
 	}
@@ -477,21 +510,10 @@ func (s *Service) Metrics(ctx context.Context, relayID, peerID, rangeName string
 	if _, err := s.peer(ctx, relayID, peerID); err != nil {
 		return Metrics{}, err
 	}
-	var window, bucket time.Duration
-	switch rangeName {
-	case "HOUR":
-		window, bucket = time.Hour, time.Minute
-	case "DAY":
-		window, bucket = 24*time.Hour, 15*time.Minute
-	case "WEEK":
-		window, bucket = 7*24*time.Hour, time.Hour
-	case "MONTH":
-		window, bucket = 30*24*time.Hour, 6*time.Hour
-	default:
-		return Metrics{}, badRequest("Invalid range")
+	rangeName, from, to, bucket, err := metricRange(rangeName, s.now())
+	if err != nil {
+		return Metrics{}, err
 	}
-	to := s.now()
-	from := to.Add(-window)
 	rows, err := s.pool.Query(ctx, `SELECT recorded_at,download_bytes,upload_bytes,ru_download_bytes,ru_upload_bytes,non_ru_download_bytes,non_ru_upload_bytes FROM wireguard_peer_metric_samples WHERE peer_id=$1::uuid AND recorded_at>=$2 AND recorded_at<$3 ORDER BY recorded_at`, peerID, from, to)
 	if err != nil {
 		return Metrics{}, err
@@ -522,7 +544,52 @@ func (s *Service) Metrics(ctx context.Context, relayID, peerID, rangeName string
 	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
 	result := Metrics{PeerID: peerID, Range: rangeName, From: from, To: to, Points: []MetricPoint{}}
 	for _, key := range keys {
-		result.Points = append(result.Points, points[key])
+		point := points[key]
+		result.Points = append(result.Points, point)
+		result.Summary.DownloadBytes += point.DownloadBytes
+		result.Summary.UploadBytes += point.UploadBytes
+		result.Summary.RUDownloadBytes += point.RUDownloadBytes
+		result.Summary.RUUploadBytes += point.RUUploadBytes
+		result.Summary.NonRUDownloadBytes += point.NonRUDownloadBytes
+		result.Summary.NonRUUploadBytes += point.NonRUUploadBytes
+	}
+	return result, rows.Err()
+}
+
+func metricRange(rangeName string, to time.Time) (string, time.Time, time.Time, time.Duration, error) {
+	if rangeName == "" {
+		rangeName = "HOUR"
+	}
+	var window, bucket time.Duration
+	switch rangeName {
+	case "HOUR":
+		window, bucket = time.Hour, time.Minute
+	case "DAY":
+		window, bucket = 24*time.Hour, 15*time.Minute
+	case "WEEK":
+		window, bucket = 7*24*time.Hour, time.Hour
+	case "MONTH":
+		window, bucket = 30*24*time.Hour, 6*time.Hour
+	default:
+		return "", time.Time{}, time.Time{}, 0, badRequest("Invalid range")
+	}
+	return rangeName, to.Add(-window), to, bucket, nil
+}
+
+func (s *Service) peerTrafficTotals(ctx context.Context, relayID string, from, to time.Time) (map[string]TrafficTotals, error) {
+	rows, err := s.pool.Query(ctx, `SELECT p.id::text,COALESCE(SUM(m.download_bytes),0),COALESCE(SUM(m.upload_bytes),0),COALESCE(SUM(m.ru_download_bytes),0),COALESCE(SUM(m.ru_upload_bytes),0),COALESCE(SUM(m.non_ru_download_bytes),0),COALESCE(SUM(m.non_ru_upload_bytes),0) FROM wireguard_peers p LEFT JOIN wireguard_peer_metric_samples m ON m.peer_id=p.id AND m.recorded_at>=$2 AND m.recorded_at<$3 WHERE p.relay_id=$1::uuid GROUP BY p.id`, relayID, from, to)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := map[string]TrafficTotals{}
+	for rows.Next() {
+		var peerID string
+		var totals TrafficTotals
+		if err := rows.Scan(&peerID, &totals.DownloadBytes, &totals.UploadBytes, &totals.RUDownloadBytes, &totals.RUUploadBytes, &totals.NonRUDownloadBytes, &totals.NonRUUploadBytes); err != nil {
+			return nil, err
+		}
+		result[peerID] = totals
 	}
 	return result, rows.Err()
 }

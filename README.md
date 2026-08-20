@@ -171,3 +171,8 @@ keeps a historical filename; Jenkins is not the active CI.
 private keys with AES-256-GCM. The host agent uses a relay-scoped hashed token
 on `/api/internal/wireguard/relays/{id}/**`. Operational scripts and the safe
 installation procedure live in [ops/wireguard/README.md](ops/wireguard/README.md).
+Every heartbeat converts cumulative WireGuard and routing counters into interval
+deltas, persists the current download/upload rate, and retains traffic samples
+for period summaries. `GET .../peers?range=HOUR|DAY|WEEK|MONTH` returns the
+persisted rates and per-peer traffic for the selected period; the peer metrics
+endpoint returns the same period summary together with chart buckets.

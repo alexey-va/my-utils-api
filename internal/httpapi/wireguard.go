@@ -81,7 +81,7 @@ func (a *API) deleteWireGuardRelay(w http.ResponseWriter, r *http.Request) {
 }
 func (a *API) listWireGuardPeers(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
-	v, e := a.wireGuard.ListPeers(r.Context(), chi.URLParam(r, "relayId"))
+	v, e := a.wireGuard.ListPeers(r.Context(), chi.URLParam(r, "relayId"), r.URL.Query().Get("range"))
 	writeDomainResult(w, v, e)
 }
 func (a *API) createWireGuardPeer(w http.ResponseWriter, r *http.Request) {
