@@ -103,12 +103,14 @@ func TestAPIProxyRoutingIsLimitedToTheConfiguredProxy(t *testing.T) {
 	for _, want := range []string{
 		"docker_cidr=172.16.0.0/12",
 		"proxy_destination=185.242.106.81/32",
+		"tunnel_proxy_destination=172.29.172.3",
 		"proxy_port=8888",
 		"egress_interface=awg-exit",
 		"source_address=10.89.0.1",
 		"priority=1087",
 		"mark=0x51891",
 		"lookup \"$table\"",
+		"DNAT --to-destination \"$tunnel_proxy_destination:$proxy_port\"",
 		"SNAT --to-source \"$source_address\"",
 	} {
 		if !strings.Contains(script, want) {
@@ -128,6 +130,146 @@ func TestAPIProxyRoutingIsLimitedToTheConfiguredProxy(t *testing.T) {
 		if !strings.Contains(unit, want) {
 			t.Errorf("proxy routing unit does not contain %q", want)
 		}
+	}
+}
+
+func TestVeespExitComposeKeepsTinyproxyPrivate(t *testing.T) {
+	compose := readFile(t, "veesp-exit/compose.yml")
+	for _, want := range []string{
+		"name: my-utils-awg-exit",
+		"com.docker.network.bridge.name: amn0",
+		"subnet: 172.29.172.0/24",
+		"ipv4_address: 172.29.172.2",
+		"ipv4_address: 172.29.172.3",
+		`"42697:42697/udp"`,
+	} {
+		if !strings.Contains(compose, want) {
+			t.Errorf("veesp exit compose does not contain %q", want)
+		}
+	}
+
+	tinyproxyBlock, _, found := strings.Cut(compose, "  tinyproxy:")
+	if !found {
+		t.Fatal("tinyproxy service is missing")
+	}
+	_ = tinyproxyBlock
+	tinyproxyBlock = "  tinyproxy:" + strings.SplitN(compose, "  tinyproxy:", 2)[1]
+	if strings.Contains(tinyproxyBlock, "ports:") {
+		t.Fatal("tinyproxy must not publish a host port")
+	}
+}
+
+func TestVeespExitDockerBuildContextExcludesSecrets(t *testing.T) {
+	ignore := readFile(t, "veesp-exit/.dockerignore")
+	for _, want := range []string{"*", "!Dockerfile.awg", "!Dockerfile.tinyproxy", "!awg-entrypoint.sh", "!tinyproxy.conf"} {
+		if !strings.Contains(ignore, want) {
+			t.Errorf("Veesp exit .dockerignore does not contain %q", want)
+		}
+	}
+	installer := readFile(t, "veesp-exit/install.sh")
+	if !strings.Contains(installer, ".dockerignore") {
+		t.Fatal("Veesp exit installer must install .dockerignore")
+	}
+}
+
+func TestVeespExitInstallerRejectsForeignDockerState(t *testing.T) {
+	installer := readFile(t, "veesp-exit/install.sh")
+	for _, want := range []string{
+		"Plan only; no host changes were made",
+		"Refusing foreign container",
+		"Refusing foreign Docker network",
+		"mode 600",
+		"docker compose config --quiet",
+	} {
+		if !strings.Contains(installer, want) {
+			t.Errorf("veesp exit installer does not contain %q", want)
+		}
+	}
+}
+
+func TestVeespExitEntrypointOwnsOnlyContainerRules(t *testing.T) {
+	entrypoint := readFile(t, "veesp-exit/awg-entrypoint.sh")
+	for _, want := range []string{
+		"MYUTILS_AWG_FORWARD",
+		"MYUTILS_AWG_NAT",
+		"10.8.1.250/32",
+		"10.89.0.0/24",
+		"172.29.172.3",
+		"MASQUERADE",
+	} {
+		if !strings.Contains(entrypoint, want) {
+			t.Errorf("AWG entrypoint does not contain %q", want)
+		}
+	}
+	if strings.Contains(entrypoint, "nsenter") || strings.Contains(entrypoint, "--network host") {
+		t.Fatal("AWG entrypoint must not enter the host network namespace")
+	}
+}
+
+func TestVeespExitEntrypointPrefersKernelAmneziaWG(t *testing.T) {
+	entrypoint := readFile(t, "veesp-exit/awg-entrypoint.sh")
+	for _, want := range []string{
+		`ip link add "$interface" type amneziawg`,
+		`mkdir -p /run/amneziawg`,
+		`amneziawg-go -f "$interface"`,
+	} {
+		if !strings.Contains(entrypoint, want) {
+			t.Errorf("AWG entrypoint does not contain %q", want)
+		}
+	}
+}
+
+func TestVeespExitGeneratorKeepsSecretsInProtectedFiles(t *testing.T) {
+	generator := readFile(t, "veesp-exit/generate-config.sh")
+	for _, want := range []string{
+		"umask 077",
+		"wg genkey",
+		"wg genpsk",
+		"chmod 600",
+		"Generated protected server and client parameter files",
+	} {
+		if !strings.Contains(generator, want) {
+			t.Errorf("veesp exit generator does not contain %q", want)
+		}
+	}
+	if strings.Contains(generator, "cat \"$server_private\"") || strings.Contains(generator, "cat \"$preshared_key\"") {
+		t.Fatal("generator must not print private key material")
+	}
+}
+
+func TestVeespExitClientSwitchIsAtomicAndRollsBack(t *testing.T) {
+	switcher := readFile(t, "veesp-exit/switch-utils-client.sh")
+	for _, want := range []string{
+		"umask 077",
+		`staging="$staging_dir/awg-exit.conf"`,
+		"awg-quick strip",
+		"rollback()",
+		"systemctl stop my-utils-awg-exit.service",
+		"systemctl start my-utils-awg-exit.service",
+		"latest-handshakes",
+		"expected_egress",
+	} {
+		if !strings.Contains(switcher, want) {
+			t.Errorf("Veesp client switcher does not contain %q", want)
+		}
+	}
+}
+
+func TestVeespExitVelocitySwitchAvoidsInterfaceDowntime(t *testing.T) {
+	switcher := readFile(t, "veesp-exit/switch-velocity-proxy.sh")
+	for _, want := range []string{
+		"wg syncconf wg-utils",
+		"172.29.172.1",
+		"172.29.172.3",
+		"rollback()",
+		"expected_egress",
+	} {
+		if !strings.Contains(switcher, want) {
+			t.Errorf("Velocity proxy switcher does not contain %q", want)
+		}
+	}
+	if strings.Contains(switcher, "wg-quick down") {
+		t.Fatal("Velocity switcher must not take wg-utils down")
 	}
 }
 

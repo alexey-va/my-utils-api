@@ -1,8 +1,8 @@
 # my-utils WireGuard relay
 
 This directory packages a standard WireGuard ingress (`wg-users`) whose client
-traffic is routed through a dedicated AmneziaWG egress (`awg-exit`) to the
-existing `veesp` Amnezia server. An optional country router sends validated
+traffic is routed through a dedicated AmneziaWG egress (`awg-exit`) to a
+`veesp` Amnezia server. An optional country router sends validated
 Russian IPv4 destinations directly through the ordinary `utils` egress; every
 other destination remains fail-closed on AWG. The preserved `10.89.0.0/24`
 client addresses make per-peer accounting possible on both hosts.
@@ -35,6 +35,50 @@ traffic sourced from the client CIDR is rejected instead of escaping through
 the ordinary `utils` default route. The only `utils` masquerade rule matches
 the owned `0x51890` mark assigned to destinations in the validated RU set;
 Veesp owns final NAT for all AWG traffic.
+
+## Reproducible isolated Veesp exit
+
+`veesp-exit/` is the versioned fresh-host stack. It builds a pinned
+AmneziaWG userspace image and a pinned Alpine image containing tinyproxy, then
+runs them on the dedicated `my-utils-awg-exit` bridge (`172.29.172.0/24`, host
+bridge name `amn0`). Only UDP `42697` is published. Tinyproxy stays at
+`172.29.172.3:8888` inside the bridge and has no host port. The build context is
+allowlisted by `.dockerignore`, so generated private keys, PSKs, and configs are
+not sent to the Docker builder.
+
+On a fresh Veesp, install Docker Compose and WireGuard tools, place this
+directory in a mode-700 working directory, and generate protected configs from
+the existing `utils` client public key:
+
+```bash
+./generate-config.sh \
+  --client-public-key-file client.pub \
+  --server-config awg0.conf \
+  --client-params client.params \
+  --endpoint PUBLIC_IPV4:42697
+
+./install.sh --config ./awg0.conf
+./install.sh --config ./awg0.conf --apply
+```
+
+The installer is plan-only by default, refuses foreign containers, networks,
+routes, and unmanaged install directories, and requires mode 600 for the AWG
+config. A deliberate config replacement additionally requires `--replace`.
+Transfer `client.params` directly to a mode-600 root-only file on `utils`; do
+not print it or store it in Git. Then use the guarded switchers:
+
+```bash
+sudo ./switch-utils-client.sh \
+  --params /root/new-awg.params \
+  --expected-egress PUBLIC_IPV4
+
+sudo ./switch-velocity-proxy.sh --expected-egress PUBLIC_IPV4
+```
+
+The `utils` switch waits for a fresh handshake and verifies public egress. The
+Velocity switch uses `wg syncconf` and changes only the proxy host route and
+owned NAT rules, without taking `wg-utils` down. Both restore the previous
+config and runtime state when validation fails.
 
 ## RU-direct routing safety
 
@@ -86,12 +130,13 @@ of attempting to reconstruct the key.
 
 ## API outbound proxy routing
 
-`api-proxy-routing.sh` keeps the API container's configured HTTP proxy reachable
-when the ordinary `utils` to Veesp path is unavailable. It marks only TCP
-traffic from Docker private IPv4 networks to `185.242.106.81:8888`, sends that
-mark through the existing fail-closed table `51889`, and SNATs it to the owned
-`wg-users` address `10.89.0.1`. Telegram and OpenRouter therefore share the
-existing AWG egress without moving either secret into host routing files.
+`api-proxy-routing.sh` keeps the API container's configured legacy HTTP proxy
+address reachable without exposing tinyproxy publicly. It marks only TCP
+traffic from Docker private IPv4 networks to `185.242.106.81:8888`, DNATs that
+destination to the tunnel-only `172.29.172.3:8888`, sends the mark through the
+existing fail-closed table `51889`, and SNATs it to the owned `wg-users`
+address `10.89.0.1`. Telegram and OpenRouter therefore share the existing AWG
+egress without moving either secret into host routing files.
 
 Install the script as `/usr/local/libexec/my-utils-api-proxy-routing` and the
 unit as `/etc/systemd/system/my-utils-api-proxy-routing.service`, then enable the

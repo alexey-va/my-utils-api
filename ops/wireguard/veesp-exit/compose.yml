@@ -1,0 +1,74 @@
+name: my-utils-awg-exit
+
+services:
+  awg:
+    build:
+      context: .
+      dockerfile: Dockerfile.awg
+    container_name: my-utils-awg-exit
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    security_opt:
+      - no-new-privileges:true
+    sysctls:
+      net.ipv4.ip_forward: "1"
+    ports:
+      - "42697:42697/udp"
+    volumes:
+      - ./state/awg0.conf:/config/awg0.conf:ro
+    environment:
+      AWG_INTERFACE: awg0
+      CLIENT_CIDR: 10.89.0.0/24
+      TUNNEL_CLIENT_IP: 10.8.1.250/32
+      CONTAINER_IP: 172.29.172.2
+      TINYPROXY_IP: 172.29.172.3
+    tmpfs:
+      - /run
+      - /tmp
+    mem_limit: 128m
+    memswap_limit: 256m
+    healthcheck:
+      test: ["CMD-SHELL", "awg show awg0 >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      exit_net:
+        ipv4_address: 172.29.172.2
+
+  tinyproxy:
+    build:
+      context: .
+      dockerfile: Dockerfile.tinyproxy
+    container_name: my-utils-tinyproxy
+    restart: unless-stopped
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    tmpfs:
+      - /tmp
+    mem_limit: 64m
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 8888"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+    networks:
+      exit_net:
+        ipv4_address: 172.29.172.3
+
+networks:
+  exit_net:
+    name: my-utils-awg-exit
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: amn0
+    ipam:
+      config:
+        - subnet: 172.29.172.0/24
+          gateway: 172.29.172.1

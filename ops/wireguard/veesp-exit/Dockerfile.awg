@@ -1,0 +1,6 @@
+FROM amneziavpn/amneziawg-go@sha256:4450928744b051589bb3ba5cf6dd0cd8d7dc470b9432dc32d03d5ff5ede11b7a
+
+COPY awg-entrypoint.sh /usr/local/bin/my-utils-awg-entrypoint
+RUN chmod 0755 /usr/local/bin/my-utils-awg-entrypoint
+
+ENTRYPOINT ["/usr/local/bin/my-utils-awg-entrypoint"]
