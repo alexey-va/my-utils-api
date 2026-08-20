@@ -11,6 +11,7 @@ import (
 
 	"github.com/alexey-va/my-utils-api/internal/auth"
 	"github.com/alexey-va/my-utils-api/internal/settings"
+	"github.com/alexey-va/my-utils-api/internal/wireguard"
 )
 
 func TestHealthContract(t *testing.T) {
@@ -58,6 +59,41 @@ func TestAdminSettingsSecurityMatrix(t *testing.T) {
 				t.Fatalf("status = %d, want %d, body=%s", response.Code, test.want, response.Body.String())
 			}
 		})
+	}
+}
+
+type listRelaysService struct {
+	WireGuardService
+	relays []wireguard.Relay
+}
+
+func (service listRelaysService) ListRelays(context.Context) ([]wireguard.Relay, error) {
+	return service.relays, nil
+}
+
+func TestWireGuardRelayCollectionRouteIsNotShadowedByNestedRoutes(t *testing.T) {
+	t.Parallel()
+
+	router := NewRouter(Dependencies{
+		Auth:      fakeAuth{},
+		Settings:  fakeSettings{},
+		WireGuard: listRelaysService{relays: []wireguard.Relay{{ID: "relay-1"}}},
+	})
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/wireguard/relays", nil)
+	request.Header.Set("Authorization", "Bearer ready-admin")
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	var relays []wireguard.Relay
+	if err := json.Unmarshal(response.Body.Bytes(), &relays); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if len(relays) != 1 || relays[0].ID != "relay-1" {
+		t.Fatalf("relays = %#v", relays)
 	}
 }
 

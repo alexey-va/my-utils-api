@@ -12,9 +12,9 @@ func (a *API) registerWireGuardAdminRoutes(router chi.Router) {
 	if a.wireGuard == nil {
 		return
 	}
-	router.Get("/api/admin/wireguard/relays", a.listWireGuardRelays)
-	router.Post("/api/admin/wireguard/relays", a.createWireGuardRelay)
 	router.Route("/api/admin/wireguard/relays", func(routes chi.Router) {
+		routes.Get("/", a.listWireGuardRelays)
+		routes.Post("/", a.createWireGuardRelay)
 		routes.Post("/{relayId}/rotate-token", a.rotateWireGuardToken)
 		routes.Delete("/{relayId}", a.deleteWireGuardRelay)
 		routes.Get("/{relayId}/peers", a.listWireGuardPeers)
