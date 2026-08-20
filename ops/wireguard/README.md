@@ -83,3 +83,17 @@ The production API also needs a base64-encoded 32-byte
 `WIREGUARD_CREDENTIALS_ENCRYPTION_KEY`. Losing it does not stop existing peers,
 but prevents recovery of stored client configs; rotate affected peers instead
 of attempting to reconstruct the key.
+
+## API outbound proxy routing
+
+`api-proxy-routing.sh` keeps the API container's configured HTTP proxy reachable
+when the ordinary `utils` to Veesp path is unavailable. It marks only TCP
+traffic from Docker private IPv4 networks to `185.242.106.81:8888`, sends that
+mark through the existing fail-closed table `51889`, and SNATs it to the owned
+`wg-users` address `10.89.0.1`. Telegram and OpenRouter therefore share the
+existing AWG egress without moving either secret into host routing files.
+
+Install the script as `/usr/local/libexec/my-utils-api-proxy-routing` and the
+unit as `/etc/systemd/system/my-utils-api-proxy-routing.service`, then enable the
+unit only after `my-utils-wireguard-routing.service` is active. The unit owns
+priority `1087`, mark `0x51891`, and the `MYUTILS-API-PROXY*` iptables chains.

@@ -1,0 +1,14 @@
+[Unit]
+Description=Route my-utils API outbound proxy through AmneziaWG
+After=network-online.target docker.service my-utils-wireguard-routing.service
+Requires=my-utils-wireguard-routing.service
+Wants=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/my-utils-api-proxy-routing start
+ExecStop=/usr/local/libexec/my-utils-api-proxy-routing stop
+
+[Install]
+WantedBy=multi-user.target

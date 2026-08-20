@@ -98,6 +98,39 @@ func TestGeoInstallerPlanIsExplicitAndNonMutating(t *testing.T) {
 	}
 }
 
+func TestAPIProxyRoutingIsLimitedToTheConfiguredProxy(t *testing.T) {
+	script := readFile(t, "api-proxy-routing.sh")
+	for _, want := range []string{
+		"docker_cidr=172.16.0.0/12",
+		"proxy_destination=185.242.106.81/32",
+		"proxy_port=8888",
+		"egress_interface=awg-exit",
+		"source_address=10.89.0.1",
+		"priority=1087",
+		"mark=0x51891",
+		"lookup \"$table\"",
+		"SNAT --to-source \"$source_address\"",
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("api-proxy-routing.sh does not contain %q", want)
+		}
+	}
+	if strings.Contains(script, "0.0.0.0/0") {
+		t.Fatal("API proxy routing must not claim a default source or destination route")
+	}
+
+	unit := readFile(t, "systemd/my-utils-api-proxy-routing.service")
+	for _, want := range []string{
+		"Requires=my-utils-wireguard-routing.service",
+		"ExecStart=/usr/local/libexec/my-utils-api-proxy-routing start",
+		"ExecStop=/usr/local/libexec/my-utils-api-proxy-routing stop",
+	} {
+		if !strings.Contains(unit, want) {
+			t.Errorf("proxy routing unit does not contain %q", want)
+		}
+	}
+}
+
 func readFile(t *testing.T, path string) string {
 	t.Helper()
 	contents, err := os.ReadFile(path)
