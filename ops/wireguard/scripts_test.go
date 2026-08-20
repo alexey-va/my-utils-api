@@ -438,14 +438,155 @@ func TestUtilsExitClientInstallerKeepsReserveOutsidePolicyRouting(t *testing.T) 
 		"systemctl enable --now",
 		"latest-handshakes",
 		"expected_egress",
-		"AWG reserve client is healthy and not selected for policy routing",
+		"AWG client $interface is healthy and not selected for policy routing",
 	} {
 		if !strings.Contains(installer, want) {
 			t.Errorf("utils exit client installer does not contain %q", want)
 		}
 	}
 	if strings.Contains(installer, "ip route replace") {
-		t.Fatal("reserve client installer must not select itself in the policy table")
+		t.Fatal("AWG client installer must not select itself in the policy table")
+	}
+}
+
+func TestUtilsExitClientInstallerSupportsPrimaryAndSecondaryInterfaces(t *testing.T) {
+	installer := readFile(t, "veesp-exit/install-utils-client.sh")
+	for _, want := range []string{
+		"Plan: install and validate AWG interface $interface without changing policy table 51889",
+		"AWG client $interface is healthy and not selected for policy routing",
+		"Description=my-utils AmneziaWG egress ($interface)",
+	} {
+		if !strings.Contains(installer, want) {
+			t.Errorf("generic utils exit client installer does not contain %q", want)
+		}
+	}
+	if strings.Contains(installer, `"$interface" != awg-exit`) {
+		t.Fatal("generic utils exit client installer still rejects the primary interface")
+	}
+}
+
+func TestRelayInstallerCanReuseProtectedServerPrivateKey(t *testing.T) {
+	installer := readFile(t, "install-relay.sh")
+	for _, want := range []string{
+		"--server-private-key-file",
+		"WireGuard server private key file must exist with mode 600",
+		`PrivateKey = $server_private_key`,
+		"unset server_private_key",
+	} {
+		if !strings.Contains(installer, want) {
+			t.Errorf("relay installer does not contain %q", want)
+		}
+	}
+	if strings.Contains(installer, "cat \"$server_private_key_file\"") {
+		t.Fatal("relay installer must not print the supplied private key")
+	}
+}
+
+func TestUtilsHostPreparationIsPlanOnlyAndInstallsAWGTooling(t *testing.T) {
+	installer := readFile(t, "veesp-exit/prepare-utils-host.sh")
+	info, err := os.Stat("veesp-exit/prepare-utils-host.sh")
+	if err != nil || info.Mode().Perm()&0o111 == 0 {
+		t.Fatalf("utils host preparation script must be executable: %v", err)
+	}
+	for _, want := range []string{
+		"mode=plan",
+		"Plan only; no host changes were made",
+		"ppa:amnezia/ppa",
+		"amneziawg",
+		"install -d -m 700 /etc/my-utils/awg-identities /etc/my-utils/awg-params",
+	} {
+		if !strings.Contains(installer, want) {
+			t.Errorf("utils host preparation does not contain %q", want)
+		}
+	}
+}
+
+func TestWireGuardAnsibleBundleKeepsSecretsOffControllerDisk(t *testing.T) {
+	playbook := readFile(t, "ansible/site.yml")
+	stageFiles := readFile(t, "ansible/stage-files.txt")
+	inventory := readFile(t, "ansible/inventory.example.yml")
+	vault := readFile(t, "ansible/vault.example.yml")
+	validator := readFile(t, "ansible/validate.py")
+	for _, want := range []string{
+		"vpn_apply | bool",
+		"vault_wireguard_agent_token",
+		"vault_wireguard_server_private_key",
+		"vault_awg_client_private_keys",
+		"no_log: true",
+		"ansible.builtin.slurp",
+		"my-utils-awg-failover.service",
+		"my-utils-wireguard-dns.service",
+	} {
+		if !strings.Contains(playbook, want) {
+			t.Errorf("Ansible playbook does not contain %q", want)
+		}
+	}
+	for _, forbidden := range []string{"ansible.builtin.fetch", "local_action", "delegate_to: localhost"} {
+		if strings.Contains(playbook, forbidden) {
+			t.Errorf("Ansible playbook writes or delegates secret material through the controller: %q", forbidden)
+		}
+	}
+	for _, forbidden := range []string{"ansible/", "vault", "client.params", "awg0.conf"} {
+		if strings.Contains(stageFiles, forbidden) {
+			t.Errorf("Ansible staging whitelist contains secret-capable path %q", forbidden)
+		}
+	}
+	for _, path := range strings.Fields(stageFiles) {
+		info, err := os.Stat(path)
+		if err != nil || !info.Mode().IsRegular() {
+			t.Errorf("Ansible staging whitelist path %q is not a regular source file: %v", path, err)
+		}
+	}
+	for _, want := range []string{"stage-files.txt", "Stage only whitelisted WireGuard operation files", "state: absent"} {
+		if !strings.Contains(playbook, want) {
+			t.Errorf("Ansible playbook does not enforce clean whitelisted staging: %q", want)
+		}
+	}
+	for _, want := range []string{"vpn_relay:", "vpn_exits:", "awg_overlay_octet:", "expected_egress:"} {
+		if !strings.Contains(inventory, want) {
+			t.Errorf("Ansible example inventory does not contain %q", want)
+		}
+	}
+	for _, want := range []string{"vault_wireguard_agent_token:", "vault_wireguard_server_private_key:", "vault_awg_client_private_keys:"} {
+		if !strings.Contains(vault, want) {
+			t.Errorf("Ansible vault example does not contain %q", want)
+		}
+	}
+	if !strings.Contains(validator, "exactly two vpn_exits hosts are required") {
+		t.Fatal("Ansible validator does not enforce dual-exit topology")
+	}
+}
+
+func TestVPNAlertProvisioningCoversRelayAndBothExits(t *testing.T) {
+	rules := readFile(t, "../../observability/config/grafana/provisioning/alerting/vpn-alert-rules.yaml")
+	template := readFile(t, "../../observability/config/grafana/provisioning/alerting/metal-templates.yaml")
+	validator := readFile(t, "../../observability/scripts/validate-vpn-alerts.py")
+	for _, want := range []string{
+		"VPN metrics unavailable",
+		"VPN relay unavailable",
+		"VPN agent stale",
+		"VPN routing unhealthy",
+		"VPN all exits down",
+		"VPN primary exit unhealthy",
+		"VPN running on reserve",
+		"VPN packet loss high",
+		"receiver: Metal Discord",
+		"myutils_wireguard_collection_success",
+		"myutils_wireguard_exit_healthy",
+		"myutils_wireguard_exit_selected",
+		"myutils_wireguard_route_packet_loss_percent",
+	} {
+		if !strings.Contains(rules, want) {
+			t.Errorf("VPN alert provisioning does not contain %q", want)
+		}
+	}
+	for _, want := range []string{`eq .Labels.team "vpn"`, "VPN alert", "Open VPN"} {
+		if !strings.Contains(template, want) {
+			t.Errorf("shared alert template does not contain %q", want)
+		}
+	}
+	if !strings.Contains(validator, "EXPECTED_ALERTS") || !strings.Contains(validator, "repeat_interval") {
+		t.Fatal("VPN alert validator does not enforce the provisioned rule contract")
 	}
 }
 
@@ -534,6 +675,8 @@ func TestAWGFailoverRunnerUsesEndToEndProbesAndAtomicPolicyRoute(t *testing.T) {
 		"chmod 600",
 		"systemctl enable --now my-utils-awg-failover.timer",
 		"systemctl start my-utils-awg-failover.service",
+		"systemctl enable --now my-utils-api-proxy-routing.service",
+		"my-utils-api-proxy-routing.service",
 	} {
 		if !strings.Contains(installer, want) {
 			t.Errorf("AWG failover installer does not contain %q", want)

@@ -30,7 +30,7 @@ done
 for command in awg awg-quick curl install ip systemctl stat; do
   command -v "$command" >/dev/null || { echo "Required command is missing: $command" >&2; exit 1; }
 done
-[[ "$interface" =~ ^[a-zA-Z0-9_.-]+$ && ${#interface} -le 15 && "$interface" != awg-exit ]]
+[[ "$interface" =~ ^[a-zA-Z0-9_.-]+$ && ${#interface} -le 15 ]]
 [[ -f "$params_file" && -f "$private_key_file" ]]
 [[ "$(stat -c '%a' "$params_file")" == 600 ]]
 [[ "$(stat -c '%a' "$private_key_file")" == 600 ]]
@@ -75,14 +75,14 @@ if [[ -e "$config_file" || -e "$unit_file" ]] && [[ "$replace" != true ]]; then
   exit 1
 fi
 
-echo "Plan: install and validate reserve interface $interface without changing policy table 51889"
+echo "Plan: install and validate AWG interface $interface without changing policy table 51889"
 if [[ "$mode" != apply ]]; then
   echo "Plan only; no host changes were made"
   exit 0
 fi
 
 install -d -m 700 "$config_dir"
-tmp_dir=$(mktemp -d "$config_dir/.reserve-client.XXXXXX")
+tmp_dir=$(mktemp -d "$config_dir/.exit-client.XXXXXX")
 staging=$tmp_dir/$interface.conf
 config_backup=""
 unit_backup=""
@@ -99,7 +99,7 @@ rollback() {
   systemctl daemon-reload || true
   if [[ "$was_active" == true ]]; then systemctl enable --now "$service" || true; fi
   cleanup
-  echo "Reserve AWG client installation failed; previous state restored" >&2
+  echo "AWG client installation failed; previous state restored" >&2
   exit "$status"
 }
 trap rollback ERR
@@ -138,7 +138,7 @@ awg-quick strip "$staging" >/dev/null
 install -m 600 "$staging" "$config_file"
 cat >"$unit_file" <<EOF
 [Unit]
-Description=my-utils reserve AmneziaWG egress ($interface)
+Description=my-utils AmneziaWG egress ($interface)
 After=network-online.target
 Wants=network-online.target
 
@@ -171,4 +171,4 @@ route_after=$(ip -4 route show table 51889 2>/dev/null || true)
 trap - ERR
 cleanup
 trap - EXIT
-echo "AWG reserve client is healthy and not selected for policy routing"
+echo "AWG client $interface is healthy and not selected for policy routing"

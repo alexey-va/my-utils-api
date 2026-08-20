@@ -1,0 +1,412 @@
+---
+- name: Validate the dual-exit VPN topology
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - "{{ vpn_vault_file | default(playbook_dir + '/vault.yml') }}"
+  tasks:
+    - name: Require one relay and two exits
+      ansible.builtin.assert:
+        that:
+          - groups['vpn_relay'] | length == 1
+          - groups['vpn_exits'] | length == 2
+          - vpn_primary_exit_host in groups['vpn_exits']
+          - vpn_secondary_exit_host in groups['vpn_exits']
+          - vpn_primary_exit_host != vpn_secondary_exit_host
+          - hostvars[vpn_primary_exit_host].awg_role == 'primary'
+          - hostvars[vpn_secondary_exit_host].awg_role == 'secondary'
+          - vpn_stage_dir is match('^/opt/my-utils[-A-Za-z0-9._/]+$')
+        fail_msg: The inventory must describe exactly one relay, one primary exit, and one secondary exit.
+
+    - name: Validate vaulted secret shape without logging values
+      ansible.builtin.assert:
+        that:
+          - vault_wireguard_agent_token | length >= 40
+          - vault_wireguard_server_private_key is match('^[A-Za-z0-9+/]{43}=$')
+          - vault_awg_client_private_keys.keys() | sort == groups['vpn_exits'] | sort
+          - vault_awg_client_private_keys[vpn_primary_exit_host] is match('^[A-Za-z0-9+/]{43}=$')
+          - vault_awg_client_private_keys[vpn_secondary_exit_host] is match('^[A-Za-z0-9+/]{43}=$')
+        fail_msg: Vaulted WireGuard values are missing or malformed.
+      no_log: true
+
+    - name: Report the non-mutating topology plan
+      ansible.builtin.debug:
+        msg: >-
+          relay={{ groups['vpn_relay'][0] }}, primary={{ vpn_primary_exit_host }},
+          secondary={{ vpn_secondary_exit_host }}, apply={{ vpn_apply | bool }},
+          replace={{ vpn_replace | bool }}
+
+- name: Prepare relay-side identities
+  hosts: vpn_relay
+  become: true
+  gather_facts: false
+  vars_files:
+    - "{{ vpn_vault_file | default(playbook_dir + '/vault.yml') }}"
+  vars:
+    vpn_stage_files: "{{ lookup('ansible.builtin.file', playbook_dir + '/stage-files.txt').splitlines() }}"
+  tasks:
+    - name: Reset the owned operations staging directory
+      ansible.builtin.file:
+        path: "{{ vpn_stage_dir }}"
+        state: absent
+      when: vpn_apply | bool
+
+    - name: Create the whitelisted staging directory tree
+      ansible.builtin.file:
+        path: "{{ vpn_stage_dir }}/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      loop:
+        - ''
+        - systemd
+        - veesp-exit
+      when: vpn_apply | bool
+
+    - name: Stage only whitelisted WireGuard operation files
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../{{ item }}"
+        dest: "{{ vpn_stage_dir }}/{{ item }}"
+        owner: root
+        group: root
+        mode: preserve
+      loop: "{{ vpn_stage_files }}"
+      when: vpn_apply | bool
+
+    - name: Install relay-side AWG prerequisites
+      ansible.builtin.command:
+        argv:
+          - "{{ vpn_stage_dir }}/veesp-exit/prepare-utils-host.sh"
+          - --apply
+      when: vpn_apply | bool
+      changed_when: true
+
+    - name: Create protected Ansible secret directory
+      ansible.builtin.file:
+        path: /etc/my-utils/ansible-secrets
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      when: vpn_apply | bool
+
+    - name: Materialize stable relay secrets
+      ansible.builtin.copy:
+        content: "{{ item.value }}\n"
+        dest: "{{ item.path }}"
+        owner: root
+        group: root
+        mode: '0600'
+      loop:
+        - path: /etc/my-utils/ansible-secrets/relay-agent.token
+          value: "{{ vault_wireguard_agent_token }}"
+        - path: /etc/my-utils/ansible-secrets/wg-users.key
+          value: "{{ vault_wireguard_server_private_key }}"
+      when: vpn_apply | bool
+      no_log: true
+
+    - name: Materialize stable AWG client private keys on the relay
+      ansible.builtin.copy:
+        content: "{{ vault_awg_client_private_keys[item] }}\n"
+        dest: "/etc/my-utils/awg-identities/{{ hostvars[item].awg_interface }}.key"
+        owner: root
+        group: root
+        mode: '0600'
+      loop: "{{ groups['vpn_exits'] }}"
+      when: vpn_apply | bool
+      no_log: true
+
+    - name: Derive AWG client public keys on the relay
+      ansible.builtin.command:
+        argv:
+          - awg
+          - pubkey
+        stdin: "{{ vault_awg_client_private_keys[item] }}"
+        stdin_add_newline: true
+      loop: "{{ groups['vpn_exits'] }}"
+      register: vpn_awg_public_keys
+      when: vpn_apply | bool
+      changed_when: false
+      no_log: true
+
+    - name: Store AWG client public keys on the relay
+      ansible.builtin.copy:
+        content: "{{ item.stdout | trim }}\n"
+        dest: "/etc/my-utils/awg-identities/{{ hostvars[item.item].awg_interface }}.pub"
+        owner: root
+        group: root
+        mode: '0600'
+      loop: "{{ vpn_awg_public_keys.results | default([]) }}"
+      when: vpn_apply | bool
+      no_log: true
+
+- name: Build and install the isolated AWG exits
+  hosts: vpn_exits
+  become: true
+  gather_facts: false
+  vars:
+    vpn_relay_host: "{{ groups['vpn_relay'][0] }}"
+    vpn_exit_state_dir: "/etc/my-utils/ansible-awg/{{ awg_interface }}"
+    vpn_stage_files: "{{ lookup('ansible.builtin.file', playbook_dir + '/stage-files.txt').splitlines() }}"
+  tasks:
+    - name: Reset the owned operations staging directory
+      ansible.builtin.file:
+        path: "{{ vpn_stage_dir }}"
+        state: absent
+      when: vpn_apply | bool
+
+    - name: Create the whitelisted staging directory tree
+      ansible.builtin.file:
+        path: "{{ vpn_stage_dir }}/{{ item }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      loop:
+        - ''
+        - systemd
+        - veesp-exit
+      when: vpn_apply | bool
+
+    - name: Stage only whitelisted WireGuard operation files
+      ansible.builtin.copy:
+        src: "{{ playbook_dir }}/../{{ item }}"
+        dest: "{{ vpn_stage_dir }}/{{ item }}"
+        owner: root
+        group: root
+        mode: preserve
+      loop: "{{ vpn_stage_files }}"
+      when: vpn_apply | bool
+
+    - name: Build exit bootstrap arguments
+      ansible.builtin.set_fact:
+        vpn_bootstrap_argv: >-
+          {{ [vpn_stage_dir + '/veesp-exit/bootstrap-host.sh', '--swap-gib',
+              (exit_swap_gib | default(2) | string), '--ssh-port',
+              (exit_ssh_port | default(22) | string), '--apply']
+             + (vpn_replace | bool | ternary(['--replace'], [])) }}
+      when: vpn_apply | bool
+
+    - name: Add trusted SSH sources to bootstrap arguments
+      ansible.builtin.set_fact:
+        vpn_bootstrap_argv: "{{ vpn_bootstrap_argv + ['--trusted-ssh-ip', item] }}"
+      loop: "{{ hostvars[vpn_relay_host].vpn_trusted_ssh_ips | default([]) }}"
+      when: vpn_apply | bool
+
+    - name: Bootstrap the exit host
+      ansible.builtin.command:
+        argv: "{{ vpn_bootstrap_argv }}"
+      when: vpn_apply | bool
+      changed_when: true
+
+    - name: Read the matching AWG client public key from the relay
+      ansible.builtin.slurp:
+        src: "/etc/my-utils/awg-identities/{{ awg_interface }}.pub"
+      delegate_to: "{{ vpn_relay_host }}"
+      register: vpn_awg_client_public_key
+      when: vpn_apply | bool
+      no_log: true
+
+    - name: Create protected exit generation directory
+      ansible.builtin.file:
+        path: "{{ vpn_exit_state_dir }}"
+        state: directory
+        owner: root
+        group: root
+        mode: '0700'
+      when: vpn_apply | bool
+
+    - name: Store the matching AWG client public key on the exit
+      ansible.builtin.copy:
+        content: "{{ vpn_awg_client_public_key.content | b64decode }}"
+        dest: "{{ vpn_exit_state_dir }}/client.pub"
+        owner: root
+        group: root
+        mode: '0600'
+      when: vpn_apply | bool
+      no_log: true
+
+    - name: Remove generated exit material only for explicit replacement
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - "{{ vpn_exit_state_dir }}/awg0.conf"
+        - "{{ vpn_exit_state_dir }}/client.params"
+      when:
+        - vpn_apply | bool
+        - vpn_replace | bool
+      no_log: true
+
+    - name: Inspect generated exit parameters
+      ansible.builtin.stat:
+        path: "{{ vpn_exit_state_dir }}/client.params"
+      register: vpn_exit_params_stat
+      when: vpn_apply | bool
+      no_log: true
+
+    - name: Generate protected AWG server and client parameters
+      ansible.builtin.command:
+        argv:
+          - "{{ vpn_stage_dir }}/veesp-exit/generate-config.sh"
+          - --client-public-key-file
+          - "{{ vpn_exit_state_dir }}/client.pub"
+          - --server-config
+          - "{{ vpn_exit_state_dir }}/awg0.conf"
+          - --client-params
+          - "{{ vpn_exit_state_dir }}/client.params"
+          - --endpoint
+          - "{{ awg_endpoint }}"
+          - --server-address
+          - "10.8.{{ awg_overlay_octet }}.1/24"
+          - --client-address
+          - "10.8.{{ awg_overlay_octet }}.250/32"
+      when:
+        - vpn_apply | bool
+        - not vpn_exit_params_stat.stat.exists
+      changed_when: true
+      no_log: true
+
+    - name: Install and verify the isolated exit stack
+      ansible.builtin.command:
+        argv: >-
+          {{ [vpn_stage_dir + '/veesp-exit/install.sh', '--config',
+              vpn_exit_state_dir + '/awg0.conf', '--apply']
+             + (vpn_replace | bool | ternary(['--replace'], [])) }}
+      when: vpn_apply | bool
+      changed_when: true
+      no_log: true
+
+    - name: Keep generated client parameters only in Ansible memory
+      ansible.builtin.slurp:
+        src: "{{ vpn_exit_state_dir }}/client.params"
+      register: vpn_client_params
+      when: vpn_apply | bool
+      no_log: true
+
+- name: Install the relay, failover, geo routing, and client DNS
+  hosts: vpn_relay
+  become: true
+  gather_facts: false
+  vars:
+    vpn_primary: "{{ hostvars[vpn_primary_exit_host] }}"
+    vpn_secondary: "{{ hostvars[vpn_secondary_exit_host] }}"
+  tasks:
+    - name: Store exit client parameters on the relay
+      ansible.builtin.copy:
+        content: "{{ hostvars[item].vpn_client_params.content | b64decode }}"
+        dest: "/etc/my-utils/awg-params/{{ hostvars[item].awg_interface }}.params"
+        owner: root
+        group: root
+        mode: '0600'
+      loop: "{{ groups['vpn_exits'] }}"
+      when: vpn_apply | bool
+      no_log: true
+
+    - name: Install and validate both relay-side AWG clients
+      ansible.builtin.command:
+        argv: >-
+          {{ [vpn_stage_dir + '/veesp-exit/install-utils-client.sh', '--interface',
+              hostvars[item].awg_interface, '--params',
+              '/etc/my-utils/awg-params/' + hostvars[item].awg_interface + '.params',
+              '--private-key-file',
+              '/etc/my-utils/awg-identities/' + hostvars[item].awg_interface + '.key',
+              '--expected-egress', hostvars[item].expected_egress, '--apply']
+             + (vpn_replace | bool | ternary(['--replace'], [])) }}
+      loop: "{{ groups['vpn_exits'] }}"
+      when: vpn_apply | bool
+      changed_when: true
+      no_log: true
+
+    - name: Install the stable standard WireGuard ingress and agent
+      ansible.builtin.command:
+        argv: >-
+          {{ [vpn_stage_dir + '/install-relay.sh', '--api-base-url', vpn_api_base_url,
+              '--relay-id', vpn_relay_id, '--agent-token-file',
+              '/etc/my-utils/ansible-secrets/relay-agent.token',
+              '--server-private-key-file', '/etc/my-utils/ansible-secrets/wg-users.key',
+              '--public-endpoint', vpn_public_endpoint, '--client-cidr', vpn_client_cidr,
+              '--listen-port', (vpn_listen_port | string), '--apply']
+             + (vpn_replace | bool | ternary(['--replace'], [])) }}
+      when: vpn_apply | bool
+      changed_when: true
+      no_log: true
+
+    - name: Install guarded dual-exit failover
+      ansible.builtin.command:
+        argv: >-
+          {{ [vpn_stage_dir + '/veesp-exit/install-awg-failover.sh',
+              '--primary-interface', vpn_primary.awg_interface,
+              '--secondary-interface', vpn_secondary.awg_interface,
+              '--primary-egress', vpn_primary.expected_egress,
+              '--secondary-egress', vpn_secondary.expected_egress,
+              '--api-proxy-script', vpn_stage_dir + '/api-proxy-routing.sh', '--apply']
+             + (vpn_replace | bool | ternary(['--replace'], [])) }}
+      when: vpn_apply | bool
+      changed_when: true
+
+    - name: Install validated RU-direct routing
+      ansible.builtin.command:
+        argv:
+          - "{{ vpn_stage_dir }}/install-geo-routing.sh"
+          - --client-cidr
+          - "{{ vpn_client_cidr }}"
+          - --ingress-interface
+          - "{{ vpn_ingress_interface }}"
+          - --direct-egress-interface
+          - "{{ vpn_direct_egress_interface }}"
+          - --source-url
+          - "{{ vpn_geo_source_url }}"
+          - --apply
+      when: vpn_apply | bool
+      changed_when: true
+
+    - name: Install AWG-independent private client DNS
+      ansible.builtin.command:
+        argv:
+          - "{{ vpn_stage_dir }}/install-client-dns.sh"
+          - --client-cidr
+          - "{{ vpn_client_cidr }}"
+          - --ingress-interface
+          - "{{ vpn_ingress_interface }}"
+          - --resolver-address
+          - "{{ vpn_client_dns }}"
+          - --apply
+      when: vpn_apply | bool
+      changed_when: true
+
+    - name: Verify relay and failover systemd units
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-active
+          - "{{ item }}"
+      loop:
+        - wg-quick@wg-users.service
+        - my-utils-awg-exit.service
+        - my-utils-awg-exit-b.service
+        - my-utils-awg-failover.service
+        - my-utils-wireguard-routing.service
+        - my-utils-api-proxy-routing.service
+        - my-utils-wireguard-agent.timer
+        - my-utils-geo-routing.service
+        - my-utils-wireguard-dns.service
+      when: vpn_apply | bool
+      changed_when: false
+
+    - name: Verify both exits and fail-closed routing state
+      ansible.builtin.command:
+        argv:
+          - bash
+          - -ec
+          - >-
+            awg show awg-exit >/dev/null;
+            awg show awg-exit-b >/dev/null;
+            wg show wg-users >/dev/null;
+            jq -e '.overallStatus == "HEALTHY" and (.activeExit == "primary" or .activeExit == "secondary")'
+            /var/lib/my-utils-wireguard/exit-health.json >/dev/null;
+            ip -4 route show table 51889 | grep -Fq 'unreachable default'
+      when: vpn_apply | bool
+      changed_when: false

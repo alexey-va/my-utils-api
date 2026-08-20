@@ -11,6 +11,7 @@ REMOTE_DIR="${OBSERVABILITY_REMOTE_DIR:-~/grafana}"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 python3 "${SCRIPT_DIR}/scripts/apply-metal-discord-template.py" --check
+python3 "${SCRIPT_DIR}/scripts/validate-vpn-alerts.py" --check
 
 echo "Sync config/ → ${HOST}:${REMOTE_DIR}/config/"
 rsync -avz \

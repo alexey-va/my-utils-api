@@ -72,6 +72,10 @@ func (m *Metrics) Handler() http.Handler {
 	return promhttp.HandlerFor(m.registry, promhttp.HandlerOpts{})
 }
 
+func (m *Metrics) RegisterWireGuard(source WireGuardRelaySource) {
+	m.registry.MustRegister(newWireGuardCollector(source))
+}
+
 func (m *Metrics) HTTPMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		start := time.Now()

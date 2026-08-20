@@ -6,6 +6,7 @@ replace=false
 api_base_url=""
 relay_id=""
 agent_token_file=""
+server_private_key_file=""
 public_endpoint=""
 client_cidr=""
 listen_port=51820
@@ -13,7 +14,7 @@ interface=wg-users
 egress_interface=awg-exit
 
 usage() {
-  echo "Usage: $0 --api-base-url URL --relay-id UUID --agent-token-file FILE --public-endpoint HOST:PORT --client-cidr CIDR [--listen-port PORT] [--apply] [--replace]" >&2
+  echo "Usage: $0 --api-base-url URL --relay-id UUID --agent-token-file FILE --public-endpoint HOST:PORT --client-cidr CIDR [--server-private-key-file FILE] [--listen-port PORT] [--apply] [--replace]" >&2
 }
 
 valid_private_cidr() {
@@ -37,6 +38,7 @@ while (($#)); do
     --api-base-url) api_base_url="${2:-}"; shift 2 ;;
     --relay-id) relay_id="${2:-}"; shift 2 ;;
     --agent-token-file) agent_token_file="${2:-}"; shift 2 ;;
+    --server-private-key-file) server_private_key_file="${2:-}"; shift 2 ;;
     --public-endpoint) public_endpoint="${2:-}"; shift 2 ;;
     --client-cidr) client_cidr="${2:-}"; shift 2 ;;
     --listen-port) listen_port="${2:-}"; shift 2 ;;
@@ -79,6 +81,19 @@ if [[ -z "$agent_token_file" || ! -f "$agent_token_file" || "$(stat -c '%a' "$ag
   echo "Agent token file must exist with mode 600" >&2
   exit 1
 fi
+if [[ -n "$server_private_key_file" ]]; then
+  if [[ ! -f "$server_private_key_file" || "$(stat -c '%a' "$server_private_key_file")" != "600" ]]; then
+    echo "WireGuard server private key file must exist with mode 600" >&2
+    exit 1
+  fi
+  server_private_key=$(tr -d '\r\n' <"$server_private_key_file")
+  if [[ ! "$server_private_key" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+    unset server_private_key
+    echo "WireGuard server private key file is invalid" >&2
+    exit 1
+  fi
+  unset server_private_key
+fi
 if [[ ! -f /etc/os-release ]] || ! grep -q '^ID=ubuntu$' /etc/os-release; then
   echo "Only Ubuntu is supported" >&2
   exit 1
@@ -109,17 +124,23 @@ install -d -m 755 /usr/local/libexec
 tmp_dir="$(mktemp -d)"
 cleanup() { rm -rf -- "$tmp_dir"; }
 trap cleanup EXIT INT TERM
-wg genkey >"$tmp_dir/server.key"
+if [[ -n "$server_private_key_file" ]]; then
+  server_private_key=$(tr -d '\r\n' <"$server_private_key_file")
+else
+  wg genkey >"$tmp_dir/server.key"
+  server_private_key=$(<"$tmp_dir/server.key")
+fi
 server_address="${client_cidr%/*}"
 server_address="${server_address%.*}.1/${client_cidr#*/}"
 cat >"$tmp_dir/$interface.conf" <<EOF
 [Interface]
 Address = $server_address
-PrivateKey = $(<"$tmp_dir/server.key")
+PrivateKey = $server_private_key
 ListenPort = $listen_port
 MTU = 1380
 SaveConfig = false
 EOF
+unset server_private_key
 if [[ -e "$target" ]]; then
   cp -a -- "$target" "$target.backup.$(date -u +%Y%m%dT%H%M%SZ)"
 fi

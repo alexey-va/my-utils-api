@@ -1,0 +1,384 @@
+apiVersion: 1
+groups:
+  - orgId: 1
+    name: vpn-data-plane
+    folder: My Utils
+    interval: 30s
+    rules:
+      - uid: vpnmetrics01
+        title: VPN metrics unavailable
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              datasource: {type: prometheus, uid: prometheus}
+              editorMode: code
+              expr: myutils_wireguard_collection_success
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  reducer: {type: last}
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        dashboardUid: myutils-api-metrics
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: VPN state cannot be read from PostgreSQL
+          description: The API metrics endpoint is up, but its WireGuard collector cannot read persisted relay state.
+        labels: {severity: critical, team: vpn}
+        isPaused: false
+        notification_settings: &vpn_critical_notifications
+          receiver: Metal Discord
+          group_by: [alertname, relay]
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 4h
+
+      - uid: vpnrelay02
+        title: VPN relay unavailable
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              datasource: {type: prometheus, uid: prometheus}
+              editorMode: code
+              expr: myutils_wireguard_relay_ready
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  reducer: {type: last}
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        dashboardUid: myutils-api-metrics
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: Relay data plane is not READY
+          description: Routing, DNS, desired state, or exit health keeps the relay outside READY.
+        labels: {severity: critical, team: vpn}
+        isPaused: false
+        notification_settings: *vpn_critical_notifications
+
+      - uid: vpnagent03
+        title: VPN agent stale
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              datasource: {type: prometheus, uid: prometheus}
+              editorMode: code
+              expr: time() - myutils_wireguard_agent_last_seen_timestamp_seconds
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [45], type: gt}
+                  operator: {type: and}
+                  reducer: {type: last}
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        dashboardUid: myutils-api-metrics
+        noDataState: OK
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: Relay agent heartbeat is older than 45 seconds
+          description: Host state is no longer converging into the API; inspect the agent timer before trusting the dashboard.
+        labels: {severity: critical, team: vpn}
+        isPaused: false
+        notification_settings: *vpn_critical_notifications
+
+      - uid: vpnroute04
+        title: VPN routing unhealthy
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              datasource: {type: prometheus, uid: prometheus}
+              editorMode: code
+              expr: myutils_wireguard_routing_healthy
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  reducer: {type: last}
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        dashboardUid: myutils-api-metrics
+        noDataState: OK
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: Policy routing or private client DNS is unhealthy
+          description: The relay agent failed its current routing and DNS readiness checks.
+        labels: {severity: critical, team: vpn}
+        isPaused: false
+        notification_settings: *vpn_critical_notifications
+
+      - uid: vpnexits05
+        title: VPN all exits down
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              datasource: {type: prometheus, uid: prometheus}
+              editorMode: code
+              expr: sum by (relay_id, relay) (myutils_wireguard_exit_healthy)
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  reducer: {type: last}
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        dashboardUid: myutils-api-metrics
+        noDataState: OK
+        execErrState: Alerting
+        for: 30s
+        annotations:
+          summary: Neither AWG exit passes the real egress probe
+          description: External traffic is fail-closed until at least one exit recovers.
+        labels: {severity: critical, team: vpn}
+        isPaused: false
+        notification_settings: *vpn_critical_notifications
+
+      - uid: vpnprimary06
+        title: VPN primary exit unhealthy
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              datasource: {type: prometheus, uid: prometheus}
+              editorMode: code
+              expr: myutils_wireguard_exit_healthy{exit="primary"}
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [1], type: lt}
+                  operator: {type: and}
+                  reducer: {type: last}
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        dashboardUid: myutils-api-metrics
+        noDataState: OK
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: Primary AWG exit failed its handshake or expected-egress probe
+          description: The reserve can carry traffic, but provider redundancy is degraded.
+        labels: {severity: warning, team: vpn}
+        isPaused: false
+        notification_settings: &vpn_warning_notifications
+          receiver: Metal Discord
+          group_by: [alertname, relay]
+          group_wait: 30s
+          group_interval: 5m
+          repeat_interval: 6h
+
+      - uid: vpnreserve07
+        title: VPN running on reserve
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 300, to: 0}
+            datasourceUid: prometheus
+            model:
+              datasource: {type: prometheus, uid: prometheus}
+              editorMode: code
+              expr: myutils_wireguard_exit_selected{exit="secondary"}
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [0.5], type: gt}
+                  operator: {type: and}
+                  reducer: {type: last}
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        dashboardUid: myutils-api-metrics
+        noDataState: OK
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: External traffic is using the secondary exit
+          description: Safe fallback is active; inspect the primary provider if this persists.
+        labels: {severity: warning, team: vpn}
+        isPaused: false
+        notification_settings: *vpn_warning_notifications
+
+      - uid: vpnloss08
+        title: VPN packet loss high
+        condition: C
+        data:
+          - refId: A
+            relativeTimeRange: {from: 600, to: 0}
+            datasourceUid: prometheus
+            model:
+              datasource: {type: prometheus, uid: prometheus}
+              editorMode: code
+              expr: myutils_wireguard_route_packet_loss_percent
+              instant: true
+              intervalMs: 1000
+              maxDataPoints: 43200
+              range: false
+              refId: A
+          - refId: B
+            datasourceUid: __expr__
+            model:
+              datasource: {type: __expr__, uid: __expr__}
+              expression: A
+              reducer: last
+              refId: B
+              type: reduce
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator: {params: [20], type: gt}
+                  operator: {type: and}
+                  reducer: {type: last}
+              datasource: {type: __expr__, uid: __expr__}
+              expression: B
+              refId: C
+              type: threshold
+        dashboardUid: myutils-api-metrics
+        noDataState: OK
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: Route probe packet loss stayed above 20 percent
+          description: Use the path label to distinguish Internal from External transport degradation.
+        labels: {severity: warning, team: vpn}
+        isPaused: false
+        notification_settings: *vpn_warning_notifications

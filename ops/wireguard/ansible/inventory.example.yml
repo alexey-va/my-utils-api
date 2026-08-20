@@ -1,0 +1,47 @@
+all:
+  vars:
+    vpn_apply: false
+    vpn_replace: false
+    vpn_stage_dir: /opt/my-utils-wireguard-deploy
+    vpn_vault_file: "{{ playbook_dir }}/vault.yml"
+    vpn_primary_exit_host: exit_primary
+    vpn_secondary_exit_host: exit_secondary
+    vpn_client_cidr: 10.89.0.0/24
+    vpn_client_dns: 10.89.0.1
+    vpn_ingress_interface: wg-users
+    vpn_listen_port: 51820
+    vpn_geo_source_url: https://www.ipdeny.com/ipblocks/data/aggregated/ru-aggregated.zone
+  children:
+    vpn_relay:
+      hosts:
+        utils:
+          ansible_host: 192.0.2.10
+          ansible_user: root
+          vpn_api_base_url: http://127.0.0.1:8080
+          vpn_relay_id: 00000000-0000-4000-8000-000000000000
+          vpn_public_endpoint: vpn.example.net:51820
+          vpn_direct_egress_interface: eth0
+          vpn_trusted_ssh_ips:
+            - 198.51.100.20
+    vpn_exits:
+      hosts:
+        exit_primary:
+          ansible_host: 192.0.2.21
+          ansible_user: root
+          awg_role: primary
+          awg_interface: awg-exit
+          awg_overlay_octet: 1
+          awg_endpoint: 192.0.2.21:42697
+          expected_egress: 192.0.2.21
+          exit_swap_gib: 2
+          exit_ssh_port: 22
+        exit_secondary:
+          ansible_host: 192.0.2.22
+          ansible_user: root
+          awg_role: secondary
+          awg_interface: awg-exit-b
+          awg_overlay_octet: 2
+          awg_endpoint: 192.0.2.22:42697
+          expected_egress: 192.0.2.22
+          exit_swap_gib: 2
+          exit_ssh_port: 22

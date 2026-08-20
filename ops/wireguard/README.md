@@ -15,6 +15,15 @@ They refuse unexpected container layouts, unsupported operating systems,
 unsafe CIDRs, loose secret-file permissions, and existing configs unless an
 explicit replacement mode is available.
 
+For a full fresh-host rebuild, the built-in-only orchestration under
+[`ansible/`](ansible/README.md) stages these same installers on one relay and
+two exits. It is also plan-only by default; host mutation requires
+`vpn_apply=true`, and replacement additionally requires `vpn_replace=true`.
+The standard `wg-users` private key and both relay-side AWG client keys come
+from an encrypted Ansible Vault file so a relay rebuild does not invalidate
+existing client profiles. Secret-bearing tasks use `no_log` and generated exit
+parameters stay in Ansible memory rather than controller-side files.
+
 ## Order of operations
 
 1. Create a relay through the administrator API and save its one-time agent
@@ -200,6 +209,13 @@ loss between a client device and `wg-users`. Targets and interfaces can be
 overridden with `WIREGUARD_DIRECT_PROBE_TARGET`,
 `WIREGUARD_DIRECT_INTERFACE`, and `WIREGUARD_AWG_INTERFACE` in the agent
 environment.
+
+The API exposes this persisted state as `myutils_wireguard_*` Prometheus
+series. Grafana provisioning in
+`observability/config/grafana/provisioning/alerting/vpn-alert-rules.yaml`
+evaluates it every 30 seconds with explicit anti-flap windows. Missing API
+metrics or a missing relay series is alertable; narrower rules defer absent
+data to those root alerts so one outage does not produce a notification storm.
 
 The production API also needs a base64-encoded 32-byte
 `WIREGUARD_CREDENTIALS_ENCRYPTION_KEY`. Losing it does not stop existing peers,

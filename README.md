@@ -183,3 +183,11 @@ from validated agent heartbeats and retained for 31 days.
 `PUT .../relays/{id}/exit-preference` accepts `AUTO`, `PRIMARY`, or `SECONDARY`.
 The preference is delivered through agent desired state and keeps a safe
 fallback to the other healthy exit.
+
+The Prometheus endpoint exports relay readiness, routing health, agent
+freshness, per-exit health/selection/latency, and Internal/External packet loss
+and RTT. Versioned Grafana provisioning under `observability/` alerts through
+the existing Discord receiver for a stale agent, broken routing, both exits
+down, primary degradation, reserve use, and sustained packet loss. The
+recovery playbook and its encrypted-key workflow live in
+[`ops/wireguard/ansible/`](ops/wireguard/ansible/README.md).

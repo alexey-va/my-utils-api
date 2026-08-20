@@ -49,6 +49,8 @@ if [[ -z "$api_proxy_script" ]]; then
   api_proxy_script=$source_dir/../api-proxy-routing.sh
 fi
 [[ -f "$api_proxy_script" ]] || { echo "API proxy routing asset is missing: $api_proxy_script" >&2; exit 1; }
+api_proxy_unit=$source_dir/../systemd/my-utils-api-proxy-routing.service
+[[ -f "$api_proxy_unit" ]] || { echo "API proxy routing systemd unit is missing: $api_proxy_unit" >&2; exit 1; }
 env_file=/etc/my-utils/awg-failover.env
 routing_env_file=/etc/my-utils/wireguard-routing-ha.env
 if [[ ( -e "$env_file" || -e "$routing_env_file" || -e /usr/local/libexec/my-utils-wireguard-routing ) && "$replace" != true ]]; then
@@ -72,7 +74,7 @@ done
 install -d -m 700 /etc/my-utils /var/lib/my-utils-wireguard
 install -d -m 755 /usr/local/libexec
 timestamp=$(date -u +%Y%m%dT%H%M%SZ)
-for target in /usr/local/libexec/my-utils-wireguard-routing /usr/local/libexec/my-utils-api-proxy-routing /etc/systemd/system/my-utils-wireguard-routing.service; do
+for target in /usr/local/libexec/my-utils-wireguard-routing /usr/local/libexec/my-utils-api-proxy-routing /etc/systemd/system/my-utils-wireguard-routing.service /etc/systemd/system/my-utils-api-proxy-routing.service; do
   if [[ -e "$target" ]]; then cp -a -- "$target" "$target.backup.$timestamp"; fi
 done
 install -m 755 "$source_dir/awg-failover.sh" /usr/local/libexec/my-utils-awg-failover
@@ -82,6 +84,7 @@ install -m 755 "$api_proxy_script" /usr/local/libexec/my-utils-api-proxy-routing
 install -m 644 "$source_dir/my-utils-awg-failover.service" /etc/systemd/system/
 install -m 644 "$source_dir/my-utils-awg-failover.timer" /etc/systemd/system/
 install -m 644 "$source_dir/my-utils-wireguard-routing-ha.service" /etc/systemd/system/my-utils-wireguard-routing.service
+install -m 644 "$api_proxy_unit" /etc/systemd/system/my-utils-api-proxy-routing.service
 env_tmp=$(mktemp /etc/my-utils/.awg-failover.XXXXXX)
 cat >"$env_tmp" <<EOF
 # managed-by-my-utils
@@ -123,6 +126,7 @@ mv -f -- "$routing_env_tmp" "$routing_env_file"
 systemctl daemon-reload
 /usr/local/libexec/my-utils-wireguard-routing start
 /usr/local/libexec/my-utils-api-proxy-routing start
+systemctl enable --now my-utils-api-proxy-routing.service
 systemctl enable --now my-utils-awg-failover.timer
 systemctl start my-utils-awg-failover.service
 jq -e '.overallStatus == "HEALTHY" and .activeExit == "primary"' /var/lib/my-utils-wireguard/exit-health.json >/dev/null

@@ -130,6 +130,7 @@ func run(ctx context.Context) error {
 	agentMemory := agent.NewMemory(pool, nil)
 	agentMemory.SetZoneID(func() string { return runtimeSettings.String(settings.TemporalZoneID) })
 	metrics := observability.NewMetrics()
+	metrics.RegisterWireGuard(wireGuardService)
 	reportRenderer := report.NewRenderer()
 	telegramProxy, outboundProxyURL := configuredOutboundProxy(cfg.OpenRouter.Proxy)
 	var telegramClient *telegram.Client

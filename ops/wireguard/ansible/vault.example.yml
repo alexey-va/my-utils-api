@@ -1,0 +1,7 @@
+# Copy this file to vault.yml, replace every placeholder, then encrypt it with:
+#   ansible-vault encrypt vault.yml
+vault_wireguard_agent_token: CHANGE_ME_RELAY_AGENT_TOKEN
+vault_wireguard_server_private_key: CHANGE_ME_WIREGUARD_PRIVATE_KEY
+vault_awg_client_private_keys:
+  exit_primary: CHANGE_ME_PRIMARY_AWG_PRIVATE_KEY
+  exit_secondary: CHANGE_ME_SECONDARY_AWG_PRIVATE_KEY

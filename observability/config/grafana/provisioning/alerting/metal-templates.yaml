@@ -4,15 +4,20 @@ templates:
     name: metal-discord
     template: |
       {{ define "metal.hostName" -}}
-      {{- or .Labels.service_name .Labels.alias .Labels.server_name "unknown" -}}
+      {{- if eq .Labels.team "vpn" -}}{{ or .Labels.relay "utils" }}
+      {{- else -}}{{ or .Labels.service_name .Labels.alias .Labels.server_name "unknown" }}
+      {{- end -}}
       {{ end }}
 
       {{ define "metal.hostRole" -}}
+      {{- if eq .Labels.team "vpn" -}}WireGuard relay · dual AWG exits
+      {{- else -}}
       {{- $host := or .Labels.service_name "" -}}
       {{- if eq $host "utils" -}}Monitoring stack · Yandex Cloud
       {{- else if eq $host "velocity" -}}Minecraft proxy host
       {{- else if eq $host "gercena" -}}Minecraft backend host
       {{- else -}}Server host
+      {{- end -}}
       {{- end -}}
       {{ end }}
 
@@ -23,6 +28,14 @@ templates:
       {{- else if eq $name "Metal memory high" -}}Memory exhausted
       {{- else if eq $name "Metal disk full" -}}Root disk almost full
       {{- else if eq $name "Metal service unreachable" -}}Service unreachable
+      {{- else if eq $name "VPN metrics unavailable" -}}VPN metrics unavailable
+      {{- else if eq $name "VPN relay unavailable" -}}VPN relay unavailable
+      {{- else if eq $name "VPN agent stale" -}}VPN agent heartbeat stale
+      {{- else if eq $name "VPN routing unhealthy" -}}VPN routing unhealthy
+      {{- else if eq $name "VPN all exits down" -}}Both VPN exits are down
+      {{- else if eq $name "VPN primary exit unhealthy" -}}Primary VPN exit unhealthy
+      {{- else if eq $name "VPN running on reserve" -}}VPN is using the reserve exit
+      {{- else if eq $name "VPN packet loss high" -}}VPN packet loss is high
       {{- else -}}{{ $name }}
       {{- end -}}
       {{ end }}
@@ -34,6 +47,14 @@ templates:
       {{- else if eq $name "Metal memory high" -}}Less than 10% RAM available — OOM risk.
       {{- else if eq $name "Metal disk full" -}}Root filesystem usage exceeded 85%.
       {{- else if eq $name "Metal service unreachable" -}}Blackbox probe failed for more than two minutes.
+      {{- else if eq $name "VPN metrics unavailable" -}}The API cannot project persisted WireGuard state into Prometheus.
+      {{- else if eq $name "VPN relay unavailable" -}}The relay data plane is not READY after the anti-flap window.
+      {{- else if eq $name "VPN agent stale" -}}The relay agent stopped reporting current host state.
+      {{- else if eq $name "VPN routing unhealthy" -}}Policy routing or private client DNS failed readiness checks.
+      {{- else if eq $name "VPN all exits down" -}}Neither AWG exit passes the handshake and expected-egress probe; external traffic is fail-closed.
+      {{- else if eq $name "VPN primary exit unhealthy" -}}Provider redundancy is degraded even if the reserve still carries traffic.
+      {{- else if eq $name "VPN running on reserve" -}}Safe fallback selected the secondary exit and will return automatically after recovery.
+      {{- else if eq $name "VPN packet loss high" -}}The Internal or External path probe stayed above 20% packet loss.
       {{- else if .Annotations.summary -}}{{ .Annotations.summary }}
       {{- else -}}Check Grafana for details.
       {{- end -}}
@@ -74,44 +95,78 @@ templates:
       {{ end }}
 
       {{ define "metal.discord.title" -}}
+      {{- $team := or .CommonLabels.team "" -}}
       {{- if eq .Status "firing" -}}
       {{- if eq (len .Alerts.Firing) 1 -}}
       {{- $a := index .Alerts.Firing 0 -}}
+      {{- if eq $team "vpn" -}}
+      🔴 VPN · {{ template "metal.hostName" $a }} · {{ template "metal.issueTitle" $a }}
+      {{- else -}}
       🔴 Metal · {{ template "metal.hostName" $a }} · {{ template "metal.issueTitle" $a }}
+      {{- end -}}
+      {{- else -}}
+      {{- if eq $team "vpn" -}}
+      🔴 VPN · {{ len .Alerts.Firing }} active issues
       {{- else -}}
       🔴 Metal · {{ len .Alerts.Firing }} hardware issues
+      {{- end -}}
       {{- end -}}
       {{- else -}}
       {{- if eq (len .Alerts.Resolved) 1 -}}
       {{- $a := index .Alerts.Resolved 0 -}}
+      {{- if eq $team "vpn" -}}
+      ✅ VPN · {{ template "metal.hostName" $a }} · recovered
+      {{- else -}}
       ✅ Metal · {{ template "metal.hostName" $a }} · recovered
+      {{- end -}}
+      {{- else -}}
+      {{- if eq $team "vpn" -}}
+      ✅ VPN · {{ len .Alerts.Resolved }} issues resolved
       {{- else -}}
       ✅ Metal · {{ len .Alerts.Resolved }} issues resolved
+      {{- end -}}
       {{- end -}}
       {{- end -}}
       {{ end }}
 
       {{ define "metal.discord.message" -}}
+      {{- $team := or .CommonLabels.team "" -}}
       {{- if gt (len .Alerts.Firing) 0 -}}
+      {{- if eq $team "vpn" -}}
+      🚨 **VPN alert**
+      {{- else -}}
       🚨 **Hardware alert**
+      {{- end -}}
       {{- range .Alerts.Firing }}
 
       ---
       {{ template "metal.alert.firing" . }}
       {{- end }}
 
+      {{- if eq $team "vpn" }}
+      [Open VPN](https://utils.alexeyav.ru/wireguard) · [API metrics](https://utils.alexeyav.ru/grafana/d/myutils-api-metrics/my-utils-api-metrics)
+      {{- else }}
       [Metal Status](https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status) · [Metal Alerts](https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts)
+      {{- end }}
       {{- end -}}
 
       {{- if gt (len .Alerts.Resolved) 0 -}}
 
+      {{- if eq $team "vpn" }}
+      ✅ **VPN recovered**
+      {{- else }}
       ✅ **Hardware recovered**
+      {{- end }}
       {{- range .Alerts.Resolved }}
 
       ---
       {{ template "metal.alert.resolved" . }}
       {{- end }}
 
+      {{- if eq $team "vpn" }}
+      [Open VPN](https://utils.alexeyav.ru/wireguard) · [API metrics](https://utils.alexeyav.ru/grafana/d/myutils-api-metrics/my-utils-api-metrics)
+      {{- else }}
       [Metal Status](https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status) · [Metal Alerts](https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts)
+      {{- end }}
       {{- end -}}
       {{ end }}

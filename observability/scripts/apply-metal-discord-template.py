@@ -29,6 +29,7 @@ CONTACT_NAMES = ("Metal Discord", "Discord")
 DASHBOARD_URLS = (
     "https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status",
     "https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts",
+    "https://utils.alexeyav.ru/wireguard",
 )
 FORBIDDEN_LINK_MARKERS = (".GeneratorURL", ".ExternalURL", ".SilenceURL", "/alerting/")
 
