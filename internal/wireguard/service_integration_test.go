@@ -120,4 +120,51 @@ func TestControlPlaneProvisionHeartbeatAndCounters(t *testing.T) {
 	if metrics.Summary.RUDownloadBytes != 105 || metrics.Summary.RUUploadBytes != 52 || metrics.Summary.NonRUDownloadBytes != 175 || metrics.Summary.NonRUUploadBytes != 108 {
 		t.Fatalf("Metrics route counter deltas = %#v", metrics.Summary)
 	}
+
+	now = now.Add(2 * time.Minute)
+	degraded := healthyExitHealth(now)
+	primary := degraded.Exits["primary"]
+	primary.Healthy = false
+	primaryReason := "egress_probe_failed"
+	primary.Reason = &primaryReason
+	primary.ObservedEgressIP = nil
+	degraded.Exits["primary"] = primary
+	secondaryExit := "secondary"
+	secondaryInterface := "awg-exit-b"
+	degraded.OverallStatus = "DEGRADED"
+	degraded.ActiveExit = &secondaryExit
+	degraded.ActiveInterface = &secondaryInterface
+	if err := service.Heartbeat(ctx, relay.ID, Heartbeat{
+		ServerPublicKey: serverKey,
+		PublicEndpoint:  relay.PublicEndpoint,
+		AppliedRevision: 1,
+		ExitHealth:      &degraded,
+	}); err != nil {
+		t.Fatalf("Heartbeat() degraded exit health error = %v", err)
+	}
+
+	snapshot, err := service.Snapshot(ctx, relay.ID, "HOUR")
+	if err != nil {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if snapshot.Relay.ID != relay.ID || len(snapshot.Peers) != 1 || snapshot.Peers[0].ID != peer.Peer.ID {
+		t.Fatalf("Snapshot relay/peers = %#v", snapshot)
+	}
+	preview, ok := snapshot.PeerMetrics[peer.Peer.ID]
+	if !ok || preview.Range != "HOUR" || preview.Summary.DownloadBytes != 280 || preview.Summary.UploadBytes != 160 {
+		t.Fatalf("Snapshot metrics = %#v", snapshot.PeerMetrics)
+	}
+	if snapshot.Peers[0].Traffic.DownloadBytes != preview.Summary.DownloadBytes || snapshot.Peers[0].Traffic.UploadBytes != preview.Summary.UploadBytes {
+		t.Fatalf("Snapshot peer traffic = %#v, preview = %#v", snapshot.Peers[0].Traffic, preview.Summary)
+	}
+	if snapshot.ExitHealthHistory.Range != "HOUR" || len(snapshot.ExitHealthHistory.Points) != 2 {
+		t.Fatalf("Snapshot exit health history = %#v", snapshot.ExitHealthHistory)
+	}
+	latestHealth := snapshot.ExitHealthHistory.Points[1]
+	if latestHealth.PrimaryAvailabilityPercent != 0 || latestHealth.SecondaryAvailabilityPercent != 100 || latestHealth.ActiveExit == nil || *latestHealth.ActiveExit != "secondary" {
+		t.Fatalf("Snapshot latest exit health point = %#v", latestHealth)
+	}
+	if latestHealth.PrimaryFailureReason == nil || *latestHealth.PrimaryFailureReason != "egress_probe_failed" {
+		t.Fatalf("Snapshot latest primary failure reason = %#v", latestHealth.PrimaryFailureReason)
+	}
 }

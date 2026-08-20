@@ -176,3 +176,7 @@ deltas, persists the current download/upload rate, and retains traffic samples
 for period summaries. `GET .../peers?range=HOUR|DAY|WEEK|MONTH` returns the
 persisted rates and per-peer traffic for the selected period; the peer metrics
 endpoint returns the same period summary together with chart buckets.
+`GET .../relays/{id}/snapshot?range=HOUR|DAY|WEEK|MONTH` is the dashboard read
+model: one request returns the relay, every peer, all compact traffic previews,
+and persisted healthcheck history for both AWG exits. Exit samples are recorded
+from validated agent heartbeats and retained for 31 days.

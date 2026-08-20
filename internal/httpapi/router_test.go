@@ -71,6 +71,17 @@ func (service listRelaysService) ListRelays(context.Context) ([]wireguard.Relay,
 	return service.relays, nil
 }
 
+type wireGuardSnapshotService struct {
+	WireGuardService
+	snapshot wireguard.Snapshot
+	rangeIn  string
+}
+
+func (service *wireGuardSnapshotService) Snapshot(_ context.Context, _ string, rangeName string) (wireguard.Snapshot, error) {
+	service.rangeIn = rangeName
+	return service.snapshot, nil
+}
+
 func TestWireGuardRelayCollectionRouteIsNotShadowedByNestedRoutes(t *testing.T) {
 	t.Parallel()
 
@@ -94,6 +105,38 @@ func TestWireGuardRelayCollectionRouteIsNotShadowedByNestedRoutes(t *testing.T) 
 	}
 	if len(relays) != 1 || relays[0].ID != "relay-1" {
 		t.Fatalf("relays = %#v", relays)
+	}
+}
+
+func TestWireGuardSnapshotRouteReturnsOneDashboardPayload(t *testing.T) {
+	t.Parallel()
+
+	service := &wireGuardSnapshotService{snapshot: wireguard.Snapshot{
+		Relay: wireguard.Relay{ID: "relay-1"},
+		Peers: []wireguard.Peer{{ID: "peer-1"}},
+		PeerMetrics: map[string]wireguard.Metrics{
+			"peer-1": {PeerID: "peer-1", Range: "WEEK"},
+		},
+	}}
+	router := NewRouter(Dependencies{Auth: fakeAuth{}, Settings: fakeSettings{}, WireGuard: service})
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/wireguard/relays/relay-1/snapshot?range=WEEK", nil)
+	request.Header.Set("Authorization", "Bearer ready-admin")
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if service.rangeIn != "WEEK" {
+		t.Fatalf("range = %q, want WEEK", service.rangeIn)
+	}
+	var snapshot wireguard.Snapshot
+	if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if snapshot.Relay.ID != "relay-1" || len(snapshot.Peers) != 1 || snapshot.PeerMetrics["peer-1"].Range != "WEEK" {
+		t.Fatalf("snapshot = %#v", snapshot)
 	}
 }
 

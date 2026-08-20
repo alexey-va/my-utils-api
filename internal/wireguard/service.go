@@ -450,6 +450,11 @@ func (s *Service) Heartbeat(ctx context.Context, relayID string, body Heartbeat)
 	}
 	if body.ExitHealth != nil {
 		relay.ExitHealth = body.ExitHealth
+		primary := body.ExitHealth.Exits["primary"]
+		secondary := body.ExitHealth.Exits["secondary"]
+		if _, err := tx.Exec(ctx, `INSERT INTO wireguard_exit_health_samples(id,relay_id,recorded_at,overall_status,active_exit,primary_healthy,primary_latency_ms,primary_failure_reason,secondary_healthy,secondary_latency_ms,secondary_failure_reason) VALUES(gen_random_uuid(),$1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, relayID, now, body.ExitHealth.OverallStatus, body.ExitHealth.ActiveExit, primary.Healthy, primary.LatencyMs, primary.Reason, secondary.Healthy, secondary.LatencyMs, secondary.Reason); err != nil {
+			return err
+		}
 	}
 	var exitHealthJSON any
 	if relay.ExitHealth != nil {
@@ -526,6 +531,9 @@ func (s *Service) Heartbeat(ctx context.Context, relayID string, body Heartbeat)
 	if _, err := tx.Exec(ctx, `DELETE FROM wireguard_peer_metric_samples WHERE recorded_at<$1`, now.Add(-31*24*time.Hour)); err != nil {
 		return err
 	}
+	if _, err := tx.Exec(ctx, `DELETE FROM wireguard_exit_health_samples WHERE relay_id=$1::uuid AND recorded_at<$2`, relayID, now.Add(-31*24*time.Hour)); err != nil {
+		return err
+	}
 	return tx.Commit(ctx)
 }
 
@@ -580,6 +588,184 @@ func (s *Service) Metrics(ctx context.Context, relayID, peerID, rangeName string
 		result.Summary.NonRUUploadBytes += point.NonRUUploadBytes
 	}
 	return result, rows.Err()
+}
+
+func (s *Service) Snapshot(ctx context.Context, relayID, rangeName string) (Snapshot, error) {
+	relay, err := s.relay(ctx, relayID)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	rangeName, from, to, bucket, err := metricRange(rangeName, s.now())
+	if err != nil {
+		return Snapshot{}, err
+	}
+
+	peerRows, err := s.pool.Query(ctx, `SELECT `+peerColumns+` FROM wireguard_peers WHERE relay_id=$1::uuid ORDER BY created_at ASC`, relayID)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	peers := make([]Peer, 0)
+	for peerRows.Next() {
+		value, scanErr := scanPeer(peerRows)
+		if scanErr != nil {
+			peerRows.Close()
+			return Snapshot{}, scanErr
+		}
+		peers = append(peers, value.Peer)
+	}
+	if err := peerRows.Err(); err != nil {
+		peerRows.Close()
+		return Snapshot{}, err
+	}
+	peerRows.Close()
+
+	metricsByPeer := make(map[string]Metrics, len(peers))
+	pointsByPeer := make(map[string]map[int64]MetricPoint, len(peers))
+	for _, peer := range peers {
+		metricsByPeer[peer.ID] = Metrics{PeerID: peer.ID, Range: rangeName, From: from, To: to, Points: []MetricPoint{}}
+		pointsByPeer[peer.ID] = map[int64]MetricPoint{}
+	}
+
+	metricRows, err := s.pool.Query(ctx, `SELECT p.id::text,m.recorded_at,m.download_bytes,m.upload_bytes,m.ru_download_bytes,m.ru_upload_bytes,m.non_ru_download_bytes,m.non_ru_upload_bytes FROM wireguard_peer_metric_samples m JOIN wireguard_peers p ON p.id=m.peer_id WHERE p.relay_id=$1::uuid AND m.recorded_at>=$2 AND m.recorded_at<$3 ORDER BY p.id,m.recorded_at`, relayID, from, to)
+	if err != nil {
+		return Snapshot{}, err
+	}
+	for metricRows.Next() {
+		var peerID string
+		var at time.Time
+		var download, upload, ruDownload, ruUpload, nonRUDownload, nonRUUpload int64
+		if err := metricRows.Scan(&peerID, &at, &download, &upload, &ruDownload, &ruUpload, &nonRUDownload, &nonRUUpload); err != nil {
+			metricRows.Close()
+			return Snapshot{}, err
+		}
+		index := at.Sub(from).Milliseconds() / bucket.Milliseconds()
+		point := pointsByPeer[peerID][index]
+		point.BucketStart = from.Add(time.Duration(index) * bucket)
+		point.DownloadBytes += download
+		point.UploadBytes += upload
+		point.RUDownloadBytes += ruDownload
+		point.RUUploadBytes += ruUpload
+		point.NonRUDownloadBytes += nonRUDownload
+		point.NonRUUploadBytes += nonRUUpload
+		pointsByPeer[peerID][index] = point
+	}
+	if err := metricRows.Err(); err != nil {
+		metricRows.Close()
+		return Snapshot{}, err
+	}
+	metricRows.Close()
+
+	for peerIndex := range peers {
+		peerID := peers[peerIndex].ID
+		metrics := metricsByPeer[peerID]
+		keys := make([]int64, 0, len(pointsByPeer[peerID]))
+		for key := range pointsByPeer[peerID] {
+			keys = append(keys, key)
+		}
+		sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+		for _, key := range keys {
+			point := pointsByPeer[peerID][key]
+			metrics.Points = append(metrics.Points, point)
+			metrics.Summary.DownloadBytes += point.DownloadBytes
+			metrics.Summary.UploadBytes += point.UploadBytes
+			metrics.Summary.RUDownloadBytes += point.RUDownloadBytes
+			metrics.Summary.RUUploadBytes += point.RUUploadBytes
+			metrics.Summary.NonRUDownloadBytes += point.NonRUDownloadBytes
+			metrics.Summary.NonRUUploadBytes += point.NonRUUploadBytes
+		}
+		metricsByPeer[peerID] = metrics
+		peers[peerIndex].Traffic = PeriodTraffic{TrafficTotals: metrics.Summary, Range: rangeName, From: from, To: to}
+	}
+
+	exitHistory, err := s.exitHealthHistory(ctx, relayID, rangeName, from, to, bucket)
+	if err != nil {
+		return Snapshot{}, err
+	}
+
+	return Snapshot{Relay: relay.Relay, Peers: peers, PeerMetrics: metricsByPeer, ExitHealthHistory: exitHistory}, nil
+}
+
+type exitHealthBucket struct {
+	point                   ExitHealthMetricPoint
+	primaryHealthy          int
+	secondaryHealthy        int
+	primaryLatencyTotal     float64
+	secondaryLatencyTotal   float64
+	primaryLatencySamples   int
+	secondaryLatencySamples int
+}
+
+func (s *Service) exitHealthHistory(ctx context.Context, relayID, rangeName string, from, to time.Time, bucket time.Duration) (ExitHealthHistory, error) {
+	rows, err := s.pool.Query(ctx, `SELECT recorded_at,overall_status,active_exit,primary_healthy,primary_latency_ms,primary_failure_reason,secondary_healthy,secondary_latency_ms,secondary_failure_reason FROM wireguard_exit_health_samples WHERE relay_id=$1::uuid AND recorded_at>=$2 AND recorded_at<=$3 ORDER BY recorded_at`, relayID, from, to)
+	if err != nil {
+		return ExitHealthHistory{}, err
+	}
+	defer rows.Close()
+	buckets := map[int64]*exitHealthBucket{}
+	for rows.Next() {
+		var at time.Time
+		var overallStatus string
+		var activeExit, primaryReason, secondaryReason *string
+		var primaryHealthy, secondaryHealthy bool
+		var primaryLatency, secondaryLatency *float64
+		if err := rows.Scan(&at, &overallStatus, &activeExit, &primaryHealthy, &primaryLatency, &primaryReason, &secondaryHealthy, &secondaryLatency, &secondaryReason); err != nil {
+			return ExitHealthHistory{}, err
+		}
+		index := at.Sub(from).Milliseconds() / bucket.Milliseconds()
+		value := buckets[index]
+		if value == nil {
+			value = &exitHealthBucket{point: ExitHealthMetricPoint{BucketStart: from.Add(time.Duration(index) * bucket)}}
+			buckets[index] = value
+		}
+		value.point.Samples++
+		if primaryHealthy {
+			value.primaryHealthy++
+		}
+		if secondaryHealthy {
+			value.secondaryHealthy++
+		}
+		if primaryLatency != nil {
+			value.primaryLatencyTotal += *primaryLatency
+			value.primaryLatencySamples++
+		}
+		if secondaryLatency != nil {
+			value.secondaryLatencyTotal += *secondaryLatency
+			value.secondaryLatencySamples++
+		}
+		if primaryReason != nil {
+			value.point.PrimaryFailureReason = primaryReason
+		}
+		if secondaryReason != nil {
+			value.point.SecondaryFailureReason = secondaryReason
+		}
+		value.point.ActiveExit = activeExit
+		value.point.OverallStatus = overallStatus
+	}
+	if err := rows.Err(); err != nil {
+		return ExitHealthHistory{}, err
+	}
+
+	keys := make([]int64, 0, len(buckets))
+	for key := range buckets {
+		keys = append(keys, key)
+	}
+	sort.Slice(keys, func(i, j int) bool { return keys[i] < keys[j] })
+	result := ExitHealthHistory{Range: rangeName, From: from, To: to, Points: make([]ExitHealthMetricPoint, 0, len(keys))}
+	for _, key := range keys {
+		value := buckets[key]
+		value.point.PrimaryAvailabilityPercent = float64(value.primaryHealthy) * 100 / float64(value.point.Samples)
+		value.point.SecondaryAvailabilityPercent = float64(value.secondaryHealthy) * 100 / float64(value.point.Samples)
+		if value.primaryLatencySamples > 0 {
+			average := value.primaryLatencyTotal / float64(value.primaryLatencySamples)
+			value.point.PrimaryAverageLatencyMs = &average
+		}
+		if value.secondaryLatencySamples > 0 {
+			average := value.secondaryLatencyTotal / float64(value.secondaryLatencySamples)
+			value.point.SecondaryAverageLatencyMs = &average
+		}
+		result.Points = append(result.Points, value.point)
+	}
+	return result, nil
 }
 
 func metricRange(rangeName string, to time.Time) (string, time.Time, time.Time, time.Duration, error) {

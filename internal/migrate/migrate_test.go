@@ -13,8 +13,8 @@ func TestDiscoverOrdersFlywayVersionsNumerically(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Discover() error = %v", err)
 	}
-	if len(discovered) != 28 {
-		t.Fatalf("migration count = %d, want 28", len(discovered))
+	if len(discovered) != 29 {
+		t.Fatalf("migration count = %d, want 29", len(discovered))
 	}
 	for index, migration := range discovered {
 		want := index + 1

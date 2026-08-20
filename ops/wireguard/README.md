@@ -112,6 +112,13 @@ policy-routing check to the API. The administrator page therefore reports
 `READY`, `DEGRADED`, or `DOWN` from the data plane instead of treating a live
 agent heartbeat as proof that VPN traffic works.
 
+Each validated exit-health snapshot is also stored by the API for 31 days. The
+dashboard endpoint buckets these samples into the selected hour/day/week/month
+range and returns availability, average probe latency, failure reason, overall
+status, and the selected exit. The probe is a real handshake plus public-egress
+check through each AWG interface; it does not pretend to include the user's
+last-mile connection to `wg-users`.
+
 A controlled failure test stops only `my-utils-awg-exit.service`. The route
 must stay unreachable for the first two failed probes, select `awg-exit-b` on
 the third, and return to the primary after it is started and passes two probes.
@@ -158,9 +165,11 @@ slightly from WireGuard's encrypted interface counters because tunnel overhead
 is not included.
 
 The systemd timer reports counters every 15 seconds. This keeps live rates
-useful without running a permanent daemon; the administrator page polls the
-lightweight relay/peer snapshot every three seconds and refreshes historical
-previews once per minute.
+useful without running a permanent daemon. The administrator page polls one
+batched dashboard snapshot every three seconds; that single response contains
+the relay, all peers, compact traffic previews, and the selected-period exit
+health history. The detailed chart for one peer is fetched only when its drawer
+is opened.
 
 The agent also sends a current route-quality snapshot on every heartbeat. The
 Internal probe pings `77.88.8.8` through `eth0`; the External probe pings the

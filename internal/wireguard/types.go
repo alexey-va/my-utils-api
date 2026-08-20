@@ -182,3 +182,30 @@ type Metrics struct {
 	Summary TrafficTotals `json:"summary"`
 	Points  []MetricPoint `json:"points"`
 }
+
+type ExitHealthMetricPoint struct {
+	BucketStart                  time.Time `json:"bucketStart"`
+	PrimaryAvailabilityPercent   float64   `json:"primaryAvailabilityPercent"`
+	SecondaryAvailabilityPercent float64   `json:"secondaryAvailabilityPercent"`
+	PrimaryAverageLatencyMs      *float64  `json:"primaryAverageLatencyMs"`
+	SecondaryAverageLatencyMs    *float64  `json:"secondaryAverageLatencyMs"`
+	PrimaryFailureReason         *string   `json:"primaryFailureReason"`
+	SecondaryFailureReason       *string   `json:"secondaryFailureReason"`
+	ActiveExit                   *string   `json:"activeExit"`
+	OverallStatus                string    `json:"overallStatus"`
+	Samples                      int       `json:"samples"`
+}
+
+type ExitHealthHistory struct {
+	Range  string                  `json:"range"`
+	From   time.Time               `json:"from"`
+	To     time.Time               `json:"to"`
+	Points []ExitHealthMetricPoint `json:"points"`
+}
+
+type Snapshot struct {
+	Relay             Relay              `json:"relay"`
+	Peers             []Peer             `json:"peers"`
+	PeerMetrics       map[string]Metrics `json:"peerMetrics"`
+	ExitHealthHistory ExitHealthHistory  `json:"exitHealthHistory"`
+}

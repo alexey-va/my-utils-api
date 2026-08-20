@@ -17,6 +17,7 @@ func (a *API) registerWireGuardAdminRoutes(router chi.Router) {
 		routes.Post("/", a.createWireGuardRelay)
 		routes.Post("/{relayId}/rotate-token", a.rotateWireGuardToken)
 		routes.Delete("/{relayId}", a.deleteWireGuardRelay)
+		routes.Get("/{relayId}/snapshot", a.wireGuardSnapshot)
 		routes.Get("/{relayId}/peers", a.listWireGuardPeers)
 		routes.Post("/{relayId}/peers", a.createWireGuardPeer)
 		routes.Get("/{relayId}/peers/{peerId}/credentials", a.wireGuardCredentials)
@@ -78,6 +79,11 @@ func (a *API) deleteWireGuardRelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+func (a *API) wireGuardSnapshot(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	v, e := a.wireGuard.Snapshot(r.Context(), chi.URLParam(r, "relayId"), r.URL.Query().Get("range"))
+	writeDomainResult(w, v, e)
 }
 func (a *API) listWireGuardPeers(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
