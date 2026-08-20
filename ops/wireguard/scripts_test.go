@@ -574,6 +574,7 @@ func TestVPNAlertProvisioningCoversRelayAndBothExits(t *testing.T) {
 		"myutils_wireguard_collection_success",
 		"myutils_wireguard_exit_healthy",
 		"myutils_wireguard_exit_selected",
+		"myutils_wireguard_exit_preference",
 		"myutils_wireguard_route_packet_loss_percent",
 	} {
 		if !strings.Contains(rules, want) {

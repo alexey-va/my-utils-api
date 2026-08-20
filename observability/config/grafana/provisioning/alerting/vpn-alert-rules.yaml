@@ -301,7 +301,7 @@ groups:
             model:
               datasource: {type: prometheus, uid: prometheus}
               editorMode: code
-              expr: myutils_wireguard_exit_selected{exit="secondary"}
+              expr: myutils_wireguard_exit_selected{exit="secondary"} == 1 and on(relay_id, relay) myutils_wireguard_exit_preference{preference="AUTO"} == 1
               instant: true
               intervalMs: 1000
               maxDataPoints: 43200
@@ -331,8 +331,8 @@ groups:
         execErrState: Alerting
         for: 2m
         annotations:
-          summary: External traffic is using the secondary exit
-          description: Safe fallback is active; inspect the primary provider if this persists.
+          summary: Automatic failover is using the secondary exit
+          description: AUTO mode selected the reserve; inspect the primary provider if this persists. An explicit manual selection does not trigger this alert.
         labels: {severity: warning, team: vpn}
         isPaused: false
         notification_settings: *vpn_warning_notifications

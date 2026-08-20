@@ -32,6 +32,7 @@ func TestWireGuardCollectorExportsPersistedRelayHealth(t *testing.T) {
 	metrics := NewMetrics()
 	metrics.RegisterWireGuard(fakeWireGuardRelaySource{relays: []wireguard.Relay{{
 		ID: "relay-1", Name: "utils", Status: "READY", LastSeenAt: &now,
+		ExitPreference: "AUTO",
 		RoutingHealthy: boolPointer(true),
 		ExitHealth: &wireguard.ExitHealth{
 			ActiveExit: &active,
@@ -57,6 +58,8 @@ func TestWireGuardCollectorExportsPersistedRelayHealth(t *testing.T) {
 		`myutils_wireguard_agent_last_seen_timestamp_seconds{relay="utils",relay_id="relay-1"} 1.7873064e+09`,
 		`myutils_wireguard_exit_healthy{exit="primary",relay="utils",relay_id="relay-1"} 1`,
 		`myutils_wireguard_exit_selected{exit="secondary",relay="utils",relay_id="relay-1"} 0`,
+		`myutils_wireguard_exit_preference{preference="AUTO",relay="utils",relay_id="relay-1"} 1`,
+		`myutils_wireguard_exit_preference{preference="SECONDARY",relay="utils",relay_id="relay-1"} 0`,
 		`myutils_wireguard_exit_latency_seconds{exit="primary",relay="utils",relay_id="relay-1"} 0.033`,
 		`myutils_wireguard_route_packet_loss_percent{path="external",relay="utils",relay_id="relay-1"} 2.5`,
 		`myutils_wireguard_route_rtt_seconds{path="internal",relay="utils",relay_id="relay-1"} 0.0185`,

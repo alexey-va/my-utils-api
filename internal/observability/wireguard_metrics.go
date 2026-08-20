@@ -22,6 +22,7 @@ type wireGuardCollector struct {
 	agentLastSeen     *prometheus.Desc
 	exitHealthy       *prometheus.Desc
 	exitSelected      *prometheus.Desc
+	exitPreference    *prometheus.Desc
 	exitLatency       *prometheus.Desc
 	routeLoss         *prometheus.Desc
 	routeRTT          *prometheus.Desc
@@ -50,6 +51,9 @@ func newWireGuardCollector(source WireGuardRelaySource) *wireGuardCollector {
 		exitSelected: prometheus.NewDesc(
 			"myutils_wireguard_exit_selected", "Whether an AWG exit is currently selected for external client traffic.", append(labels, "exit"), nil,
 		),
+		exitPreference: prometheus.NewDesc(
+			"myutils_wireguard_exit_preference", "One-hot configured AWG exit preference.", append(labels, "preference"), nil,
+		),
 		exitLatency: prometheus.NewDesc(
 			"myutils_wireguard_exit_latency_seconds", "Measured ICMP latency through an AWG exit.", append(labels, "exit"), nil,
 		),
@@ -66,7 +70,7 @@ func (collector *wireGuardCollector) Describe(channel chan<- *prometheus.Desc) {
 	for _, description := range []*prometheus.Desc{
 		collector.collectionSuccess, collector.relayReady, collector.routingHealthy,
 		collector.agentLastSeen, collector.exitHealthy, collector.exitSelected,
-		collector.exitLatency, collector.routeLoss, collector.routeRTT,
+		collector.exitPreference, collector.exitLatency, collector.routeLoss, collector.routeRTT,
 	} {
 		channel <- description
 	}
@@ -102,6 +106,10 @@ func (collector *wireGuardCollector) Collect(channel chan<- prometheus.Metric) {
 			if exists && probe.LatencyMs != nil {
 				channel <- prometheus.MustNewConstMetric(collector.exitLatency, prometheus.GaugeValue, *probe.LatencyMs/1000, exitLabels...)
 			}
+		}
+		for _, preference := range []string{"AUTO", "PRIMARY", "SECONDARY"} {
+			preferenceLabels := append(labels, preference)
+			channel <- prometheus.MustNewConstMetric(collector.exitPreference, prometheus.GaugeValue, boolean(relay.ExitPreference == preference), preferenceLabels...)
 		}
 		if relay.RouteQuality != nil {
 			collector.collectRoute(channel, labels, "internal", relay.RouteQuality.Direct)

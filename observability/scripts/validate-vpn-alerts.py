@@ -51,6 +51,8 @@ def validate(path: Path) -> None:
         )
         if metric not in expressions:
             raise ValueError(f"{title} does not query {metric}")
+        if title == "VPN running on reserve" and 'myutils_wireguard_exit_preference{preference="AUTO"}' not in expressions:
+            raise ValueError("reserve alert must ignore an explicit manual secondary selection")
         if rule.get("for") != pending:
             raise ValueError(f"{title} has wrong anti-flap window")
         if rule.get("labels", {}).get("team") != "vpn":

@@ -185,7 +185,7 @@ The preference is delivered through agent desired state and keeps a safe
 fallback to the other healthy exit.
 
 The Prometheus endpoint exports relay readiness, routing health, agent
-freshness, per-exit health/selection/latency, and Internal/External packet loss
+freshness, per-exit health/selection/latency, configured preference, and Internal/External packet loss
 and RTT. Versioned Grafana provisioning under `observability/` alerts through
 the existing Discord receiver for a stale agent, broken routing, both exits
 down, primary degradation, reserve use, and sustained packet loss. The
