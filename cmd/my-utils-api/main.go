@@ -6,9 +6,13 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -69,6 +73,15 @@ func healthcheck(ctx context.Context, url string, client *http.Client) error {
 	return nil
 }
 
+func configuredOutboundProxy(proxy config.HTTPProxy) (*url.URL, string) {
+	if !proxy.Enabled {
+		return nil, ""
+	}
+	host := strings.Trim(strings.TrimSpace(proxy.Host), "[]")
+	value := &url.URL{Scheme: "http", Host: net.JoinHostPort(host, strconv.Itoa(proxy.Port))}
+	return value, value.String()
+}
+
 func run(ctx context.Context) error {
 	slog.InfoContext(ctx, "starting my-utils-api", "gitCommit", gitCommit)
 	cfg, err := config.Load(os.LookupEnv)
@@ -118,10 +131,13 @@ func run(ctx context.Context) error {
 	agentMemory.SetZoneID(func() string { return runtimeSettings.String(settings.TemporalZoneID) })
 	metrics := observability.NewMetrics()
 	reportRenderer := report.NewRenderer()
+	telegramProxy, outboundProxyURL := configuredOutboundProxy(cfg.OpenRouter.Proxy)
 	var telegramClient *telegram.Client
 	var agentStatus *telegram.StatusMessenger
 	if cfg.Telegram.Enabled {
-		telegramClient = telegram.NewClient(cfg.Telegram.BotToken, "https://api.telegram.org", nil)
+		// Keep the JVM contract: Telegram and OpenRouter share the configured
+		// outbound HTTP proxy. Production cannot reach Telegram directly.
+		telegramClient = telegram.NewClient(cfg.Telegram.BotToken, "https://api.telegram.org", telegramProxy)
 		agentStatus = telegram.NewStatusMessenger(telegramClient, redisClient)
 	}
 	telegramFiles := telegram.NewFileDelivery(
@@ -154,10 +170,6 @@ func run(ctx context.Context) error {
 	var turner *agent.AgentTurner
 	var autoCompactor *agent.AutoCompactor
 	if cfg.OpenRouter.APIKey != "" {
-		proxyURL := ""
-		if cfg.OpenRouter.Proxy.Enabled {
-			proxyURL = fmt.Sprintf("http://%s:%d", cfg.OpenRouter.Proxy.Host, cfg.OpenRouter.Proxy.Port)
-		}
 		openRouterClient, clientErr := openrouter.New(openrouter.Config{
 			APIKey: cfg.OpenRouter.APIKey, BaseURL: cfg.OpenRouter.BaseURL,
 			HTTPReferer: cfg.OpenRouter.HTTPReferer, AppTitle: cfg.OpenRouter.AppTitle,
@@ -166,7 +178,7 @@ func run(ctx context.Context) error {
 			InitialDelayFunc: func() time.Duration {
 				return time.Duration(runtimeSettings.Int(settings.OpenRouterRetryDelayMS)) * time.Millisecond
 			},
-			ProxyURL: proxyURL,
+			ProxyURL: outboundProxyURL,
 		})
 		if clientErr != nil {
 			return clientErr

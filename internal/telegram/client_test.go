@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -54,6 +55,30 @@ func TestDerivedFileToken(t *testing.T) {
 	t.Parallel()
 	if got := FileUploadToken("", "bot-secret"); got != "4984054325ef99682d6a9580018f602e1fca016ff1e6070c339e9637eec037b3" {
 		t.Fatalf("token = %q", got)
+	}
+}
+
+func TestClientUsesConfiguredHTTPProxy(t *testing.T) {
+	t.Parallel()
+	proxied := false
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		proxied = true
+		if r.URL.Host != "api.telegram.invalid" || r.URL.Path != "/botsecret/sendMessage" {
+			t.Fatalf("proxied URL = %s", r.URL.String())
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":123}}`))
+	}))
+	defer proxy.Close()
+	proxyURL, err := url.Parse(proxy.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := NewClient("secret", "http://api.telegram.invalid", proxyURL)
+	if _, err := client.SendHTMLMessage(context.Background(), 42, "test", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !proxied {
+		t.Fatal("Telegram request bypassed configured proxy")
 	}
 }
 
