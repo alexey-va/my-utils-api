@@ -37,8 +37,8 @@ func TestRunnerAppliesFlywaySchemaAndIsIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM flyway_schema_history WHERE success`).Scan(&successful); err != nil {
 		t.Fatalf("count schema history: %v", err)
 	}
-	if successful != 27 {
-		t.Errorf("successful migration rows = %d, want 27", successful)
+	if successful != 28 {
+		t.Errorf("successful migration rows = %d, want 28", successful)
 	}
 	for _, table := range []string{"users", "workout_entries", "app_settings", "agent_test_sandbox_states", "wireguard_peer_metric_samples"} {
 		var exists bool
@@ -68,6 +68,15 @@ func TestRunnerAppliesFlywaySchemaAndIsIdempotent(t *testing.T) {
 		  )
 	`).Scan(&persistedRateColumns); err != nil || persistedRateColumns != 6 {
 		t.Errorf("V27 persisted rate and route counter columns = %d, error = %v", persistedRateColumns, err)
+	}
+	var runtimeHealthColumns int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'wireguard_relays'
+		  AND column_name IN ('routing_healthy', 'routing_checked_at', 'exit_health')
+	`).Scan(&runtimeHealthColumns); err != nil || runtimeHealthColumns != 3 {
+		t.Errorf("V28 runtime health columns = %d, error = %v", runtimeHealthColumns, err)
 	}
 }
 

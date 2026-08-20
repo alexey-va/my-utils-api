@@ -1,0 +1,14 @@
+[Unit]
+Description=Local DNS interception for my-utils WireGuard clients
+After=network-online.target wg-quick@wg-users.service dnsmasq.service
+Requires=wg-quick@wg-users.service dnsmasq.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=WIREGUARD_DNS_ENV_FILE=/etc/my-utils/client-dns.env
+ExecStart=/usr/local/libexec/my-utils-wireguard-dns start
+ExecStop=/usr/local/libexec/my-utils-wireguard-dns stop
+
+[Install]
+WantedBy=multi-user.target

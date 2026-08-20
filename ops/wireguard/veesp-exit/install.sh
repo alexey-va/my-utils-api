@@ -28,9 +28,15 @@ done
 docker compose version >/dev/null
 [[ -f "$config_file" ]] || { echo "AWG config is missing" >&2; exit 1; }
 [[ "$(stat -c '%a' "$config_file")" == 600 ]] || { echo "AWG config must have mode 600" >&2; exit 1; }
-for marker in '[Interface]' 'PrivateKey = ' 'ListenPort = 42697' '[Peer]' 'PresharedKey = ' 'AllowedIPs = 10.8.1.250/32, 10.89.0.0/24'; do
+for marker in '[Interface]' 'PrivateKey = ' 'ListenPort = 42697' '[Peer]' 'PresharedKey = ' 'AllowedIPs = ' '10.89.0.0/24'; do
   grep -Fq "$marker" "$config_file" || { echo "AWG config is incomplete" >&2; exit 1; }
 done
+server_address=$(sed -n 's/^Address[[:space:]]*=[[:space:]]*//p' "$config_file")
+tunnel_client_ip=$(sed -n 's/^AllowedIPs[[:space:]]*=[[:space:]]*\([^,]*\),.*/\1/p' "$config_file")
+[[ "$server_address" =~ ^10\.8\.([0-9]{1,3})\.1/24$ ]]
+overlay_octet=${BASH_REMATCH[1]}
+((10#$overlay_octet >= 1 && 10#$overlay_octet <= 254))
+[[ "$tunnel_client_ip" == "10.8.$((10#$overlay_octet)).250/32" ]]
 
 source_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 for file in .dockerignore compose.yml Dockerfile.awg Dockerfile.tinyproxy awg-entrypoint.sh tinyproxy.conf; do
@@ -82,6 +88,8 @@ if [[ -e "$stack_dir/state/awg0.conf" ]]; then
   cp -a "$stack_dir/state/awg0.conf" "$stack_dir/state/awg0.conf.backup.$(date -u +%Y%m%dT%H%M%SZ)"
 fi
 install -m 600 "$config_file" "$stack_dir/state/awg0.conf"
+printf 'TUNNEL_CLIENT_IP=%s\n' "$tunnel_client_ip" >"$stack_dir/.env"
+chmod 600 "$stack_dir/.env"
 
 cd "$stack_dir"
 docker compose config --quiet
@@ -98,4 +106,4 @@ done
 [[ "$(docker inspect -f '{{.State.Health.Status}}' my-utils-tinyproxy)" == healthy ]]
 [[ "$(docker inspect -f '{{json .HostConfig.PortBindings}}' my-utils-tinyproxy)" == '{}' ]]
 docker network inspect "$network" >/dev/null
-echo "Isolated Veesp exit stack is healthy"
+echo "Isolated AWG exit stack is healthy"

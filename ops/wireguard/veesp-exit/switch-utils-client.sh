@@ -3,6 +3,10 @@ set -euo pipefail
 
 umask 077
 
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+# shellcheck source=routing-units.sh
+source "$script_dir/routing-units.sh"
+
 params_file=""
 config_file=/etc/amnezia/amneziawg/awg-exit.conf
 expected_egress=""
@@ -63,11 +67,12 @@ address=$(awk -F= '$1 ~ /^[[:space:]]*Address[[:space:]]*$/ { sub(/^[^=]*=[[:spa
 config_dir=$(dirname -- "$config_file")
 staging_dir=$(mktemp -d "$config_dir/.awg-exit-switch.XXXXXX")
 staging="$staging_dir/awg-exit.conf"
+active_units_state="$staging_dir/active-routing-units"
 backup="$config_file.backup.$(date -u +%Y%m%dT%H%M%SZ)"
 switched=false
 
 cleanup() {
-  rm -f "$staging"
+  rm -f "$staging" "$active_units_state"
   rmdir "$staging_dir" 2>/dev/null || true
 }
 
@@ -78,6 +83,7 @@ rollback() {
     systemctl stop my-utils-awg-exit.service || true
     install -m 600 "$backup" "$config_file"
     systemctl start my-utils-awg-exit.service || true
+    restore_active_routing_units "$active_units_state" || true
     echo "New AWG client failed validation; previous config restored" >&2
   fi
   cleanup
@@ -112,12 +118,14 @@ EOF
 chmod 600 "$staging"
 awg-quick strip "$staging" >/dev/null
 cp -a "$config_file" "$backup"
+capture_active_routing_units "$active_units_state"
 
 switched=true
 systemctl stop my-utils-awg-exit.service
 install -m 600 "$staging" "$config_file"
 switch_started=$(date +%s)
 systemctl start my-utils-awg-exit.service
+restore_active_routing_units "$active_units_state"
 
 handshake=0
 for _ in $(seq 1 45); do

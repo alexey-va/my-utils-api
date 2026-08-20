@@ -2,6 +2,8 @@ package wireguardops
 
 import (
 	"bytes"
+	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
@@ -38,15 +40,20 @@ func TestHeartbeatKeepsRoutingStatusAndCountersNonSecret(t *testing.T) {
 	script := readFile(t, "wireguard-agent.sh")
 	for _, want := range []string{
 		"WIREGUARD_ROUTING_STATUS_FILE",
+		"WIREGUARD_EXIT_HEALTH_FILE",
 		"routingStatus: $routingStatus[0]",
+		"exitHealth: $exitHealth[0]",
 		`mode == "RU_DIRECT_AWG_DEFAULT"`,
+		"my-utils-awg-failover.timer",
+		"my-utils-geo-routing.service",
+		"routingHealthy",
 		"MYUTILS-WG-TRAFFIC",
 		"routingTraffic",
 		"ruDownloadBytes",
 		"nonRuUploadBytes",
 		"routeQuality: $routeQuality[0]",
 		"packetLossPercent",
-		`awg show "$WIREGUARD_AWG_INTERFACE" endpoints`,
+		`awg show "$active_awg_interface" endpoints`,
 	} {
 		if !strings.Contains(script, want) {
 			t.Errorf("wireguard-agent.sh does not contain %q", want)
@@ -54,6 +61,9 @@ func TestHeartbeatKeepsRoutingStatusAndCountersNonSecret(t *testing.T) {
 	}
 	if strings.Contains(script, "routingStatus.token") {
 		t.Fatal("heartbeat must not expose routingStatus.token")
+	}
+	if strings.Contains(script, `[[ ! -d "/sys/class/net/$WIREGUARD_AWG_INTERFACE" ]]`) {
+		t.Fatal("agent must keep reporting health while the primary AWG interface is down")
 	}
 
 	timer := readFile(t, "systemd/my-utils-wireguard-agent.timer")
@@ -98,6 +108,47 @@ func TestGeoInstallerPlanIsExplicitAndNonMutating(t *testing.T) {
 	}
 }
 
+func TestClientDNSInstallerKeepsExistingProfilesIndependentFromAWG(t *testing.T) {
+	installer := readFile(t, "install-client-dns.sh")
+	for _, want := range []string{
+		"Plan only; no host changes were made",
+		"dnsmasq",
+		"listen-address=$resolver_address",
+		"interface=$ingress_interface",
+		"After=wg-quick@$ingress_interface.service",
+		"server=77.88.8.8",
+		"server=1.1.1.1",
+		"dnsmasq --test",
+		"my-utils-wireguard-dns.service",
+	} {
+		if !strings.Contains(installer, want) {
+			t.Errorf("client DNS installer does not contain %q", want)
+		}
+	}
+
+	routing := readFile(t, "client-dns.sh")
+	for _, want := range []string{
+		"MYUTILS-WG-DNS",
+		`-i "$ingress_interface" -s "$client_cidr" -p udp --dport 53`,
+		`-i "$ingress_interface" -s "$client_cidr" -p tcp --dport 53`,
+		`DNAT --to-destination "$resolver_address:53"`,
+	} {
+		if !strings.Contains(routing, want) {
+			t.Errorf("client DNS routing does not contain %q", want)
+		}
+	}
+	if strings.Contains(routing, "0.0.0.0/0") {
+		t.Fatal("client DNS interception must be limited to the WireGuard client CIDR")
+	}
+
+	unit := readFile(t, "systemd/my-utils-wireguard-dns.service")
+	for _, want := range []string{"Requires=wg-quick@wg-users.service dnsmasq.service", "ExecStart=/usr/local/libexec/my-utils-wireguard-dns start", "ExecStop=/usr/local/libexec/my-utils-wireguard-dns stop"} {
+		if !strings.Contains(unit, want) {
+			t.Errorf("client DNS unit does not contain %q", want)
+		}
+	}
+}
+
 func TestAPIProxyRoutingIsLimitedToTheConfiguredProxy(t *testing.T) {
 	script := readFile(t, "api-proxy-routing.sh")
 	for _, want := range []string{
@@ -105,7 +156,7 @@ func TestAPIProxyRoutingIsLimitedToTheConfiguredProxy(t *testing.T) {
 		"proxy_destination=185.242.106.81/32",
 		"tunnel_proxy_destination=172.29.172.3",
 		"proxy_port=8888",
-		"egress_interface=awg-exit",
+		"egress_interface_pattern=awg-exit+",
 		"source_address=10.89.0.1",
 		"priority=1087",
 		"mark=0x51891",
@@ -129,6 +180,34 @@ func TestAPIProxyRoutingIsLimitedToTheConfiguredProxy(t *testing.T) {
 	} {
 		if !strings.Contains(unit, want) {
 			t.Errorf("proxy routing unit does not contain %q", want)
+		}
+	}
+}
+
+func TestRelayAndAPIProxyRoutingAcceptManagedExitPool(t *testing.T) {
+	relayInstaller := readFile(t, "install-relay.sh")
+	for _, want := range []string{
+		"egress_pattern='awg-exit+'",
+		`-o "\$egress_pattern"`,
+		`-i "\$egress_pattern"`,
+		"Wants=my-utils-awg-exit.service",
+	} {
+		if !strings.Contains(relayInstaller, want) {
+			t.Errorf("relay installer does not contain %q", want)
+		}
+	}
+	if strings.Contains(relayInstaller, "Requires=my-utils-awg-exit.service") {
+		t.Fatal("relay routing must remain active while an individual exit service is down")
+	}
+
+	apiProxy := readFile(t, "api-proxy-routing.sh")
+	for _, want := range []string{
+		"egress_interface_pattern=awg-exit+",
+		`-o "$egress_interface_pattern"`,
+		`grep -Eq '^default dev awg-exit([[:alnum:]_.-]*) '`,
+	} {
+		if !strings.Contains(apiProxy, want) {
+			t.Errorf("API proxy routing does not contain %q", want)
 		}
 	}
 }
@@ -237,6 +316,79 @@ func TestVeespExitGeneratorKeepsSecretsInProtectedFiles(t *testing.T) {
 	}
 }
 
+func TestExitHostBootstrapHardensSSHAndBoundsResourceUse(t *testing.T) {
+	bootstrap := readFile(t, "veesp-exit/bootstrap-host.sh")
+	for _, want := range []string{
+		"Plan only; no host changes were made",
+		"docker-compose-v2",
+		"fail2ban",
+		"PasswordAuthentication no",
+		"PermitRootLogin prohibit-password",
+		"MaxAuthTries 10",
+		"bantime.increment = true",
+		"mkswap",
+		"SystemMaxUse=200M",
+		`"max-size": "20m"`,
+		"sshd -t",
+	} {
+		if !strings.Contains(bootstrap, want) {
+			t.Errorf("exit bootstrap does not contain %q", want)
+		}
+	}
+}
+
+func TestVeespExitGeneratorSupportsIndependentOverlaySubnet(t *testing.T) {
+	tempDir := t.TempDir()
+	clientPublic := tempDir + "/client.pub"
+	serverConfig := tempDir + "/awg0.conf"
+	clientParams := tempDir + "/client.params"
+	if err := os.WriteFile(clientPublic, []byte("Q0xJRU5UX1BVQkxJQ19LRVlfMDAwMDAwMDAwMDAwMDA=\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	writeExecutable(t, tempDir+"/wg", `#!/bin/sh
+case "$1" in
+  genkey) printf '%s\n' 'U0VSVkVSX1BSSVZBVEVfS0VZXzAwMDAwMDAwMDAwMDA=' ;;
+  pubkey) cat >/dev/null; printf '%s\n' 'U0VSVkVSX1BVQkxJQ19LRVlfMDAwMDAwMDAwMDAwMDA=' ;;
+  genpsk) printf '%s\n' 'UFJFU0hBUkVEX0tFWV8wMDAwMDAwMDAwMDAwMDAwMDA=' ;;
+  *) exit 2 ;;
+esac
+`)
+	writeExecutable(t, tempDir+"/shuf", `#!/bin/sh
+printf '%s\n' "${2%%-*}"
+`)
+
+	command := exec.Command("bash", "veesp-exit/generate-config.sh",
+		"--client-public-key-file", clientPublic,
+		"--server-config", serverConfig,
+		"--client-params", clientParams,
+		"--endpoint", "153.76.223.117:42697",
+		"--server-address", "10.8.2.1/24",
+		"--client-address", "10.8.2.250/32",
+	)
+	command.Env = append(os.Environ(), "PATH="+tempDir+":"+os.Getenv("PATH"))
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("generator failed: %v\n%s", err, output)
+	}
+	server := readPath(t, serverConfig)
+	if !strings.Contains(server, "Address = 10.8.2.1/24") || !strings.Contains(server, "AllowedIPs = 10.8.2.250/32, 10.89.0.0/24") {
+		t.Fatalf("server config does not use the requested overlay:\n%s", server)
+	}
+	params := readPath(t, clientParams)
+	if !strings.Contains(params, "CLIENT_ADDRESS=10.8.2.250/32") {
+		t.Fatalf("client params do not preserve the requested address:\n%s", params)
+	}
+	for _, path := range []string{serverConfig, clientParams} {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm() != 0o600 {
+			t.Fatalf("%s mode = %o, want 600", path, info.Mode().Perm())
+		}
+	}
+}
+
 func TestVeespExitClientSwitchIsAtomicAndRollsBack(t *testing.T) {
 	switcher := readFile(t, "veesp-exit/switch-utils-client.sh")
 	for _, want := range []string{
@@ -246,12 +398,219 @@ func TestVeespExitClientSwitchIsAtomicAndRollsBack(t *testing.T) {
 		"rollback()",
 		"systemctl stop my-utils-awg-exit.service",
 		"systemctl start my-utils-awg-exit.service",
+		"capture_active_routing_units",
+		"restore_active_routing_units",
 		"latest-handshakes",
 		"expected_egress",
 	} {
 		if !strings.Contains(switcher, want) {
 			t.Errorf("Veesp client switcher does not contain %q", want)
 		}
+	}
+}
+
+func TestUtilsExitClientInstallerKeepsReserveOutsidePolicyRouting(t *testing.T) {
+	installer := readFile(t, "veesp-exit/install-utils-client.sh")
+	for _, want := range []string{
+		"Plan only; no host changes were made",
+		"CLIENT_ADDRESS",
+		"Table = off",
+		"systemctl enable --now",
+		"latest-handshakes",
+		"expected_egress",
+		"AWG reserve client is healthy and not selected for policy routing",
+	} {
+		if !strings.Contains(installer, want) {
+			t.Errorf("utils exit client installer does not contain %q", want)
+		}
+	}
+	if strings.Contains(installer, "ip route replace") {
+		t.Fatal("reserve client installer must not select itself in the policy table")
+	}
+}
+
+func TestUtilsExitClientIdentityGeneratorProtectsPrivateKey(t *testing.T) {
+	generator := readFile(t, "veesp-exit/generate-utils-client-identity.sh")
+	for _, want := range []string{"umask 077", "awg genkey", "awg pubkey", "chmod 600"} {
+		if !strings.Contains(generator, want) {
+			t.Errorf("utils client identity generator does not contain %q", want)
+		}
+	}
+	if strings.Contains(generator, "cat \"$private_key_file\"") {
+		t.Fatal("identity generator must not print the private key")
+	}
+}
+
+func TestAWGFailoverDecisionUsesHysteresisAndFailClosed(t *testing.T) {
+	state := `{"active":"primary","counters":{}}`
+	for attempt := 1; attempt <= 3; attempt++ {
+		state = runFailoverDecision(t, state, false, true)
+		want := "primary"
+		if attempt == 3 {
+			want = "secondary"
+		}
+		if got := failoverActive(t, state); got != want {
+			t.Fatalf("active after primary failure %d = %q, want %q", attempt, got, want)
+		}
+	}
+	for attempt := 1; attempt <= 2; attempt++ {
+		state = runFailoverDecision(t, state, true, true)
+		want := "secondary"
+		if attempt == 2 {
+			want = "primary"
+		}
+		if got := failoverActive(t, state); got != want {
+			t.Fatalf("active after primary recovery %d = %q, want %q", attempt, got, want)
+		}
+	}
+	for attempt := 1; attempt <= 3; attempt++ {
+		state = runFailoverDecision(t, state, false, false)
+	}
+	if got := failoverActive(t, state); got != "" {
+		t.Fatalf("active with both exits down = %q, want fail-closed empty selection", got)
+	}
+}
+
+func TestAWGFailoverRunnerUsesEndToEndProbesAndAtomicPolicyRoute(t *testing.T) {
+	runner := readFile(t, "veesp-exit/awg-failover.sh")
+	for _, want := range []string{
+		"latest-handshakes",
+		`--interface "$interface"`,
+		"expected_egress",
+		`ip route replace default dev "$desired_interface" table "$AWG_ROUTE_TABLE"`,
+		`ip route del default dev "$interface" table "$AWG_ROUTE_TABLE"`,
+		`ip route replace unreachable default table "$AWG_ROUTE_TABLE"`,
+		"flock -n",
+		"exit-health.json",
+		"overallStatus",
+	} {
+		if !strings.Contains(runner, want) {
+			t.Errorf("AWG failover runner does not contain %q", want)
+		}
+	}
+
+	installer := readFile(t, "veesp-exit/install-awg-failover.sh")
+	for _, want := range []string{
+		"Plan only; no host changes were made",
+		"AWG_PRIMARY_INTERFACE",
+		"AWG_SECONDARY_INTERFACE",
+		"chmod 600",
+		"systemctl enable --now my-utils-awg-failover.timer",
+		"systemctl start my-utils-awg-failover.service",
+	} {
+		if !strings.Contains(installer, want) {
+			t.Errorf("AWG failover installer does not contain %q", want)
+		}
+	}
+
+	timer := readFile(t, "veesp-exit/my-utils-awg-failover.timer")
+	if !strings.Contains(timer, "OnUnitActiveSec=5s") || !strings.Contains(timer, "AccuracySec=1s") {
+		t.Fatal("AWG failover timer must evaluate health every five seconds")
+	}
+	failoverUnit := readFile(t, "veesp-exit/my-utils-awg-failover.service")
+	for _, line := range strings.Split(failoverUnit, "\n") {
+		if (strings.HasPrefix(line, "Wants=") || strings.HasPrefix(line, "Requires=")) && strings.Contains(line, "my-utils-awg-exit") {
+			t.Fatal("health checks must observe stopped exit services without restarting them")
+		}
+	}
+}
+
+func TestAWGFailoverRunnerTreatsVanishedInterfaceAsFailedProbe(t *testing.T) {
+	runner := readFile(t, "veesp-exit/awg-failover.sh")
+	if !strings.Contains(runner, `if ! handshake_output=$(awg show "$interface" latest-handshakes 2>/dev/null); then`) {
+		t.Fatal("AWG probe must tolerate an interface disappearing between the link check and handshake read")
+	}
+	if strings.Contains(runner, `handshake=$(awg show "$interface" latest-handshakes`) {
+		t.Fatal("an unguarded AWG handshake read aborts the whole failover cycle when an exit is down")
+	}
+	if !strings.Contains(runner, `if ip link show dev "$desired_interface" >/dev/null 2>&1; then`) {
+		t.Fatal("route hysteresis must stay fail-closed while the selected interface is absent")
+	}
+	if !strings.Contains(runner, `'[.primary.healthy, .secondary.healthy] | all'`) {
+		t.Fatal("overall exit health must stay degraded while either provider is down")
+	}
+}
+
+func TestHAWireGuardRoutingPreservesManagedSelectionAndAllowsBothExits(t *testing.T) {
+	routing := readFile(t, "veesp-exit/wireguard-routing-ha.sh")
+	for _, want := range []string{
+		"WIREGUARD_EXIT_PATTERN",
+		`-o "$WIREGUARD_EXIT_PATTERN"`,
+		`-i "$WIREGUARD_EXIT_PATTERN"`,
+		"current_managed_default",
+		`ip route replace default dev "$WIREGUARD_PRIMARY_EXIT"`,
+	} {
+		if !strings.Contains(routing, want) {
+			t.Errorf("HA WireGuard routing does not contain %q", want)
+		}
+	}
+	unit := readFile(t, "veesp-exit/my-utils-wireguard-routing-ha.service")
+	if strings.Contains(unit, "Requires=my-utils-awg-exit") {
+		t.Fatal("HA routing unit must survive either exit service stopping")
+	}
+	for _, want := range []string{"Wants=my-utils-awg-exit.service my-utils-awg-exit-b.service", "Requires=wg-quick@wg-users.service"} {
+		if !strings.Contains(unit, want) {
+			t.Errorf("HA routing unit does not contain %q", want)
+		}
+	}
+}
+
+func TestRoutingUnitStateCapturesOnlyActiveDependents(t *testing.T) {
+	tempDir := t.TempDir()
+	activeFile := tempDir + "/active"
+	stateFile := tempDir + "/state"
+	logFile := tempDir + "/systemctl.log"
+	writeFakeSystemctl(t, tempDir)
+	if err := os.WriteFile(activeFile, []byte("my-utils-wireguard-routing.service\nmy-utils-geo-routing.service\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command("bash", "-c", `source "$1"; capture_active_routing_units "$2"`, "bash", "veesp-exit/routing-units.sh", stateFile)
+	command.Env = append(os.Environ(), "PATH="+tempDir+":"+os.Getenv("PATH"), "ACTIVE_UNITS_FILE="+activeFile, "SYSTEMCTL_LOG="+logFile)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("capture failed: %v\n%s", err, output)
+	}
+	state, err := os.ReadFile(stateFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "my-utils-wireguard-routing.service\nmy-utils-geo-routing.service\n"
+	if string(state) != want {
+		t.Fatalf("captured state = %q, want %q", state, want)
+	}
+}
+
+func TestRoutingUnitStateRestoresDependentsInDependencyOrder(t *testing.T) {
+	tempDir := t.TempDir()
+	activeFile := tempDir + "/active"
+	stateFile := tempDir + "/state"
+	logFile := tempDir + "/systemctl.log"
+	writeFakeSystemctl(t, tempDir)
+	state := "my-utils-wireguard-routing.service\nmy-utils-geo-routing.service\nmy-utils-api-proxy-routing.service\n"
+	if err := os.WriteFile(activeFile, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(stateFile, []byte(state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command("bash", "-c", `source "$1"; restore_active_routing_units "$2"`, "bash", "veesp-exit/routing-units.sh", stateFile)
+	command.Env = append(os.Environ(), "PATH="+tempDir+":"+os.Getenv("PATH"), "ACTIVE_UNITS_FILE="+activeFile, "SYSTEMCTL_LOG="+logFile)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("restore failed: %v\n%s", err, output)
+	}
+	log, err := os.ReadFile(logFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "start my-utils-wireguard-routing.service\n" +
+		"start my-utils-geo-routing.service\n" +
+		"start my-utils-geo-routing-update.service\n" +
+		"start my-utils-api-proxy-routing.service\n"
+	if string(log) != want {
+		t.Fatalf("systemctl calls = %q, want %q", log, want)
 	}
 }
 
@@ -280,6 +639,77 @@ func readFile(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(contents)
+}
+
+func readPath(t *testing.T, path string) string {
+	t.Helper()
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(contents)
+}
+
+func writeExecutable(t *testing.T, path, contents string) {
+	t.Helper()
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func runFailoverDecision(t *testing.T, state string, primaryHealthy, secondaryHealthy bool) string {
+	t.Helper()
+	tempDir := t.TempDir()
+	stateFile := tempDir + "/state.json"
+	probesFile := tempDir + "/probes.json"
+	if err := os.WriteFile(stateFile, []byte(state), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	probes := fmt.Sprintf(`{"primary":{"healthy":%t},"secondary":{"healthy":%t}}`, primaryHealthy, secondaryHealthy)
+	if err := os.WriteFile(probesFile, []byte(probes), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	command := exec.Command("python3", "veesp-exit/decide-failover.py",
+		"--state", stateFile,
+		"--probes", probesFile,
+		"--failure-threshold", "3",
+		"--recovery-threshold", "2",
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("failover decision failed: %v\n%s", err, output)
+	}
+	return string(output)
+}
+
+func failoverActive(t *testing.T, state string) string {
+	t.Helper()
+	var result struct {
+		Active *string `json:"active"`
+	}
+	if err := json.Unmarshal([]byte(state), &result); err != nil {
+		t.Fatalf("invalid failover state %q: %v", state, err)
+	}
+	if result.Active == nil {
+		return ""
+	}
+	return *result.Active
+}
+
+func writeFakeSystemctl(t *testing.T, dir string) {
+	t.Helper()
+	path := dir + "/systemctl"
+	contents := `#!/bin/sh
+set -eu
+if [ "$1" = "is-active" ] && [ "$2" = "--quiet" ]; then
+  grep -Fxq "$3" "$ACTIVE_UNITS_FILE"
+  exit $?
+fi
+printf '%s\n' "$*" >>"$SYSTEMCTL_LOG"
+`
+	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func run(t *testing.T, input string, name string, args ...string) (string, error) {

@@ -1,0 +1,12 @@
+[Unit]
+Description=Check my-utils AWG exit health every five seconds
+
+[Timer]
+OnBootSec=10s
+OnUnitActiveSec=5s
+AccuracySec=1s
+Persistent=true
+Unit=my-utils-awg-failover.service
+
+[Install]
+WantedBy=timers.target

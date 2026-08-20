@@ -22,7 +22,7 @@ services:
     environment:
       AWG_INTERFACE: awg0
       CLIENT_CIDR: 10.89.0.0/24
-      TUNNEL_CLIENT_IP: 10.8.1.250/32
+      TUNNEL_CLIENT_IP: ${TUNNEL_CLIENT_IP:-10.8.1.250/32}
       CONTAINER_IP: 172.29.172.2
       TINYPROXY_IP: 172.29.172.3
     tmpfs:

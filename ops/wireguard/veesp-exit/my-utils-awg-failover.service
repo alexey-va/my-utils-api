@@ -1,0 +1,19 @@
+[Unit]
+Description=End-to-end health check and failover for my-utils AWG exits
+After=network-online.target my-utils-awg-exit.service my-utils-awg-exit-b.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=AWG_FAILOVER_ENV_FILE=/etc/my-utils/awg-failover.env
+ExecStart=/usr/local/libexec/my-utils-awg-failover
+User=root
+Group=root
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run /var/lib/my-utils-wireguard
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

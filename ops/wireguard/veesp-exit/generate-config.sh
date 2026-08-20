@@ -6,9 +6,11 @@ server_config=""
 client_params=""
 endpoint=""
 listen_port=42697
+server_address=10.8.1.1/24
+client_address=10.8.1.250/32
 
 usage() {
-  echo "Usage: $0 --client-public-key-file FILE --server-config FILE --client-params FILE --endpoint HOST:PORT" >&2
+  echo "Usage: $0 --client-public-key-file FILE --server-config FILE --client-params FILE --endpoint HOST:PORT [--server-address 10.8.N.1/24] [--client-address 10.8.N.250/32]" >&2
 }
 
 while (($#)); do
@@ -17,6 +19,8 @@ while (($#)); do
     --server-config) server_config=${2:-}; shift 2 ;;
     --client-params) client_params=${2:-}; shift 2 ;;
     --endpoint) endpoint=${2:-}; shift 2 ;;
+    --server-address) server_address=${2:-}; shift 2 ;;
+    --client-address) client_address=${2:-}; shift 2 ;;
     *) usage; exit 2 ;;
   esac
 done
@@ -30,6 +34,10 @@ done
 listen_port=${BASH_REMATCH[1]}
 ((10#$listen_port >= 1 && 10#$listen_port <= 65535))
 [[ ! -e "$server_config" && ! -e "$client_params" ]]
+[[ "$server_address" =~ ^10\.8\.([0-9]{1,3})\.1/24$ ]]
+overlay_octet=${BASH_REMATCH[1]}
+((10#$overlay_octet >= 1 && 10#$overlay_octet <= 254))
+[[ "$client_address" == "10.8.$((10#$overlay_octet)).250/32" ]]
 
 client_public=$(tr -d '\r\n' <"$client_public_key_file")
 [[ "$client_public" =~ ^[A-Za-z0-9+/]{43}=$ ]]
@@ -56,7 +64,7 @@ h4=$(shuf -i 100000000-999999999 -n 1)
 
 cat >"$server_config" <<EOF
 [Interface]
-Address = 10.8.1.1/24
+Address = $server_address
 PrivateKey = $(<"$server_private")
 ListenPort = $listen_port
 Jc = $jc
@@ -74,13 +82,14 @@ Table = off
 [Peer]
 PublicKey = $client_public
 PresharedKey = $(<"$preshared_key")
-AllowedIPs = 10.8.1.250/32, 10.89.0.0/24
+AllowedIPs = $client_address, 10.89.0.0/24
 EOF
 
 cat >"$client_params" <<EOF
 SERVER_PUBLIC_KEY=$(<"$server_public")
 PRESHARED_KEY=$(<"$preshared_key")
 ENDPOINT=$endpoint
+CLIENT_ADDRESS=$client_address
 JC=$jc
 JMIN=$jmin
 JMAX=$jmax

@@ -16,7 +16,8 @@ case "$interface" in
   *[!a-zA-Z0-9_.-]*|'') echo "Invalid AWG interface" >&2; exit 1 ;;
 esac
 [[ "$client_cidr" == 10.89.0.0/24 ]]
-[[ "$tunnel_client_ip" == 10.8.1.250/32 ]]
+[[ "$tunnel_client_ip" =~ ^10\.8\.([0-9]{1,3})\.250/32$ ]]
+((10#${BASH_REMATCH[1]} >= 1 && 10#${BASH_REMATCH[1]} <= 254))
 [[ "$tinyproxy_ip" == 172.29.172.3 ]]
 [[ "$container_ip" == 172.29.172.2 ]]
 [[ -r "$config" ]]

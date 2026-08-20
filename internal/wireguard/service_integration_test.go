@@ -52,8 +52,23 @@ func TestControlPlaneProvisionHeartbeatAndCounters(t *testing.T) {
 		t.Fatalf("CreatePeer before heartbeat error = %v", err)
 	}
 	serverKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
-	if err := service.Heartbeat(ctx, relay.ID, Heartbeat{ServerPublicKey: serverKey, PublicEndpoint: relay.PublicEndpoint, AppliedRevision: 0}); err != nil {
+	health := healthyExitHealth(now)
+	if err := service.Heartbeat(ctx, relay.ID, Heartbeat{
+		ServerPublicKey: serverKey,
+		PublicEndpoint:  relay.PublicEndpoint,
+		AppliedRevision: 0,
+		RoutingStatus:   &RoutingStatus{Mode: "RU_DIRECT_AWG_DEFAULT", RUPrefixCount: 8651, UpdatedAt: now, Healthy: true, CheckedAt: now},
+		ExitHealth:      &health,
+	}); err != nil {
 		t.Fatalf("Heartbeat() error = %v", err)
+	}
+	relays, err := service.ListRelays(ctx)
+	if err != nil || len(relays) == 0 {
+		t.Fatalf("ListRelays() after health heartbeat = %#v, %v", relays, err)
+	}
+	persisted := relays[len(relays)-1]
+	if persisted.Status != "READY" || persisted.RoutingHealthy == nil || !*persisted.RoutingHealthy || persisted.ExitHealth == nil || persisted.ExitHealth.ActiveExit == nil || *persisted.ExitHealth.ActiveExit != "primary" {
+		t.Fatalf("persisted relay health = %#v", persisted)
 	}
 	peer, err := service.CreatePeer(ctx, relay.ID, "Alex phone")
 	if err != nil {

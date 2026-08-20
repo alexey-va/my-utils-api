@@ -5,7 +5,7 @@ docker_cidr=172.16.0.0/12
 proxy_destination=185.242.106.81/32
 tunnel_proxy_destination=172.29.172.3
 proxy_port=8888
-egress_interface=awg-exit
+egress_interface_pattern=awg-exit+
 source_address=10.89.0.1
 table=51889
 priority=1087
@@ -16,8 +16,7 @@ nat_chain=MYUTILS-API-PROXY-NAT
 dnat_chain=MYUTILS-API-PROXY-DNAT
 
 start() {
-  ip link show "$egress_interface" >/dev/null
-  ip route show table "$table" | grep -Fq "default dev $egress_interface"
+  ip route show table "$table" | grep -Eq '^default dev awg-exit([[:alnum:]_.-]*) '
 
   while ip rule del priority "$priority" 2>/dev/null; do :; done
   ip rule add priority "$priority" fwmark "$mark/$mark_mask" lookup "$table"
@@ -36,7 +35,7 @@ start() {
 
   iptables -t nat -N "$nat_chain" 2>/dev/null || true
   iptables -t nat -F "$nat_chain"
-  iptables -t nat -A "$nat_chain" -s "$docker_cidr" -d "$tunnel_proxy_destination/32" -p tcp --dport "$proxy_port" -o "$egress_interface" -m mark --mark "$mark/$mark_mask" -j SNAT --to-source "$source_address"
+  iptables -t nat -A "$nat_chain" -s "$docker_cidr" -d "$tunnel_proxy_destination/32" -p tcp --dport "$proxy_port" -o "$egress_interface_pattern" -m mark --mark "$mark/$mark_mask" -j SNAT --to-source "$source_address"
   iptables -t nat -A "$nat_chain" -j RETURN
   iptables -t nat -C POSTROUTING -j "$nat_chain" 2>/dev/null || iptables -t nat -I POSTROUTING 1 -j "$nat_chain"
 }

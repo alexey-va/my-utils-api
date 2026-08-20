@@ -132,6 +132,7 @@ action="\${1:-start}"
 client_cidr='$client_cidr'
 ingress='$interface'
 egress='$egress_interface'
+egress_pattern='awg-exit+'
 table=51889
 priority=1089
 chain=MYUTILS-WG-USERS
@@ -144,8 +145,8 @@ start() {
   ip rule show | grep -Fq "from \$client_cidr lookup \$table" || ip rule add priority "\$priority" from "\$client_cidr" table "\$table"
   iptables -N "\$chain" 2>/dev/null || true
   iptables -F "\$chain"
-  iptables -A "\$chain" -i "\$ingress" -s "\$client_cidr" -o "\$egress" -j ACCEPT
-  iptables -A "\$chain" -i "\$egress" -d "\$client_cidr" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+  iptables -A "\$chain" -i "\$ingress" -s "\$client_cidr" -o "\$egress_pattern" -j ACCEPT
+  iptables -A "\$chain" -i "\$egress_pattern" -d "\$client_cidr" -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
   iptables -A "\$chain" -i "\$ingress" -s "\$client_cidr" -j REJECT --reject-with icmp-admin-prohibited
   iptables -A "\$chain" -j RETURN
   iptables -C FORWARD -j "\$chain" 2>/dev/null || iptables -I FORWARD 1 -j "\$chain"
@@ -173,7 +174,8 @@ cat >"/etc/systemd/system/my-utils-wireguard-routing.service" <<EOF
 [Unit]
 Description=Fail-closed routing for my-utils WireGuard clients
 After=network-online.target my-utils-awg-exit.service wg-quick@$interface.service
-Requires=my-utils-awg-exit.service wg-quick@$interface.service
+Wants=my-utils-awg-exit.service
+Requires=wg-quick@$interface.service
 
 [Service]
 Type=oneshot

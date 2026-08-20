@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"math"
@@ -23,7 +24,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-const relayColumns = `id::text,name,public_endpoint,client_cidr,client_dns,interface_name,agent_token_hash,server_public_key,desired_revision,applied_revision,last_seen_at,routing_mode,ru_prefix_count,routing_updated_at,direct_probe_target,direct_packet_loss_percent,direct_average_rtt_ms,veesp_probe_target,veesp_packet_loss_percent,veesp_average_rtt_ms,route_quality_updated_at,created_at,updated_at`
+const relayColumns = `id::text,name,public_endpoint,client_cidr,client_dns,interface_name,agent_token_hash,server_public_key,desired_revision,applied_revision,last_seen_at,routing_mode,ru_prefix_count,routing_updated_at,routing_healthy,routing_checked_at,exit_health,direct_probe_target,direct_packet_loss_percent,direct_average_rtt_ms,veesp_probe_target,veesp_packet_loss_percent,veesp_average_rtt_ms,route_quality_updated_at,created_at,updated_at`
 
 type Service struct {
 	pool   *pgxpool.Pool
@@ -41,6 +42,7 @@ type relayRecord struct {
 	DirectTarget, VeespTarget                  *string
 	DirectLoss, DirectRTT, VeespLoss, VeespRTT *float64
 	QualityUpdated                             *time.Time
+	ExitHealthJSON                             []byte
 }
 
 type row interface{ Scan(...any) error }
@@ -51,12 +53,20 @@ func scanRelay(source row, now time.Time) (relayRecord, error) {
 		&value.ID, &value.Name, &value.PublicEndpoint, &value.ClientCIDR, &value.ClientDNS,
 		&value.InterfaceName, &value.TokenHash, &value.ServerPublicKey, &value.DesiredRevision,
 		&value.AppliedRevision, &value.LastSeenAt, &value.RoutingMode, &value.RUPrefixCount,
-		&value.RoutingUpdatedAt, &value.DirectTarget, &value.DirectLoss, &value.DirectRTT,
+		&value.RoutingUpdatedAt, &value.RoutingHealthy, &value.RoutingCheckedAt, &value.ExitHealthJSON,
+		&value.DirectTarget, &value.DirectLoss, &value.DirectRTT,
 		&value.VeespTarget, &value.VeespLoss, &value.VeespRTT, &value.QualityUpdated,
 		&value.CreatedAt, &value.UpdatedAt,
 	)
 	if err != nil {
 		return relayRecord{}, err
+	}
+	if len(value.ExitHealthJSON) > 0 {
+		var exitHealth ExitHealth
+		if err := json.Unmarshal(value.ExitHealthJSON, &exitHealth); err != nil {
+			return relayRecord{}, fmt.Errorf("decode relay exit health: %w", err)
+		}
+		value.ExitHealth = &exitHealth
 	}
 	value.Status = relayStatus(value.Relay, now)
 	if value.QualityUpdated != nil && value.DirectTarget != nil && value.DirectLoss != nil && value.VeespTarget != nil && value.VeespLoss != nil {
@@ -407,12 +417,14 @@ func (s *Service) Heartbeat(ctx context.Context, relayID string, body Heartbeat)
 	now := s.now()
 	if body.RoutingStatus != nil {
 		r := body.RoutingStatus
-		if (r.Mode != "AWG_ONLY" && r.Mode != "RU_DIRECT_AWG_DEFAULT") || r.RUPrefixCount < 0 || r.RUPrefixCount > 100000 || (r.Mode == "AWG_ONLY" && r.RUPrefixCount != 0) || (r.Mode == "RU_DIRECT_AWG_DEFAULT" && r.RUPrefixCount == 0) || r.UpdatedAt.After(now.Add(5*time.Minute)) {
+		if (r.Mode != "AWG_ONLY" && r.Mode != "RU_DIRECT_AWG_DEFAULT") || r.RUPrefixCount < 0 || r.RUPrefixCount > 100000 || (r.Mode == "AWG_ONLY" && r.RUPrefixCount != 0) || (r.Mode == "RU_DIRECT_AWG_DEFAULT" && r.RUPrefixCount == 0) || r.UpdatedAt.After(now.Add(5*time.Minute)) || r.CheckedAt.IsZero() || r.CheckedAt.After(now.Add(5*time.Minute)) {
 			return badRequest("Routing status is invalid")
 		}
 		relay.RoutingMode = r.Mode
 		relay.RUPrefixCount = r.RUPrefixCount
 		relay.RoutingUpdatedAt = &r.UpdatedAt
+		relay.RoutingHealthy = &r.Healthy
+		relay.RoutingCheckedAt = &r.CheckedAt
 	}
 	if body.RouteQuality != nil {
 		q := body.RouteQuality
@@ -433,7 +445,21 @@ func (s *Service) Heartbeat(ctx context.Context, relayID string, body Heartbeat)
 		relay.VeespRTT = q.Veesp.AverageRTTMs
 		relay.QualityUpdated = &q.MeasuredAt
 	}
-	_, err = tx.Exec(ctx, `UPDATE wireguard_relays SET server_public_key=$2,public_endpoint=$3,applied_revision=$4,last_seen_at=$5,updated_at=$5,routing_mode=$6,ru_prefix_count=$7,routing_updated_at=$8,direct_probe_target=$9,direct_packet_loss_percent=$10,direct_average_rtt_ms=$11,veesp_probe_target=$12,veesp_packet_loss_percent=$13,veesp_average_rtt_ms=$14,route_quality_updated_at=$15 WHERE id=$1::uuid`, relayID, serverKey, endpoint, body.AppliedRevision, now, relay.RoutingMode, relay.RUPrefixCount, relay.RoutingUpdatedAt, relay.DirectTarget, relay.DirectLoss, relay.DirectRTT, relay.VeespTarget, relay.VeespLoss, relay.VeespRTT, relay.QualityUpdated)
+	if err := validateExitHealth(body.ExitHealth, now); err != nil {
+		return err
+	}
+	if body.ExitHealth != nil {
+		relay.ExitHealth = body.ExitHealth
+	}
+	var exitHealthJSON any
+	if relay.ExitHealth != nil {
+		encoded, err := json.Marshal(relay.ExitHealth)
+		if err != nil {
+			return fmt.Errorf("encode relay exit health: %w", err)
+		}
+		exitHealthJSON = string(encoded)
+	}
+	_, err = tx.Exec(ctx, `UPDATE wireguard_relays SET server_public_key=$2,public_endpoint=$3,applied_revision=$4,last_seen_at=$5,updated_at=$5,routing_mode=$6,ru_prefix_count=$7,routing_updated_at=$8,routing_healthy=$9,routing_checked_at=$10,exit_health=$11::jsonb,direct_probe_target=$12,direct_packet_loss_percent=$13,direct_average_rtt_ms=$14,veesp_probe_target=$15,veesp_packet_loss_percent=$16,veesp_average_rtt_ms=$17,route_quality_updated_at=$18 WHERE id=$1::uuid`, relayID, serverKey, endpoint, body.AppliedRevision, now, relay.RoutingMode, relay.RUPrefixCount, relay.RoutingUpdatedAt, relay.RoutingHealthy, relay.RoutingCheckedAt, exitHealthJSON, relay.DirectTarget, relay.DirectLoss, relay.DirectRTT, relay.VeespTarget, relay.VeespLoss, relay.VeespRTT, relay.QualityUpdated)
 	if err != nil {
 		return err
 	}
@@ -629,7 +655,20 @@ func relayStatus(relay Relay, now time.Time) string {
 		return "STALE"
 	}
 	if relay.AppliedRevision != nil && *relay.AppliedRevision == relay.DesiredRevision {
-		return "READY"
+		if relay.RoutingHealthy == nil || !*relay.RoutingHealthy || relay.RoutingCheckedAt == nil || relay.RoutingCheckedAt.After(now.Add(5*time.Second)) || now.Sub(*relay.RoutingCheckedAt) > 45*time.Second {
+			return "DEGRADED"
+		}
+		if relay.ExitHealth == nil || relay.ExitHealth.CheckedAt.After(now.Add(5*time.Second)) || now.Sub(relay.ExitHealth.CheckedAt) > 45*time.Second {
+			return "DEGRADED"
+		}
+		switch relay.ExitHealth.OverallStatus {
+		case "HEALTHY":
+			return "READY"
+		case "DOWN":
+			return "DOWN"
+		default:
+			return "DEGRADED"
+		}
 	}
 	return "SYNCING"
 }
@@ -685,6 +724,69 @@ func validateProbe(value RouteProbe) error {
 	}
 	return nil
 }
+
+func validateExitHealth(value *ExitHealth, now time.Time) error {
+	if value == nil {
+		return nil
+	}
+	if value.SchemaVersion != 1 || value.CheckedAt.IsZero() || value.CheckedAt.After(now.Add(5*time.Minute)) {
+		return badRequest("Exit health is invalid")
+	}
+	if value.OverallStatus != "HEALTHY" && value.OverallStatus != "DEGRADED" && value.OverallStatus != "DOWN" {
+		return badRequest("Exit health is invalid")
+	}
+	if len(value.Exits) != 2 || len(value.Counters) != 2 {
+		return badRequest("Exit health is invalid")
+	}
+	for _, exitID := range []string{"primary", "secondary"} {
+		probe, ok := value.Exits[exitID]
+		if !ok || probe.ID != exitID || !exitInterfacePattern.MatchString(probe.Interface) {
+			return badRequest("Exit health is invalid")
+		}
+		if _, err := validateIPv4(probe.ExpectedEgressIP, "Expected exit egress"); err != nil {
+			return err
+		}
+		if probe.ObservedEgressIP != nil {
+			if _, err := validateIPv4(*probe.ObservedEgressIP, "Observed exit egress"); err != nil {
+				return err
+			}
+		}
+		if probe.HandshakeAtEpoch < 0 || probe.HandshakeAgeSeconds != nil && (*probe.HandshakeAgeSeconds < 0 || *probe.HandshakeAgeSeconds > 86400) {
+			return badRequest("Exit health is invalid")
+		}
+		if probe.LatencyMs != nil && (math.IsNaN(*probe.LatencyMs) || math.IsInf(*probe.LatencyMs, 0) || *probe.LatencyMs < 0 || *probe.LatencyMs > 60000) {
+			return badRequest("Exit health is invalid")
+		}
+		if probe.Healthy {
+			if probe.Reason != nil || probe.ObservedEgressIP == nil || *probe.ObservedEgressIP != probe.ExpectedEgressIP || probe.HandshakeAtEpoch == 0 || probe.HandshakeAgeSeconds == nil || probe.LatencyMs == nil {
+				return badRequest("Exit health is invalid")
+			}
+		} else if probe.Reason == nil {
+			return badRequest("Exit health is invalid")
+		}
+		counter, ok := value.Counters[exitID]
+		if !ok || counter.Successes < 0 || counter.Successes > 1000000 || counter.Failures < 0 || counter.Failures > 1000000 || counter.Successes > 0 && counter.Failures > 0 {
+			return badRequest("Exit health is invalid")
+		}
+	}
+	if value.OverallStatus == "DOWN" {
+		if value.ActiveExit != nil || value.ActiveInterface != nil {
+			return badRequest("Exit health is invalid")
+		}
+		return nil
+	}
+	if value.ActiveExit == nil || value.ActiveInterface == nil || (*value.ActiveExit != "primary" && *value.ActiveExit != "secondary") {
+		return badRequest("Exit health is invalid")
+	}
+	active := value.Exits[*value.ActiveExit]
+	if *value.ActiveInterface != active.Interface {
+		return badRequest("Exit health is invalid")
+	}
+	if value.OverallStatus == "HEALTHY" && (!active.Healthy || !value.Exits["primary"].Healthy || !value.Exits["secondary"].Healthy) {
+		return badRequest("Exit health is invalid")
+	}
+	return nil
+}
 func generateToken() (string, error) {
 	value := make([]byte, 32)
 	if _, err := rand.Read(value); err != nil {
@@ -697,7 +799,10 @@ func tokenHash(token string) string {
 	return fmt.Sprintf("%x", value[:])
 }
 
-var slugPattern = regexp.MustCompile(`[^a-z0-9]+`)
+var (
+	exitInterfacePattern = regexp.MustCompile(`^[a-zA-Z0-9_.-]{1,15}$`)
+	slugPattern          = regexp.MustCompile(`[^a-z0-9]+`)
+)
 
 func fileSlug(name, id string) string {
 	value := strings.Trim(slugPattern.ReplaceAllString(strings.ToLower(name), "-"), "-")

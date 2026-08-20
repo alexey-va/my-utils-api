@@ -21,6 +21,34 @@ type RouteQuality struct {
 	Veesp      RouteProbe `json:"veesp"`
 }
 
+type ExitProbeHealth struct {
+	ID                  string   `json:"id"`
+	Interface           string   `json:"interface"`
+	Healthy             bool     `json:"healthy"`
+	Reason              *string  `json:"reason"`
+	ExpectedEgressIP    string   `json:"expectedEgressIp"`
+	ObservedEgressIP    *string  `json:"observedEgressIp"`
+	HandshakeAtEpoch    int64    `json:"handshakeAtEpoch"`
+	HandshakeAgeSeconds *int64   `json:"handshakeAgeSeconds"`
+	LatencyMs           *float64 `json:"latencyMs"`
+}
+
+type ExitHealthCounter struct {
+	Successes int `json:"successes"`
+	Failures  int `json:"failures"`
+}
+
+type ExitHealth struct {
+	SchemaVersion   int                          `json:"schemaVersion"`
+	CheckedAt       time.Time                    `json:"checkedAt"`
+	OverallStatus   string                       `json:"overallStatus"`
+	ActiveExit      *string                      `json:"activeExit"`
+	ActiveInterface *string                      `json:"activeInterface"`
+	Changed         bool                         `json:"changed"`
+	Counters        map[string]ExitHealthCounter `json:"counters"`
+	Exits           map[string]ExitProbeHealth   `json:"exits"`
+}
+
 type Relay struct {
 	ID               string        `json:"id"`
 	Name             string        `json:"name"`
@@ -36,7 +64,10 @@ type Relay struct {
 	RoutingMode      string        `json:"routingMode"`
 	RUPrefixCount    int           `json:"ruPrefixCount"`
 	RoutingUpdatedAt *time.Time    `json:"routingUpdatedAt"`
+	RoutingHealthy   *bool         `json:"routingHealthy"`
+	RoutingCheckedAt *time.Time    `json:"routingCheckedAt"`
 	RouteQuality     *RouteQuality `json:"routeQuality"`
+	ExitHealth       *ExitHealth   `json:"exitHealth"`
 	CreatedAt        time.Time     `json:"createdAt"`
 	UpdatedAt        time.Time     `json:"updatedAt"`
 }
@@ -91,12 +122,15 @@ type Heartbeat struct {
 	Peers           []PeerCounter  `json:"peers"`
 	RoutingStatus   *RoutingStatus `json:"routingStatus"`
 	RouteQuality    *RouteQuality  `json:"routeQuality"`
+	ExitHealth      *ExitHealth    `json:"exitHealth"`
 }
 
 type RoutingStatus struct {
 	Mode          string    `json:"mode"`
 	RUPrefixCount int       `json:"ruPrefixCount"`
 	UpdatedAt     time.Time `json:"updatedAt"`
+	Healthy       bool      `json:"healthy"`
+	CheckedAt     time.Time `json:"checkedAt"`
 }
 
 type PeerCounter struct {

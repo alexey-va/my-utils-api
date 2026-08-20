@@ -13,7 +13,9 @@ fi
 source "$ENV_FILE"
 
 WIREGUARD_ROUTING_STATUS_FILE="${WIREGUARD_ROUTING_STATUS_FILE:-/var/lib/my-utils-wireguard/geo-routing-status.json}"
+WIREGUARD_EXIT_HEALTH_FILE="${WIREGUARD_EXIT_HEALTH_FILE:-/var/lib/my-utils-wireguard/exit-health.json}"
 WIREGUARD_AWG_INTERFACE="${WIREGUARD_AWG_INTERFACE:-awg-exit}"
+WIREGUARD_AWG_INTERFACE_PATTERN="${WIREGUARD_AWG_INTERFACE_PATTERN:-awg-exit+}"
 WIREGUARD_DIRECT_INTERFACE="${WIREGUARD_DIRECT_INTERFACE:-eth0}"
 WIREGUARD_DIRECT_PROBE_TARGET="${WIREGUARD_DIRECT_PROBE_TARGET:-77.88.8.8}"
 WIREGUARD_TRAFFIC_CHAIN="${WIREGUARD_TRAFFIC_CHAIN:-MYUTILS-WG-TRAFFIC}"
@@ -41,6 +43,10 @@ for interface in "$WIREGUARD_AWG_INTERFACE" "$WIREGUARD_DIRECT_INTERFACE"; do
     exit 1
   fi
 done
+if [[ ! "$WIREGUARD_AWG_INTERFACE_PATTERN" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ ]]; then
+  echo "WireGuard route interface pattern is invalid: $WIREGUARD_AWG_INTERFACE_PATTERN" >&2
+  exit 1
+fi
 if [[ ! "$WIREGUARD_TRAFFIC_CHAIN" =~ ^[a-zA-Z0-9_-]{1,28}$ ]]; then
   echo "WIREGUARD_TRAFFIC_CHAIN is invalid" >&2
   exit 1
@@ -57,7 +63,7 @@ if [[ "$WIREGUARD_PUBLIC_ENDPOINT" == *$'\n'* || "$WIREGUARD_PUBLIC_ENDPOINT" ==
   echo "WIREGUARD_PUBLIC_ENDPOINT is invalid" >&2
   exit 1
 fi
-for command in awg awk curl date iptables jq mktemp ping wg; do
+for command in awg awk curl date grep ip iptables jq mktemp nft ping systemctl wg; do
   command -v "$command" >/dev/null || {
     echo "Required command is missing: $command" >&2
     exit 1
@@ -67,7 +73,7 @@ if [[ ! -d "/sys/class/net/$WIREGUARD_INTERFACE" ]]; then
   echo "WireGuard interface is not active: $WIREGUARD_INTERFACE" >&2
   exit 1
 fi
-for interface in "$WIREGUARD_AWG_INTERFACE" "$WIREGUARD_DIRECT_INTERFACE"; do
+for interface in "$WIREGUARD_DIRECT_INTERFACE"; do
   if [[ ! -d "/sys/class/net/$interface" ]]; then
     echo "WireGuard route interface is not active: $interface" >&2
     exit 1
@@ -112,7 +118,7 @@ configure_traffic_counters() {
       -i "$WIREGUARD_DIRECT_INTERFACE" -o "$WIREGUARD_INTERFACE" -d "$peer_ip" \
       -m comment --comment "myutils:$peer_ip:ru-download" -j RETURN
     iptables -t mangle -A "$WIREGUARD_TRAFFIC_CHAIN" \
-      -i "$WIREGUARD_AWG_INTERFACE" -o "$WIREGUARD_INTERFACE" -d "$peer_ip" \
+      -i "$WIREGUARD_AWG_INTERFACE_PATTERN" -o "$WIREGUARD_INTERFACE" -d "$peer_ip" \
       -m comment --comment "myutils:$peer_ip:non-ru-download" -j RETURN
   done < <(jq -r '.peers[].allowedIp | sub("/32$"; "")' "$desired_json")
 }
@@ -247,18 +253,60 @@ if [[ -r "$WIREGUARD_ROUTING_STATUS_FILE" ]]; then
     (.updatedAt | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
     ((.mode == "AWG_ONLY" and .ruPrefixCount == 0) or (.mode == "RU_DIRECT_AWG_DEFAULT" and .ruPrefixCount > 0))
   ' "$WIREGUARD_ROUTING_STATUS_FILE" >/dev/null; then
-    jq '{mode, ruPrefixCount, updatedAt}' "$WIREGUARD_ROUTING_STATUS_FILE" >"$routing_status_json"
+    routingHealthy=false
+    routing_rules="$(ip -4 rule show)"
+    routing_mode="$(jq -r '.mode' "$WIREGUARD_ROUTING_STATUS_FILE")"
+    if systemctl is-active --quiet my-utils-wireguard-routing.service &&
+      grep -Eq '(^|[[:space:]])1089:.*from 10\.89\.0\.0/24 lookup 51889([[:space:]]|$)' <<<"$routing_rules"; then
+      routingHealthy=true
+    fi
+    if [[ "$routing_mode" == "RU_DIRECT_AWG_DEFAULT" ]] && {
+      ! systemctl is-active --quiet my-utils-geo-routing.service ||
+      ! grep -Eq '(^|[[:space:]])1088:.*fwmark 0x51890 lookup main([[:space:]]|$)' <<<"$routing_rules" ||
+      ! nft list set ip myutils_wg_geo ru_ipv4 >/dev/null 2>&1;
+    }; then
+      routingHealthy=false
+    fi
+    jq \
+      --argjson healthy "$routingHealthy" \
+      --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+      '{mode, ruPrefixCount, updatedAt, healthy: $healthy, checkedAt: $checkedAt}' \
+      "$WIREGUARD_ROUTING_STATUS_FILE" >"$routing_status_json"
   else
     echo "Ignoring invalid WireGuard routing status file" >&2
   fi
 fi
 
+exit_health_json="$tmp_dir/exit-health.json"
+printf 'null\n' >"$exit_health_json"
+if systemctl is-active --quiet my-utils-awg-failover.timer && [[ -r "$WIREGUARD_EXIT_HEALTH_FILE" ]]; then
+  if jq -e '
+    type == "object" and
+    .schemaVersion == 1 and
+    (.checkedAt | type == "string" and test("^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}Z$")) and
+    (.overallStatus == "HEALTHY" or .overallStatus == "DEGRADED" or .overallStatus == "DOWN") and
+    (.counters | type == "object" and (keys | sort) == ["primary", "secondary"]) and
+    (.exits | type == "object" and (keys | sort) == ["primary", "secondary"])
+  ' "$WIREGUARD_EXIT_HEALTH_FILE" >/dev/null; then
+    jq '.' "$WIREGUARD_EXIT_HEALTH_FILE" >"$exit_health_json"
+  else
+    echo "Ignoring invalid AWG exit health file" >&2
+  fi
+fi
+
 route_quality_json="$tmp_dir/route-quality.json"
 printf 'null\n' >"$route_quality_json"
-awg_endpoint="$(
-  awg show "$WIREGUARD_AWG_INTERFACE" endpoints 2>/dev/null |
-    awk 'NR == 1 { endpoint=$2; sub(/:[0-9]+$/, "", endpoint); print endpoint }' || true
-)"
+active_awg_interface="$(jq -r '.activeInterface // empty' "$exit_health_json")"
+if [[ -z "$active_awg_interface" ]]; then
+  active_awg_interface="$WIREGUARD_AWG_INTERFACE"
+fi
+awg_endpoint=""
+if [[ "$active_awg_interface" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ && -d "/sys/class/net/$active_awg_interface" ]]; then
+  awg_endpoint="$(
+    awg show "$active_awg_interface" endpoints 2>/dev/null |
+      awk 'NR == 1 { endpoint=$2; sub(/:[0-9]+$/, "", endpoint); print endpoint }' || true
+  )"
+fi
 if valid_ipv4 "$WIREGUARD_DIRECT_PROBE_TARGET" && valid_ipv4 "$awg_endpoint"; then
   route_probe "$WIREGUARD_DIRECT_INTERFACE" "$WIREGUARD_DIRECT_PROBE_TARGET" "$tmp_dir/direct-probe.txt" >"$tmp_dir/direct-probe.json"
   route_probe "$WIREGUARD_DIRECT_INTERFACE" "$awg_endpoint" "$tmp_dir/veesp-probe.txt" >"$tmp_dir/veesp-probe.json"
@@ -279,6 +327,7 @@ jq -n \
   --slurpfile peers "$counters_json" \
   --slurpfile routingStatus "$routing_status_json" \
   --slurpfile routeQuality "$route_quality_json" \
+  --slurpfile exitHealth "$exit_health_json" \
   '({
       serverPublicKey: $serverPublicKey,
       publicEndpoint: $publicEndpoint,
@@ -286,7 +335,8 @@ jq -n \
       peers: $peers[0]
     } +
     (if $routingStatus[0] == null then {} else {routingStatus: $routingStatus[0]} end) +
-    (if $routeQuality[0] == null then {} else {routeQuality: $routeQuality[0]} end))' >"$heartbeat_json"
+    (if $routeQuality[0] == null then {} else {routeQuality: $routeQuality[0]} end) +
+    (if $exitHealth[0] == null then {} else {exitHealth: $exitHealth[0]} end))' >"$heartbeat_json"
 
 curl --config "$curl_config" \
   --header 'Content-Type: application/json' \

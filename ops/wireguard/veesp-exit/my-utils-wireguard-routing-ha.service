@@ -1,0 +1,15 @@
+[Unit]
+Description=Fail-closed HA routing for my-utils WireGuard clients
+After=network-online.target my-utils-awg-exit.service my-utils-awg-exit-b.service wg-quick@wg-users.service
+Wants=my-utils-awg-exit.service my-utils-awg-exit-b.service
+Requires=wg-quick@wg-users.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=WIREGUARD_ROUTING_ENV_FILE=/etc/my-utils/wireguard-routing-ha.env
+ExecStart=/usr/local/libexec/my-utils-wireguard-routing start
+ExecStop=/usr/local/libexec/my-utils-wireguard-routing stop
+
+[Install]
+WantedBy=multi-user.target
