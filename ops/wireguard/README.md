@@ -202,13 +202,16 @@ health history. The detailed chart for one peer is fetched only when its drawer
 is opened.
 
 The agent also sends a current route-quality snapshot on every heartbeat. The
-Internal probe pings `77.88.8.8` through `eth0`; the External probe pings the
-public endpoint reported by the currently selected AWG interface, also through
+Internal probe pings `77.88.8.1`, `1.1.1.1`, and `8.8.8.8` concurrently through
+`eth0` and reports the median probe, so one endpoint that stops answering ICMP
+does not create a false route outage. The External probe pings the public
+endpoint reported by the currently selected AWG interface, also through
 `eth0`. The second value measures the underlying path from `utils` to the active exit, not end-to-end
 loss between a client device and `wg-users`. Targets and interfaces can be
-overridden with `WIREGUARD_DIRECT_PROBE_TARGET`,
-`WIREGUARD_DIRECT_INTERFACE`, and `WIREGUARD_AWG_INTERFACE` in the agent
-environment.
+overridden with `WIREGUARD_DIRECT_PROBE_TARGETS`, `WIREGUARD_DIRECT_INTERFACE`,
+and `WIREGUARD_AWG_INTERFACE` in the agent environment. The legacy singular
+`WIREGUARD_DIRECT_PROBE_TARGET` remains supported when the plural setting is
+absent.
 
 The API exposes this persisted state as `myutils_wireguard_*` Prometheus
 series. Grafana provisioning in

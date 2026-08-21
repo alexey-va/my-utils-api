@@ -18,7 +18,14 @@ WIREGUARD_EXIT_PREFERENCE_FILE="${WIREGUARD_EXIT_PREFERENCE_FILE:-/var/lib/my-ut
 WIREGUARD_AWG_INTERFACE="${WIREGUARD_AWG_INTERFACE:-awg-exit}"
 WIREGUARD_AWG_INTERFACE_PATTERN="${WIREGUARD_AWG_INTERFACE_PATTERN:-awg-exit+}"
 WIREGUARD_DIRECT_INTERFACE="${WIREGUARD_DIRECT_INTERFACE:-eth0}"
-WIREGUARD_DIRECT_PROBE_TARGET="${WIREGUARD_DIRECT_PROBE_TARGET:-77.88.8.8}"
+WIREGUARD_ROUTE_PROBE_BIN="${WIREGUARD_ROUTE_PROBE_BIN:-/usr/local/libexec/my-utils-wireguard-route-probe}"
+if [[ -n "${WIREGUARD_DIRECT_PROBE_TARGETS:-}" ]]; then
+  direct_probe_targets="$WIREGUARD_DIRECT_PROBE_TARGETS"
+elif [[ -n "${WIREGUARD_DIRECT_PROBE_TARGET:-}" ]]; then
+  direct_probe_targets="$WIREGUARD_DIRECT_PROBE_TARGET"
+else
+  direct_probe_targets="77.88.8.1,1.1.1.1,8.8.8.8"
+fi
 WIREGUARD_TRAFFIC_CHAIN="${WIREGUARD_TRAFFIC_CHAIN:-MYUTILS-WG-TRAFFIC}"
 WIREGUARD_ROUTING_MARK="${WIREGUARD_ROUTING_MARK:-0x51890}"
 WIREGUARD_DNS_RESOLVER_ADDRESS="${WIREGUARD_DNS_RESOLVER_ADDRESS:-10.89.0.1}"
@@ -49,6 +56,10 @@ if [[ ! "$WIREGUARD_AWG_INTERFACE_PATTERN" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ ]]; then
   echo "WireGuard route interface pattern is invalid: $WIREGUARD_AWG_INTERFACE_PATTERN" >&2
   exit 1
 fi
+if [[ ! "$WIREGUARD_ROUTE_PROBE_BIN" =~ ^/[a-zA-Z0-9_./-]+$ || ! -x "$WIREGUARD_ROUTE_PROBE_BIN" ]]; then
+  echo "WireGuard route probe helper is invalid" >&2
+  exit 1
+fi
 if [[ ! "$WIREGUARD_TRAFFIC_CHAIN" =~ ^[a-zA-Z0-9_-]{1,28}$ ]]; then
   echo "WIREGUARD_TRAFFIC_CHAIN is invalid" >&2
   exit 1
@@ -65,7 +76,7 @@ if [[ "$WIREGUARD_PUBLIC_ENDPOINT" == *$'\n'* || "$WIREGUARD_PUBLIC_ENDPOINT" ==
   echo "WIREGUARD_PUBLIC_ENDPOINT is invalid" >&2
   exit 1
 fi
-for command in awg awk curl date dig grep ip iptables jq mktemp nft ping systemctl wg; do
+for command in awg awk curl date dig grep ip iptables jq mktemp nft ping sed sort systemctl wg; do
   command -v "$command" >/dev/null || {
     echo "Required command is missing: $command" >&2
     exit 1
@@ -123,29 +134,6 @@ configure_traffic_counters() {
       -i "$WIREGUARD_AWG_INTERFACE_PATTERN" -o "$WIREGUARD_INTERFACE" -d "$peer_ip" \
       -m comment --comment "myutils:$peer_ip:non-ru-download" -j RETURN
   done < <(jq -r '.peers[].allowedIp | sub("/32$"; "")' "$desired_json")
-}
-
-route_probe() {
-  local interface=$1 target=$2 output=$3 loss rtt
-  ping -n -q -c 3 -W 2 -I "$interface" "$target" >"$output" 2>&1 || true
-  loss="$(awk -F', ' '
-    /packet loss/ {
-      for (i=1; i<=NF; i++) if ($i ~ /packet loss/) {
-        gsub(/% packet loss.*/, "", $i)
-        gsub(/^[[:space:]]*/, "", $i)
-        print $i
-      }
-    }
-  ' "$output")"
-  rtt="$(awk -F' = ' '/^(rtt|round-trip)/ { split($2, values, "/"); print values[2] }' "$output")"
-  [[ "$loss" =~ ^[0-9]+([.][0-9]+)?$ ]] || loss=100
-  if [[ "$rtt" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
-    jq -n --arg target "$target" --argjson loss "$loss" --argjson rtt "$rtt" \
-      '{target: $target, packetLossPercent: $loss, averageRttMs: $rtt}'
-  else
-    jq -n --arg target "$target" --argjson loss "$loss" \
-      '{target: $target, packetLossPercent: $loss, averageRttMs: null}'
-  fi
 }
 
 tmp_dir="$(mktemp -d /run/my-utils-wireguard-agent.XXXXXX)"
@@ -332,9 +320,9 @@ if [[ "$active_awg_interface" =~ ^[a-zA-Z0-9_=+.-]{1,15}$ && -d "/sys/class/net/
       awk 'NR == 1 { endpoint=$2; sub(/:[0-9]+$/, "", endpoint); print endpoint }' || true
   )"
 fi
-if valid_ipv4 "$WIREGUARD_DIRECT_PROBE_TARGET" && valid_ipv4 "$awg_endpoint"; then
-  route_probe "$WIREGUARD_DIRECT_INTERFACE" "$WIREGUARD_DIRECT_PROBE_TARGET" "$tmp_dir/direct-probe.txt" >"$tmp_dir/direct-probe.json"
-  route_probe "$WIREGUARD_DIRECT_INTERFACE" "$awg_endpoint" "$tmp_dir/veesp-probe.txt" >"$tmp_dir/veesp-probe.json"
+if valid_ipv4 "$awg_endpoint"; then
+  "$WIREGUARD_ROUTE_PROBE_BIN" "$WIREGUARD_DIRECT_INTERFACE" "$direct_probe_targets" >"$tmp_dir/direct-probe.json"
+  "$WIREGUARD_ROUTE_PROBE_BIN" "$WIREGUARD_DIRECT_INTERFACE" "$awg_endpoint" >"$tmp_dir/veesp-probe.json"
   jq -n \
     --arg measuredAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     --slurpfile direct "$tmp_dir/direct-probe.json" \

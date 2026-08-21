@@ -209,6 +209,7 @@ ExecStop=/usr/local/libexec/my-utils-wireguard-routing stop
 WantedBy=multi-user.target
 EOF
 
+install -m 755 -o root -g root "$(dirname "$0")/route-probe.sh" /usr/local/libexec/my-utils-wireguard-route-probe
 install -m 755 -o root -g root "$(dirname "$0")/wireguard-agent.sh" /usr/local/libexec/my-utils-wireguard-agent
 install -m 644 -o root -g root "$(dirname "$0")/systemd/my-utils-wireguard-agent.service" /etc/systemd/system/
 install -m 644 -o root -g root "$(dirname "$0")/systemd/my-utils-wireguard-agent.timer" /etc/systemd/system/

@@ -5,6 +5,7 @@ install-client-dns.sh
 install-geo-routing.sh
 install-relay.sh
 render-geo-prefixes.py
+route-probe.sh
 update-geo-routing.sh
 wireguard-agent.sh
 systemd/my-utils-api-proxy-routing.service

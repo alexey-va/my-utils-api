@@ -37,7 +37,7 @@ func TestDesiredStateValidatorAcceptsOnlyPrivateIPv4Hosts(t *testing.T) {
 }
 
 func TestHeartbeatKeepsRoutingStatusAndCountersNonSecret(t *testing.T) {
-	script := readFile(t, "wireguard-agent.sh")
+	script := readFile(t, "wireguard-agent.sh") + readFile(t, "route-probe.sh")
 	for _, want := range []string{
 		"WIREGUARD_ROUTING_STATUS_FILE",
 		"WIREGUARD_EXIT_HEALTH_FILE",
@@ -83,6 +83,61 @@ func TestHeartbeatKeepsRoutingStatusAndCountersNonSecret(t *testing.T) {
 	agentUnit := readFile(t, "systemd/my-utils-wireguard-agent.service")
 	if !strings.Contains(agentUnit, "ReadWritePaths=/run /var/lib/my-utils-wireguard") {
 		t.Fatal("WireGuard agent sandbox must permit its managed preference state")
+	}
+}
+
+func TestRouteProbeUsesQuorumWhenOneTargetStopsAnswering(t *testing.T) {
+	tempDir := t.TempDir()
+	writeExecutable(t, tempDir+"/ping", `#!/bin/sh
+target=""
+for argument in "$@"; do target="$argument"; done
+case "$target" in
+  77.88.8.8)
+    printf '%s\n' '3 packets transmitted, 0 received, 100% packet loss, time 2000ms'
+    exit 1
+    ;;
+  77.88.8.1)
+    printf '%s\n' '3 packets transmitted, 3 received, 0% packet loss, time 2000ms'
+    printf '%s\n' 'rtt min/avg/max/mdev = 2.000/2.500/3.000/0.100 ms'
+    ;;
+  1.1.1.1)
+    printf '%s\n' '3 packets transmitted, 3 received, 0% packet loss, time 2000ms'
+    printf '%s\n' 'rtt min/avg/max/mdev = 3.000/4.000/5.000/0.100 ms'
+    ;;
+  *) exit 2 ;;
+esac
+`)
+
+	command := exec.Command("bash", "route-probe.sh", "eth0", "77.88.8.8,77.88.8.1,1.1.1.1")
+	command.Env = append(os.Environ(), "PATH="+tempDir+":"+os.Getenv("PATH"))
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("route probe failed: %v\n%s", err, output)
+	}
+	var probe struct {
+		Target            string   `json:"target"`
+		PacketLossPercent float64  `json:"packetLossPercent"`
+		AverageRTTMs      *float64 `json:"averageRttMs"`
+	}
+	if err := json.Unmarshal(output, &probe); err != nil {
+		t.Fatalf("invalid route probe %q: %v", output, err)
+	}
+	if probe.Target != "1.1.1.1" || probe.PacketLossPercent != 0 || probe.AverageRTTMs == nil || *probe.AverageRTTMs != 4 {
+		t.Fatalf("route probe = %+v, want quorum result from healthy targets", probe)
+	}
+}
+
+func TestRouteProbeRejectsDuplicateTargets(t *testing.T) {
+	tempDir := t.TempDir()
+	writeExecutable(t, tempDir+"/ping", `#!/bin/sh
+printf '%s\n' '3 packets transmitted, 3 received, 0% packet loss, time 2000ms'
+printf '%s\n' 'rtt min/avg/max/mdev = 2.000/2.500/3.000/0.100 ms'
+`)
+	command := exec.Command("bash", "route-probe.sh", "eth0", "77.88.8.1,77.88.8.1,1.1.1.1")
+	command.Env = append(os.Environ(), "PATH="+tempDir+":"+os.Getenv("PATH"))
+	output, err := command.CombinedOutput()
+	if err == nil || !strings.Contains(string(output), "targets must be distinct") {
+		t.Fatalf("duplicate targets were accepted: err=%v output=%q", err, output)
 	}
 }
 
