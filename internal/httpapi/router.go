@@ -26,9 +26,10 @@ import (
 type AuthService interface {
 	Login(context.Context, string, string) (auth.LoginResponse, error)
 	Register(context.Context, auth.RegisterRequest) (auth.LoginResponse, error)
+	Refresh(context.Context, string) (auth.LoginResponse, error)
 	Profile(context.Context, string) (auth.UserDTO, error)
 	UpdateCredentials(context.Context, string, auth.UpdateCredentialsRequest) (auth.LoginResponse, error)
-	Logout(context.Context, string) error
+	Logout(context.Context, string, string) error
 	Authenticate(context.Context, string) (auth.Principal, error)
 }
 
@@ -112,12 +113,19 @@ type Dependencies struct {
 	TelegramFiles TelegramFileService
 	Metrics       *observability.Metrics
 	CORS          []string
+	RefreshCookie RefreshCookieConfig
+}
+
+type RefreshCookieConfig struct {
+	Name   string
+	TTL    time.Duration
+	Secure bool
 }
 
 type principalKey struct{}
 
 func NewRouter(dependencies Dependencies) http.Handler {
-	api := &API{auth: dependencies.Auth, settings: dependencies.Settings, workout: dependencies.Workout, health: dependencies.Health, wireGuard: dependencies.WireGuard, agentMemory: dependencies.AgentMemory, telegramFiles: dependencies.TelegramFiles}
+	api := &API{auth: dependencies.Auth, settings: dependencies.Settings, workout: dependencies.Workout, health: dependencies.Health, wireGuard: dependencies.WireGuard, agentMemory: dependencies.AgentMemory, telegramFiles: dependencies.TelegramFiles, refreshCookie: dependencies.RefreshCookie}
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
@@ -139,6 +147,7 @@ func NewRouter(dependencies Dependencies) http.Handler {
 
 	router.Post("/api/auth/login", api.login)
 	router.Post("/api/auth/register", api.register)
+	router.Post("/api/auth/refresh", api.refresh)
 	router.Post("/api/client-events", api.clientEvents)
 	api.registerWorkoutRoutes(router)
 	api.registerHealthRoutes(router)
@@ -175,6 +184,7 @@ type API struct {
 	wireGuard     WireGuardService
 	agentMemory   AgentMemoryService
 	telegramFiles TelegramFileService
+	refreshCookie RefreshCookieConfig
 }
 
 func (a *API) optionalAuthentication(next http.Handler) http.Handler {
@@ -257,6 +267,7 @@ func (a *API) login(response http.ResponseWriter, request *http.Request) {
 		writeError(response, http.StatusInternalServerError, "Internal server error")
 		return
 	}
+	a.setRefreshCookie(response, result.RefreshToken)
 	writeJSON(response, http.StatusOK, result)
 }
 
@@ -283,12 +294,36 @@ func (a *API) register(response http.ResponseWriter, request *http.Request) {
 		}
 		return
 	}
+	a.setRefreshCookie(response, result.RefreshToken)
+	writeJSON(response, http.StatusOK, result)
+}
+
+func (a *API) refresh(response http.ResponseWriter, request *http.Request) {
+	refreshToken := a.readRefreshCookie(request)
+	if refreshToken == "" {
+		a.clearRefreshCookie(response)
+		writeError(response, http.StatusUnauthorized, "Session expired")
+		return
+	}
+	result, err := a.auth.Refresh(request.Context(), refreshToken)
+	if err != nil {
+		if errors.Is(err, auth.ErrInvalidCredentials) {
+			a.clearRefreshCookie(response)
+			writeError(response, http.StatusUnauthorized, "Session expired")
+			return
+		}
+		writeError(response, http.StatusInternalServerError, "Internal server error")
+		return
+	}
+	a.setRefreshCookie(response, result.RefreshToken)
 	writeJSON(response, http.StatusOK, result)
 }
 
 func (a *API) logout(response http.ResponseWriter, request *http.Request) {
 	principal, _ := principalFrom(request.Context())
-	if err := a.auth.Logout(request.Context(), principal.SessionID); err != nil {
+	refreshToken := a.readRefreshCookie(request)
+	a.clearRefreshCookie(response)
+	if err := a.auth.Logout(request.Context(), principal.SessionID, refreshToken); err != nil {
 		writeError(response, http.StatusInternalServerError, "Internal server error")
 		return
 	}
@@ -331,7 +366,40 @@ func (a *API) updateCredentials(response http.ResponseWriter, request *http.Requ
 		}
 		return
 	}
+	a.setRefreshCookie(response, result.RefreshToken)
 	writeJSON(response, http.StatusOK, result)
+}
+
+func (a *API) readRefreshCookie(request *http.Request) string {
+	if a.refreshCookie.Name == "" {
+		return ""
+	}
+	cookie, err := request.Cookie(a.refreshCookie.Name)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cookie.Value)
+}
+
+func (a *API) setRefreshCookie(response http.ResponseWriter, token string) {
+	if a.refreshCookie.Name == "" || token == "" || a.refreshCookie.TTL <= 0 {
+		return
+	}
+	http.SetCookie(response, &http.Cookie{
+		Name: a.refreshCookie.Name, Value: token, Path: "/api/auth",
+		MaxAge: int(a.refreshCookie.TTL / time.Second), HttpOnly: true, Secure: a.refreshCookie.Secure,
+		SameSite: http.SameSiteLaxMode,
+	})
+}
+
+func (a *API) clearRefreshCookie(response http.ResponseWriter) {
+	if a.refreshCookie.Name == "" {
+		return
+	}
+	http.SetCookie(response, &http.Cookie{
+		Name: a.refreshCookie.Name, Path: "/api/auth", MaxAge: -1, Expires: time.Unix(1, 0),
+		HttpOnly: true, Secure: a.refreshCookie.Secure, SameSite: http.SameSiteLaxMode,
+	})
 }
 
 func (a *API) listSettings(response http.ResponseWriter, _ *http.Request) {

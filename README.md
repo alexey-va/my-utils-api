@@ -10,7 +10,7 @@ Go REST API for [my-utils](https://github.com/alexey-va/my-utils).
 
 - **Go 1.26** — один статический application binary;
 - **PostgreSQL 16** — users, workout, health, settings, agent memory; SQL-миграции совместимы с существующей таблицей Flyway history;
-- **Redis 7** — JWT sessions;
+- **Redis 7** — JWT access sessions and sliding refresh sessions;
 - **Temporal Go SDK** — agent turns, reminders, notifications and Saturday reports;
 - **OpenRouter + Telegram Bot API** — прямые HTTP-клиенты без JVM/Chromium.
 
@@ -146,10 +146,19 @@ See [.env.example](.env.example). Important variables:
 | `REDIS_HOST` / `REDIS_PORT` | `localhost` / `6379` |
 | `MYUTILS_JWT_SECRET` | development-only built-in value |
 | `MYUTILS_JWT_EXPIRATION_HOURS` | `24` |
+| `MYUTILS_REFRESH_SESSION_DAYS` | `30` |
+| `MYUTILS_REFRESH_COOKIE_NAME` | `myutils_refresh_session` |
+| `MYUTILS_REFRESH_COOKIE_SECURE` | `true` in production mode; production overlay sets it explicitly |
 | `WIREGUARD_CREDENTIALS_ENCRYPTION_KEY` | required for recoverable client keys |
 
 Set `MYUTILS_ENV=production` together with an explicit secret of at least 32
 bytes; production mode refuses the development JWT default.
+
+The SPA keeps the short-lived access JWT locally. Login also sets an HttpOnly
+refresh cookie backed by a hashed Redis session. A protected request that gets
+`401` refreshes once and retries transparently; active refresh sessions slide
+for 30 days, while an actually expired or revoked session returns the user to
+the login page.
 
 ## Deployment
 

@@ -71,6 +71,11 @@ type JWT struct {
 type Session struct {
 	RedisKeyPrefix        string
 	UserSessionsKeyPrefix string
+	RefreshKeyPrefix      string
+	UserRefreshKeyPrefix  string
+	RefreshTTL            time.Duration
+	RefreshCookieName     string
+	RefreshCookieSecure   bool
 }
 
 type Auth struct {
@@ -148,6 +153,7 @@ func Load(lookup LookupEnv) (Config, error) {
 		}
 		return value, nil
 	}
+	environment := strings.ToLower(strings.TrimSpace(get("MYUTILS_ENV", "development")))
 
 	serverPort, err := getInt("SERVER_PORT", 8080)
 	if err != nil {
@@ -168,6 +174,14 @@ func Load(lookup LookupEnv) (Config, error) {
 	expirationHours, err := strconv.ParseInt(strings.TrimSpace(get("MYUTILS_JWT_EXPIRATION_HOURS", "24")), 10, 64)
 	if err != nil || expirationHours <= 0 {
 		return Config{}, errors.New("MYUTILS_JWT_EXPIRATION_HOURS must be a positive integer")
+	}
+	refreshDays, err := strconv.ParseInt(strings.TrimSpace(get("MYUTILS_REFRESH_SESSION_DAYS", "30")), 10, 64)
+	if err != nil || refreshDays <= 0 {
+		return Config{}, errors.New("MYUTILS_REFRESH_SESSION_DAYS must be a positive integer")
+	}
+	refreshCookieSecure, err := getBool("MYUTILS_REFRESH_COOKIE_SECURE", environment == "production")
+	if err != nil {
+		return Config{}, err
 	}
 	temporalEnabled, err := getBool("MYUTILS_TEMPORAL_ENABLED", false)
 	if err != nil {
@@ -191,7 +205,7 @@ func Load(lookup LookupEnv) (Config, error) {
 	}
 
 	cfg := Config{
-		Environment: strings.ToLower(strings.TrimSpace(get("MYUTILS_ENV", "development"))),
+		Environment: environment,
 		HTTP:        HTTP{Address: ":" + strconv.Itoa(serverPort)},
 		Postgres: Postgres{
 			Host:     strings.TrimSpace(get("POSTGRES_HOST", "localhost")),
@@ -211,6 +225,11 @@ func Load(lookup LookupEnv) (Config, error) {
 		Session: Session{
 			RedisKeyPrefix:        get("MYUTILS_SESSION_REDIS_KEY_PREFIX", "myutils:session:"),
 			UserSessionsKeyPrefix: get("MYUTILS_SESSION_USER_SESSIONS_KEY_PREFIX", "myutils:user-sessions:"),
+			RefreshKeyPrefix:      get("MYUTILS_REFRESH_REDIS_KEY_PREFIX", "myutils:refresh:"),
+			UserRefreshKeyPrefix:  get("MYUTILS_USER_REFRESH_REDIS_KEY_PREFIX", "myutils:user-refresh-sessions:"),
+			RefreshTTL:            time.Duration(refreshDays) * 24 * time.Hour,
+			RefreshCookieName:     strings.TrimSpace(get("MYUTILS_REFRESH_COOKIE_NAME", "myutils_refresh_session")),
+			RefreshCookieSecure:   refreshCookieSecure,
 		},
 		Auth: Auth{BootstrapAdmin: BootstrapAdmin{
 			Enabled:  bootstrapEnabled,
@@ -258,6 +277,9 @@ func (c Config) validate() error {
 	}
 	if c.Redis.Host == "" {
 		return errors.New("Redis host must not be blank")
+	}
+	if c.Session.RefreshCookieName == "" {
+		return errors.New("MYUTILS_REFRESH_COOKIE_NAME must not be blank")
 	}
 	if len(c.JWT.Secret) < 32 {
 		return errors.New("MYUTILS_JWT_SECRET must contain at least 32 bytes")

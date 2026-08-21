@@ -18,6 +18,7 @@ services:
     ports: !override
       - "127.0.0.1:18080:8080"
     environment:
+      MYUTILS_REFRESH_COOKIE_SECURE: "true"
       POSTGRES_HOST: host.docker.internal
       POSTGRES_PORT: "15432"
       REDIS_HOST: host.docker.internal

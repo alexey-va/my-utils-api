@@ -29,8 +29,14 @@ func TestLoadUsesContractCompatibleDefaults(t *testing.T) {
 	if cfg.Temporal.TaskQueue != "myutils-go-v1" {
 		t.Errorf("Temporal task queue = %q, want myutils-go-v1", cfg.Temporal.TaskQueue)
 	}
-	if cfg.Session.RedisKeyPrefix != "myutils:session:" || cfg.Session.UserSessionsKeyPrefix != "myutils:user-sessions:" {
+	if cfg.Session.RedisKeyPrefix != "myutils:session:" || cfg.Session.UserSessionsKeyPrefix != "myutils:user-sessions:" || cfg.Session.RefreshKeyPrefix != "myutils:refresh:" || cfg.Session.UserRefreshKeyPrefix != "myutils:user-refresh-sessions:" {
 		t.Errorf("session prefixes = %#v", cfg.Session)
+	}
+	if cfg.Session.RefreshTTL != 30*24*time.Hour || cfg.Session.RefreshCookieName != "myutils_refresh_session" {
+		t.Errorf("refresh session defaults = %#v", cfg.Session)
+	}
+	if cfg.Session.RefreshCookieSecure {
+		t.Error("refresh cookie should stay non-Secure in local HTTP development")
 	}
 }
 
@@ -48,6 +54,9 @@ func TestLoadReadsExistingEnvironmentNames(t *testing.T) {
 		"REDIS_PORT":                      "16379",
 		"MYUTILS_JWT_SECRET":              strings.Repeat("j", 48),
 		"MYUTILS_JWT_EXPIRATION_HOURS":    "12",
+		"MYUTILS_REFRESH_SESSION_DAYS":    "45",
+		"MYUTILS_REFRESH_COOKIE_NAME":     "custom_refresh",
+		"MYUTILS_REFRESH_COOKIE_SECURE":   "true",
 		"MYUTILS_TEMPORAL_ENABLED":        "true",
 		"TEMPORAL_TARGET":                 "temporal:7233",
 		"TELEGRAM_ALLOWED_USER_IDS":       " 42, 1001,broken ",
@@ -70,6 +79,9 @@ func TestLoadReadsExistingEnvironmentNames(t *testing.T) {
 	if cfg.JWT.Expiration != 12*time.Hour {
 		t.Errorf("JWT expiration = %s", cfg.JWT.Expiration)
 	}
+	if cfg.Session.RefreshTTL != 45*24*time.Hour || cfg.Session.RefreshCookieName != "custom_refresh" || !cfg.Session.RefreshCookieSecure {
+		t.Errorf("refresh session config = %#v", cfg.Session)
+	}
 	if !cfg.Temporal.Enabled || cfg.Temporal.Target != "temporal:7233" {
 		t.Errorf("Temporal config = %#v", cfg.Temporal)
 	}
@@ -90,6 +102,21 @@ func TestProductionRejectsDefaultJWTSecret(t *testing.T) {
 	_, err := Load(mapLookup(map[string]string{"MYUTILS_ENV": "production"}))
 	if err == nil || !strings.Contains(err.Error(), "MYUTILS_JWT_SECRET") {
 		t.Fatalf("Load() error = %v, want MYUTILS_JWT_SECRET validation", err)
+	}
+}
+
+func TestProductionDefaultsRefreshCookieToSecure(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := Load(mapLookup(map[string]string{
+		"MYUTILS_ENV":        "production",
+		"MYUTILS_JWT_SECRET": strings.Repeat("p", 32),
+	}))
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if !cfg.Session.RefreshCookieSecure {
+		t.Error("production refresh cookie must default to Secure")
 	}
 }
 

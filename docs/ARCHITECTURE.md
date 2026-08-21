@@ -13,7 +13,8 @@ and Telegram runner are ready. SIGTERM cancels workers and drains HTTP.
 
 - PostgreSQL: users, exercises, workout entries, health data, `app_settings`,
   agent messages/facts/summaries/test sandboxes and WireGuard desired state.
-- Redis: JWT session records and per-user session indexes.
+- Redis: JWT access-session records plus hashed, sliding refresh sessions and
+  per-user revocation indexes.
 - Agent messages keep OpenAI-compatible assistant tool calls and tool results as
   JSON. One rolling summary covers compacted history; a verbatim tail remains.
 - SQL migrations stay under `src/main/resources/db/migration/`. The Go runner
@@ -25,7 +26,7 @@ and Telegram runner are ready. SIGTERM cancels workers and drains HTTP.
 | Path | Access |
 | --- | --- |
 | `/api/health`, `/actuator/health`, `/actuator/prometheus` | public |
-| `/api/auth/login`, `/api/auth/register` | public |
+| `/api/auth/login`, `/api/auth/register`, `/api/auth/refresh` | public; refresh uses an HttpOnly SameSite cookie |
 | `/api/workouts/**`, steps and body-weight endpoints | public personal-instance data |
 | `POST /api/client-events` | public, sanitized telemetry |
 | `POST /api/telegram/files` | public route plus constant-time upload-token check |
@@ -36,6 +37,12 @@ and Telegram runner are ready. SIGTERM cancels workers and drains HTTP.
 
 The frontend tab password is only a visibility gate. The route registration and
 middleware in `internal/httpapi/` are the server-side source of truth.
+
+Access JWTs keep the existing 24-hour JJWT-compatible contract. Login creates a
+separate opaque refresh credential whose SHA-256 digest is stored in Redis. The
+cookie is HttpOnly, SameSite=Lax, scoped to `/api/auth`, and Secure in
+production. Successful refresh extends its 30-day idle TTL; logout and
+credential changes revoke the corresponding Redis records.
 
 ## Telegram and agent
 

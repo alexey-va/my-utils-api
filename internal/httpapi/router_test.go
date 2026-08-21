@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/alexey-va/my-utils-api/internal/auth"
 	"github.com/alexey-va/my-utils-api/internal/settings"
@@ -59,6 +60,98 @@ func TestAdminSettingsSecurityMatrix(t *testing.T) {
 				t.Fatalf("status = %d, want %d, body=%s", response.Code, test.want, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestLoginAndRefreshKeepRefreshCredentialInHTTPOnlyCookie(t *testing.T) {
+	t.Parallel()
+
+	service := &cookieAuth{}
+	router := NewRouter(Dependencies{
+		Auth:     service,
+		Settings: fakeSettings{},
+		RefreshCookie: RefreshCookieConfig{
+			Name: "myutils_refresh_session", TTL: 30 * 24 * time.Hour, Secure: true,
+		},
+	})
+	loginRequest := httptest.NewRequest(http.MethodPost, "/api/auth/login", strings.NewReader(`{"login":"admin","password":"password"}`))
+	loginRequest.Header.Set("Content-Type", "application/json")
+	loginResponse := httptest.NewRecorder()
+
+	router.ServeHTTP(loginResponse, loginRequest)
+
+	if loginResponse.Code != http.StatusOK {
+		t.Fatalf("login status = %d, body=%s", loginResponse.Code, loginResponse.Body.String())
+	}
+	loginCookies := loginResponse.Result().Cookies()
+	if len(loginCookies) != 1 {
+		t.Fatalf("login cookies = %#v", loginCookies)
+	}
+	cookie := loginCookies[0]
+	if cookie.Name != "myutils_refresh_session" || cookie.Value != "refresh-one" || !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteLaxMode || cookie.Path != "/api/auth" || cookie.MaxAge != 30*24*60*60 {
+		t.Fatalf("login refresh cookie = %#v", cookie)
+	}
+	if strings.Contains(loginResponse.Body.String(), "refresh-one") {
+		t.Fatalf("refresh credential leaked into JSON: %s", loginResponse.Body.String())
+	}
+
+	refreshRequest := httptest.NewRequest(http.MethodPost, "/api/auth/refresh", nil)
+	refreshRequest.AddCookie(cookie)
+	refreshResponse := httptest.NewRecorder()
+	router.ServeHTTP(refreshResponse, refreshRequest)
+
+	if refreshResponse.Code != http.StatusOK || service.refreshIn != "refresh-one" {
+		t.Fatalf("refresh = status %d, input %q, body=%s", refreshResponse.Code, service.refreshIn, refreshResponse.Body.String())
+	}
+	if got := refreshResponse.Result().Cookies(); len(got) != 1 || got[0].Value != "refresh-one" || got[0].MaxAge != 30*24*60*60 {
+		t.Fatalf("renewed refresh cookie = %#v", got)
+	}
+}
+
+func TestRefreshRejectsMissingOrRevokedCookieAndClearsIt(t *testing.T) {
+	t.Parallel()
+
+	service := &cookieAuth{refreshErr: auth.ErrInvalidCredentials}
+	router := NewRouter(Dependencies{
+		Auth:          service,
+		Settings:      fakeSettings{},
+		RefreshCookie: RefreshCookieConfig{Name: "myutils_refresh_session", TTL: 30 * 24 * time.Hour, Secure: true},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/refresh", nil)
+	request.AddCookie(&http.Cookie{Name: "myutils_refresh_session", Value: "revoked"})
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, body=%s", response.Code, response.Body.String())
+	}
+	cookies := response.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != "myutils_refresh_session" || cookies[0].MaxAge >= 0 {
+		t.Fatalf("cleared refresh cookie = %#v", cookies)
+	}
+}
+
+func TestRefreshKeepsCookieOnTransientBackendFailure(t *testing.T) {
+	t.Parallel()
+
+	service := &cookieAuth{refreshErr: errors.New("redis unavailable")}
+	router := NewRouter(Dependencies{
+		Auth:          service,
+		Settings:      fakeSettings{},
+		RefreshCookie: RefreshCookieConfig{Name: "myutils_refresh_session", TTL: 30 * 24 * time.Hour, Secure: true},
+	})
+	request := httptest.NewRequest(http.MethodPost, "/api/auth/refresh", nil)
+	request.AddCookie(&http.Cookie{Name: "myutils_refresh_session", Value: "still-valid"})
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, body=%s", response.Code, response.Body.String())
+	}
+	if cookies := response.Result().Cookies(); len(cookies) != 0 {
+		t.Fatalf("transient failure must not clear refresh cookie: %#v", cookies)
 	}
 }
 
@@ -318,7 +411,10 @@ func (fakeAuth) Profile(context.Context, string) (auth.UserDTO, error) {
 func (fakeAuth) UpdateCredentials(context.Context, string, auth.UpdateCredentialsRequest) (auth.LoginResponse, error) {
 	return auth.LoginResponse{}, errors.New("unused")
 }
-func (fakeAuth) Logout(context.Context, string) error { return nil }
+func (fakeAuth) Refresh(context.Context, string) (auth.LoginResponse, error) {
+	return auth.LoginResponse{}, errors.New("unused")
+}
+func (fakeAuth) Logout(context.Context, string, string) error { return nil }
 func (fakeAuth) Authenticate(_ context.Context, token string) (auth.Principal, error) {
 	switch token {
 	case "user":
@@ -330,6 +426,24 @@ func (fakeAuth) Authenticate(_ context.Context, token string) (auth.Principal, e
 	default:
 		return auth.Principal{}, auth.ErrInvalidCredentials
 	}
+}
+
+type cookieAuth struct {
+	fakeAuth
+	refreshIn  string
+	refreshErr error
+}
+
+func (service *cookieAuth) Login(context.Context, string, string) (auth.LoginResponse, error) {
+	return auth.LoginResponse{Token: "access-one", RefreshToken: "refresh-one", User: auth.UserDTO{ID: "admin", Username: "admin", Role: "ADMIN"}}, nil
+}
+
+func (service *cookieAuth) Refresh(_ context.Context, refreshToken string) (auth.LoginResponse, error) {
+	service.refreshIn = refreshToken
+	if service.refreshErr != nil {
+		return auth.LoginResponse{}, service.refreshErr
+	}
+	return auth.LoginResponse{Token: "access-two", RefreshToken: refreshToken, User: auth.UserDTO{ID: "admin", Username: "admin", Role: "ADMIN"}}, nil
 }
 
 type fakeSettings struct {

@@ -11,7 +11,7 @@ Git-репозиториях. Этот документ описывает гр�
 | UI routes and tabs | `src/config/featureCatalog.tsx` | — |
 | REST paths | `src/api/endpoints.ts` | `internal/httpapi/` |
 | Client payload types | `src/api/types.ts`, feature API modules | request/response structs in `internal/httpapi/` and services |
-| Authentication state | `src/auth/session.ts` | JWT + Redis session |
+| Authentication state | access JWT + transparent `401` refresh | JWT plus hashed Redis refresh session |
 | Workout UI/data fetching | `src/features/workout/` | `WorkoutController`, `WorkoutService` |
 | Runtime settings UI | `src/features/properties/` | `AdminSettingsController` |
 | Agent-memory UI | `src/features/agents/` | `AdminAgentMemoryController` |

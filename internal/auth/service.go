@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/alexey-va/my-utils-api/internal/store"
 	"github.com/jackc/pgx/v5"
@@ -41,8 +42,9 @@ type UserDTO struct {
 }
 
 type LoginResponse struct {
-	Token string  `json:"token"`
-	User  UserDTO `json:"user"`
+	Token        string  `json:"token"`
+	User         UserDTO `json:"user"`
+	RefreshToken string  `json:"-"`
 }
 
 type Principal struct {
@@ -61,13 +63,14 @@ type UserRepository interface {
 }
 
 type Service struct {
-	users    UserRepository
-	tokens   *JWTService
-	sessions *SessionStore
+	users      UserRepository
+	tokens     *JWTService
+	sessions   *SessionStore
+	refreshTTL time.Duration
 }
 
-func NewService(users UserRepository, tokens *JWTService, sessions *SessionStore) *Service {
-	return &Service{users: users, tokens: tokens, sessions: sessions}
+func NewService(users UserRepository, tokens *JWTService, sessions *SessionStore, refreshTTL time.Duration) *Service {
+	return &Service{users: users, tokens: tokens, sessions: sessions, refreshTTL: refreshTTL}
 }
 
 func (s *Service) Login(ctx context.Context, login, password string) (LoginResponse, error) {
@@ -169,8 +172,29 @@ func (s *Service) UpdateCredentials(ctx context.Context, userID string, request 
 	return s.issueSession(ctx, saved)
 }
 
-func (s *Service) Logout(ctx context.Context, sessionID string) error {
-	return s.sessions.Revoke(ctx, sessionID)
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (LoginResponse, error) {
+	userID, ok, err := s.sessions.ResolveRefresh(ctx, refreshToken, s.refreshTTL)
+	if err != nil {
+		return LoginResponse{}, err
+	}
+	if !ok {
+		return LoginResponse{}, ErrInvalidCredentials
+	}
+	user, err := s.users.FindByID(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return LoginResponse{}, ErrInvalidCredentials
+	}
+	if err != nil {
+		return LoginResponse{}, fmt.Errorf("load refresh user: %w", err)
+	}
+	return s.issueAccess(ctx, user, refreshToken)
+}
+
+func (s *Service) Logout(ctx context.Context, sessionID, refreshToken string) error {
+	if err := s.sessions.Revoke(ctx, sessionID); err != nil {
+		return err
+	}
+	return s.sessions.RevokeRefresh(ctx, refreshToken)
 }
 
 func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal, error) {
@@ -190,6 +214,19 @@ func (s *Service) Authenticate(ctx context.Context, rawToken string) (Principal,
 }
 
 func (s *Service) issueSession(ctx context.Context, user store.User) (LoginResponse, error) {
+	refreshToken, err := s.sessions.CreateRefresh(ctx, user.ID, s.refreshTTL)
+	if err != nil {
+		return LoginResponse{}, err
+	}
+	result, err := s.issueAccess(ctx, user, refreshToken)
+	if err != nil {
+		_ = s.sessions.RevokeRefresh(context.WithoutCancel(ctx), refreshToken)
+		return LoginResponse{}, err
+	}
+	return result, nil
+}
+
+func (s *Service) issueAccess(ctx context.Context, user store.User, refreshToken string) (LoginResponse, error) {
 	issued, err := s.tokens.Issue(UserIdentity{ID: user.ID, Username: user.Username, Role: user.Role})
 	if err != nil {
 		return LoginResponse{}, err
@@ -197,7 +234,7 @@ func (s *Service) issueSession(ctx context.Context, user store.User) (LoginRespo
 	if err := s.sessions.Store(ctx, issued.SessionID, user.ID, s.tokens.expiration); err != nil {
 		return LoginResponse{}, err
 	}
-	return LoginResponse{Token: issued.Token, User: userDTO(user)}, nil
+	return LoginResponse{Token: issued.Token, User: userDTO(user), RefreshToken: refreshToken}, nil
 }
 
 func userDTO(user store.User) UserDTO {

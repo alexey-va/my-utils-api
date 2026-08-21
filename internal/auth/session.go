@@ -2,6 +2,9 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"time"
@@ -13,13 +16,17 @@ type SessionStore struct {
 	redis                 redis.UniversalClient
 	redisKeyPrefix        string
 	userSessionsKeyPrefix string
+	refreshKeyPrefix      string
+	userRefreshKeyPrefix  string
 }
 
-func NewSessionStore(client redis.UniversalClient, redisKeyPrefix, userSessionsKeyPrefix string) *SessionStore {
+func NewSessionStore(client redis.UniversalClient, redisKeyPrefix, userSessionsKeyPrefix, refreshKeyPrefix, userRefreshKeyPrefix string) *SessionStore {
 	return &SessionStore{
 		redis:                 client,
 		redisKeyPrefix:        redisKeyPrefix,
 		userSessionsKeyPrefix: userSessionsKeyPrefix,
+		refreshKeyPrefix:      refreshKeyPrefix,
+		userRefreshKeyPrefix:  userRefreshKeyPrefix,
 	}
 }
 
@@ -86,17 +93,92 @@ func (s *SessionStore) Revoke(ctx context.Context, sessionID string) error {
 	return nil
 }
 
+func (s *SessionStore) CreateRefresh(ctx context.Context, userID string, ttl time.Duration) (string, error) {
+	if ttl <= 0 {
+		return "", errors.New("refresh session TTL must be positive")
+	}
+	rawToken, err := randomRefreshToken()
+	if err != nil {
+		return "", fmt.Errorf("create refresh token: %w", err)
+	}
+	digest := refreshDigest(rawToken)
+	_, err = s.redis.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		pipe.Set(ctx, s.refreshKey(digest), userID, ttl)
+		pipe.SAdd(ctx, s.userRefreshKey(userID), digest)
+		pipe.Expire(ctx, s.userRefreshKey(userID), ttl)
+		return nil
+	})
+	if err != nil {
+		return "", fmt.Errorf("store refresh session: %w", err)
+	}
+	return rawToken, nil
+}
+
+func (s *SessionStore) ResolveRefresh(ctx context.Context, rawToken string, ttl time.Duration) (string, bool, error) {
+	if rawToken == "" || ttl <= 0 {
+		return "", false, nil
+	}
+	digest := refreshDigest(rawToken)
+	userID, err := s.redis.Get(ctx, s.refreshKey(digest)).Result()
+	if errors.Is(err, redis.Nil) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read refresh session: %w", err)
+	}
+	_, err = s.redis.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		pipe.Expire(ctx, s.refreshKey(digest), ttl)
+		pipe.Expire(ctx, s.userRefreshKey(userID), ttl)
+		return nil
+	})
+	if err != nil {
+		return "", false, fmt.Errorf("extend refresh session: %w", err)
+	}
+	return userID, true, nil
+}
+
+func (s *SessionStore) RevokeRefresh(ctx context.Context, rawToken string) error {
+	if rawToken == "" {
+		return nil
+	}
+	digest := refreshDigest(rawToken)
+	userID, err := s.redis.Get(ctx, s.refreshKey(digest)).Result()
+	if errors.Is(err, redis.Nil) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read refresh session for revocation: %w", err)
+	}
+	_, err = s.redis.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+		pipe.Del(ctx, s.refreshKey(digest))
+		pipe.SRem(ctx, s.userRefreshKey(userID), digest)
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("revoke refresh session: %w", err)
+	}
+	return nil
+}
+
 func (s *SessionStore) RevokeUserSessions(ctx context.Context, userID string) error {
 	userKey := s.userSessionsKey(userID)
 	sessionIDs, err := s.redis.SMembers(ctx, userKey).Result()
 	if err != nil {
 		return fmt.Errorf("list user sessions: %w", err)
 	}
-	keys := make([]string, 0, len(sessionIDs)+1)
+	refreshUserKey := s.userRefreshKey(userID)
+	refreshDigests, err := s.redis.SMembers(ctx, refreshUserKey).Result()
+	if err != nil {
+		return fmt.Errorf("list user refresh sessions: %w", err)
+	}
+	keys := make([]string, 0, len(sessionIDs)+len(refreshDigests)+2)
 	for _, sessionID := range sessionIDs {
 		keys = append(keys, s.sessionKey(sessionID))
 	}
-	keys = append(keys, userKey)
+	for _, digest := range refreshDigests {
+		keys = append(keys, s.refreshKey(digest))
+	}
+	keys = append(keys, userKey, refreshUserKey)
 	if err := s.redis.Del(ctx, keys...).Err(); err != nil {
 		return fmt.Errorf("revoke user sessions: %w", err)
 	}
@@ -109,4 +191,25 @@ func (s *SessionStore) sessionKey(sessionID string) string {
 
 func (s *SessionStore) userSessionsKey(userID string) string {
 	return s.userSessionsKeyPrefix + userID
+}
+
+func (s *SessionStore) refreshKey(digest string) string {
+	return s.refreshKeyPrefix + digest
+}
+
+func (s *SessionStore) userRefreshKey(userID string) string {
+	return s.userRefreshKeyPrefix + userID
+}
+
+func randomRefreshToken() (string, error) {
+	var value [32]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value[:]), nil
+}
+
+func refreshDigest(rawToken string) string {
+	digest := sha256.Sum256([]byte(rawToken))
+	return hex.EncodeToString(digest[:])
 }

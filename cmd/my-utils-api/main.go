@@ -106,9 +106,15 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	sessions := auth.NewSessionStore(redisClient, cfg.Session.RedisKeyPrefix, cfg.Session.UserSessionsKeyPrefix)
+	sessions := auth.NewSessionStore(
+		redisClient,
+		cfg.Session.RedisKeyPrefix,
+		cfg.Session.UserSessionsKeyPrefix,
+		cfg.Session.RefreshKeyPrefix,
+		cfg.Session.UserRefreshKeyPrefix,
+	)
 	users := store.NewUserStore(pool)
-	authService := auth.NewService(users, tokens, sessions)
+	authService := auth.NewService(users, tokens, sessions, cfg.Session.RefreshTTL)
 	adminBootstrap := auth.NewAdminBootstrap(users, auth.BootstrapConfig{
 		Enabled: cfg.Auth.BootstrapAdmin.Enabled, Username: cfg.Auth.BootstrapAdmin.Username,
 		Password: cfg.Auth.BootstrapAdmin.Password, Email: cfg.Auth.BootstrapAdmin.Email,
@@ -281,6 +287,9 @@ func run(ctx context.Context) error {
 		Auth: authService, Settings: runtimeSettings, Workout: workoutService, Health: healthService,
 		WireGuard: wireGuardService, AgentMemory: agentMemory, TelegramFiles: telegramFiles,
 		Metrics: metrics, CORS: cfg.CORS.AllowedOrigins,
+		RefreshCookie: httpapi.RefreshCookieConfig{
+			Name: cfg.Session.RefreshCookieName, TTL: cfg.Session.RefreshTTL, Secure: cfg.Session.RefreshCookieSecure,
+		},
 	})
 	server := &http.Server{
 		Addr: cfg.HTTP.Address, Handler: router,

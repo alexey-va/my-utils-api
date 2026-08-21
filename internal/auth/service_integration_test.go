@@ -30,18 +30,18 @@ func TestServiceLoginRegistrationAndSessionCompatibility(t *testing.T) {
 	redisServer := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
 	t.Cleanup(func() { _ = redisClient.Close() })
-	sessions := auth.NewSessionStore(redisClient, "myutils:session:", "myutils:user-sessions:")
+	sessions := auth.NewSessionStore(redisClient, "myutils:session:", "myutils:user-sessions:", "myutils:refresh:", "myutils:user-refresh-sessions:")
 	tokens, err := auth.NewJWTService(strings.Repeat("k", 32), 24*time.Hour, time.Now)
 	if err != nil {
 		t.Fatalf("NewJWTService() error = %v", err)
 	}
-	service := auth.NewService(store.NewUserStore(pool), tokens, sessions)
+	service := auth.NewService(store.NewUserStore(pool), tokens, sessions, 30*24*time.Hour)
 
 	login, err := service.Login(ctx, "DEV@example.com", "password")
 	if err != nil {
 		t.Fatalf("Login(seed) error = %v", err)
 	}
-	if login.User.Username != "dev" || login.User.Role != "USER" || login.Token == "" {
+	if login.User.Username != "dev" || login.User.Role != "USER" || login.Token == "" || login.RefreshToken == "" {
 		t.Fatalf("Login(seed) = %#v", login)
 	}
 	claims, err := tokens.Parse(login.Token)
@@ -50,6 +50,13 @@ func TestServiceLoginRegistrationAndSessionCompatibility(t *testing.T) {
 	}
 	if ok, err := sessions.BelongsToUser(ctx, claims.ID, login.User.ID); err != nil || !ok {
 		t.Fatalf("stored session belongs = %v, %v", ok, err)
+	}
+	refreshed, err := service.Refresh(ctx, login.RefreshToken)
+	if err != nil {
+		t.Fatalf("Refresh() error = %v", err)
+	}
+	if refreshed.Token == "" || refreshed.Token == login.Token || refreshed.RefreshToken != login.RefreshToken || refreshed.User != login.User {
+		t.Fatalf("Refresh() = %#v", refreshed)
 	}
 
 	username := fmt.Sprintf("go-integration-%d", time.Now().UnixNano())
