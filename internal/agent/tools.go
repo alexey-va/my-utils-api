@@ -642,8 +642,7 @@ func (s *ToolService) findExercise(ctx context.Context, name string) (workout.Ex
 	needle := strings.ToLower(strings.TrimSpace(name))
 	matches := []workout.Exercise{}
 	for _, exercise := range exercises {
-		candidate := strings.ToLower(exercise.Name)
-		if candidate == needle || strings.Contains(candidate, needle) || strings.Contains(needle, candidate) {
+		if exerciseNameMatches(exercise.Name, needle) {
 			matches = append(matches, exercise)
 		}
 	}
@@ -654,6 +653,12 @@ func (s *ToolService) findExercise(ctx context.Context, name string) (workout.Ex
 		return workout.Exercise{}, fmt.Errorf("упражнение %q неоднозначно", name)
 	}
 	return matches[0], nil
+}
+
+func exerciseNameMatches(candidate, requested string) bool {
+	candidate = strings.ToLower(strings.TrimSpace(candidate))
+	requested = strings.ToLower(strings.TrimSpace(requested))
+	return candidate == requested || strings.Contains(candidate, requested)
 }
 
 func (s *ToolService) today() string {
@@ -769,8 +774,7 @@ func sandboxExerciseByName(state *sandboxState, name string) (*sandboxExercise, 
 	var found *sandboxExercise
 	for index := range state.Exercises {
 		exercise := &state.Exercises[index]
-		candidate := strings.ToLower(exercise.Name)
-		if candidate == needle || strings.Contains(candidate, needle) || strings.Contains(needle, candidate) {
+		if exerciseNameMatches(exercise.Name, needle) {
 			if found != nil {
 				return nil, fmt.Errorf("неоднозначное sandbox-упражнение %q", name)
 			}

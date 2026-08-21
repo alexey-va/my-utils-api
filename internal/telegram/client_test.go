@@ -37,6 +37,23 @@ func TestSendHTMLMessageUsesTelegramContract(t *testing.T) {
 	}
 }
 
+func TestEditHTMLMessageTreatsIdenticalContentAsSuccess(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/botsecret/editMessageText" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte(`{"ok":false,"error_code":400,"description":"Bad Request: message is not modified: specified new message content is exactly the same"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("secret", server.URL, nil)
+	if err := client.EditHTMLMessage(context.Background(), 42, 123, "⏳ Думаю…"); err != nil {
+		t.Fatalf("identical edit must be an idempotent success: %v", err)
+	}
+}
+
 func TestParseButtonsRows(t *testing.T) {
 	t.Parallel()
 	rows, err := ParseButtons("Да:yes,Нет:no;Позже:later")

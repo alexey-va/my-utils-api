@@ -161,7 +161,7 @@ func (t *AgentTurner) Turn(ctx context.Context, chatID int64, content string, im
 			outcome = "reply"
 			return TurnResult{Reply: reply, Messages: appended}, nil
 		}
-		if status != nil {
+		if status != nil && len(assistant.ToolCalls) > 1 {
 			names := make([]string, len(assistant.ToolCalls))
 			for index, call := range assistant.ToolCalls {
 				names[index] = call.Function.Name

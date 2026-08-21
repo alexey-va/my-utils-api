@@ -31,6 +31,16 @@ type Client struct {
 	http    *http.Client
 }
 
+type APIError struct {
+	Method      string
+	Code        int
+	Description string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("Telegram API %s failed: %d %s", e.Method, e.Code, e.Description)
+}
+
 func NewClient(token, baseURL string, proxy *url.URL) *Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	if proxy != nil {
@@ -94,7 +104,12 @@ func (c *Client) SendHTMLMessage(ctx context.Context, chatID int64, text, button
 }
 
 func (c *Client) EditHTMLMessage(ctx context.Context, chatID int64, messageID int, text string) error {
-	return c.callJSON(ctx, "editMessageText", map[string]any{"chat_id": chatID, "message_id": messageID, "text": truncateRunes(text, messageMaxLength), "parse_mode": "HTML"}, nil)
+	err := c.callJSON(ctx, "editMessageText", map[string]any{"chat_id": chatID, "message_id": messageID, "text": truncateRunes(text, messageMaxLength), "parse_mode": "HTML"}, nil)
+	var apiError *APIError
+	if errors.As(err, &apiError) && apiError.Code == http.StatusBadRequest && strings.Contains(strings.ToLower(apiError.Description), "message is not modified") {
+		return nil
+	}
+	return err
 }
 
 func (c *Client) DeleteMessage(ctx context.Context, chatID int64, messageID int) error {
@@ -234,7 +249,7 @@ func (c *Client) do(request *http.Request, method string, result any) error {
 		return fmt.Errorf("decode Telegram response: %w", err)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 || !envelope.OK {
-		return fmt.Errorf("Telegram API %s failed: %d %s", method, envelope.ErrorCode, envelope.Description)
+		return &APIError{Method: method, Code: envelope.ErrorCode, Description: envelope.Description}
 	}
 	if result != nil && len(envelope.Result) > 0 {
 		if err := json.Unmarshal(envelope.Result, result); err != nil {

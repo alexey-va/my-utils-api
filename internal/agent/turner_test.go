@@ -97,7 +97,7 @@ func TestTurnerStoresExactToolSequenceAndReturnsFinalReply(t *testing.T) {
 	if len(llm.requests) != 2 || len(llm.requests[0].Tools) == 0 {
 		t.Fatalf("llm requests = %#v", llm.requests)
 	}
-	wantStatus := []string{"thinking", "tools", "tool", "composing", "complete"}
+	wantStatus := []string{"thinking", "tool", "composing", "complete"}
 	if len(status.events) != len(wantStatus) {
 		t.Fatalf("status events = %#v", status.events)
 	}

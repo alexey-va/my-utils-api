@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/alicebob/miniredis/v2"
@@ -12,6 +13,7 @@ type fakeStatusBot struct {
 	sent, edited []string
 	deleted      []int
 	typing       int
+	editErr      error
 }
 
 func (f *fakeStatusBot) SendHTMLMessage(_ context.Context, chatID int64, text, _ string) (int, error) {
@@ -20,7 +22,27 @@ func (f *fakeStatusBot) SendHTMLMessage(_ context.Context, chatID int64, text, _
 }
 func (f *fakeStatusBot) EditHTMLMessage(_ context.Context, _ int64, _ int, text string) error {
 	f.edited = append(f.edited, text)
-	return nil
+	return f.editErr
+}
+
+func TestStatusMessengerDoesNotOrphanStatusWhenEditFails(t *testing.T) {
+	t.Parallel()
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	bot := &fakeStatusBot{editErr: errors.New("temporary Telegram failure")}
+	status := NewStatusMessenger(bot, client)
+	ctx := context.Background()
+
+	status.Begin(ctx, 42)
+	status.ToolRunning(ctx, 42, "log_workout")
+
+	if len(bot.sent) != 1 {
+		t.Fatalf("status messages sent = %d, want one tracked message", len(bot.sent))
+	}
+	if !server.Exists("agent:status:42") {
+		t.Fatal("original status message id was discarded after a transient edit failure")
+	}
 }
 func (f *fakeStatusBot) DeleteMessage(_ context.Context, _ int64, messageID int) error {
 	f.deleted = append(f.deleted, messageID)

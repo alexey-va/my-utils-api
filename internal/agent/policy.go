@@ -6,9 +6,9 @@ import (
 )
 
 var (
-	workoutNotation = regexp.MustCompile(`(?i)(?:^|[^\d.,/])\d+(?:[.,]\d+)?\s+(?:\d+\s*[*xх×]\s*)?\d+(?:\s*/\s*\d+)+(?:$|[^\d/])`)
+	workoutNotation = regexp.MustCompile(`(?i)(?:^|[^\d.,/])\d+(?:[.,]\d+)?\s*(?:кг|kg)?\s+(?:\d+\s*[*xх×]\s*)?\d+(?:\s*/\s*\d+)+(?:$|[^\d/])`)
 	workoutWrite    = regexp.MustCompile(`(?i)(?:^|\s)(?:запиши(?:те)?|записать|залогируй(?:те)?|зафиксируй(?:те)?|добавь(?:те)?\s+(?:тренировку|в\s+дневник))(?:\s|$)`)
-	deleteWrite     = regexp.MustCompile(`(?i)(?:^|\s)(?:удали(?:те)?|удалить|сотри(?:те)?|стереть|убери(?:те)?|исправь(?:те)?\s+запись)(?:\s|$)`)
+	deleteWrite     = regexp.MustCompile(`(?i)(?:^|\s)(?:удали(?:те)?|удалить|сотри(?:те)?|стереть|убери(?:те)?|исправь(?:те)?(?:\s+запись)?)(?:\s|$)`)
 	exerciseCreate  = regexp.MustCompile(`(?i)(?:^|\s)(?:создай(?:те)?|создать|добавь(?:те)?)(?:\s+упражнение)?(?:\s|$)`)
 	exerciseRename  = regexp.MustCompile(`(?i)(?:переименуй(?:те)?|переименовать|смени(?:те)?\s+название)`)
 	bodyWeight      = regexp.MustCompile(`(?i)\d+(?:[.,]\d+)?(?:\s*(?:кг|kg|lb|lbs|фунт(?:а|ов)?))?`)
@@ -21,6 +21,7 @@ var (
 	notifyWrite     = regexp.MustCompile(`(?i)(?:^|\s)(?:напомни(?:те)?|уведоми(?:те)?|поставь(?:те)?\s+напоминание|запланируй(?:те)?\s+(?:напоминание|уведомление))(?:\s|$)`)
 	cancelNotify    = regexp.MustCompile(`(?i)(?:отмени(?:те)?|удали(?:те)?|сними(?:те)?)\s+(?:(?:это|последнее|предыдущее)\s+)?(?:напоминание|уведомление)`)
 	readQuestion    = regexp.MustCompile(`(?i)^(?:что|ка(?:к|кой|кая|кие)|сколько|когда|почему|зачем|где|покажи|расскажи)(?:\s|$)`)
+	kilogramUnit    = regexp.MustCompile(`(?i)\s*(?:кг|kg)\s*`)
 )
 
 var mutatingTools = map[string]bool{
@@ -47,13 +48,15 @@ func MutationAllowed(toolName, userMessage string) bool {
 	}
 	message := strings.ToLower(strings.TrimSpace(userMessage))
 	question := strings.Contains(message, "?") || readQuestion.MatchString(message)
+	correction := !question && deleteWrite.MatchString(message)
+	workoutIntent := workoutWrite.MatchString(message) || correction || (!question && workoutNotation.MatchString(message))
 	switch toolName {
 	case "create_exercise":
-		return !question && exerciseCreate.MatchString(message)
+		return !question && (exerciseCreate.MatchString(message) || workoutIntent)
 	case "rename_exercise":
 		return exerciseRename.MatchString(message)
 	case "log_workout":
-		return workoutWrite.MatchString(message) || (!question && workoutNotation.MatchString(message))
+		return workoutIntent
 	case "delete_workout":
 		return deleteWrite.MatchString(message)
 	case "log_body_weight":
@@ -80,6 +83,8 @@ func GroundToolArguments(toolName string, args map[string]any, userMessage strin
 	match := workoutNotation.FindString(userMessage)
 	match = strings.TrimSpace(match)
 	match = strings.Trim(match, ".,;:!?—–-()[]{}")
+	match = kilogramUnit.ReplaceAllString(match, " ")
+	match = strings.Join(strings.Fields(match), " ")
 	if match != "" {
 		args["notation"] = match
 	}

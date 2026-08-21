@@ -80,10 +80,13 @@ func (s *StatusMessenger) update(ctx context.Context, chatID int64, text string)
 		if err := s.bot.EditHTMLMessage(ctx, chatID, messageID, text); err == nil {
 			s.typing(ctx, chatID)
 			return
+		} else {
+			// Keep ownership of the original status message. Retrying with sendMessage
+			// after a transient edit error leaves an orphan that Complete cannot delete.
+			slog.WarnContext(ctx, "edit Telegram agent status failed", "chatId", chatID, "messageId", messageID, "error", err)
+			s.typing(ctx, chatID)
+			return
 		}
-		// The stored Telegram message may have been deleted manually. Fall back to
-		// a fresh message instead of losing all progress feedback.
-		s.clear(ctx, chatID)
 	}
 	messageID, err := s.bot.SendHTMLMessage(ctx, chatID, text, "")
 	if err != nil {

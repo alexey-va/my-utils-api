@@ -12,10 +12,13 @@ func ToolDefinitions(temporalEnabled bool) []openrouter.Tool {
 		return openrouter.Tool{Type: "function", Function: openrouter.ToolFunction{Name: name, Description: description, Parameters: parameters}}
 	}
 	text := func(description string) property { return property{"type": "string", "description": description} }
+	enumText := func(description string, values ...string) property {
+		return property{"type": "string", "description": description, "enum": values}
+	}
 	integer := func(description string) property { return property{"type": "integer", "description": description} }
 	tools := []openrouter.Tool{
 		definition("list_exercises", "Список упражнений в дневнике.", property{}),
-		definition("create_exercise", "Создать упражнение, если его ещё нет.", property{"name": text("Название"), "muscle_group": text("Группа мышц")}, "name"),
+		definition("create_exercise", "Создать упражнение, если его ещё нет. Если пользователь уже дал тренировочные данные, после создания сразу вызови log_workout без подтверждения.", property{"name": text("Название"), "muscle_group": enumText("Группа мышц", "arms", "back", "chest", "core", "legs", "other", "shoulders")}, "name"),
 		definition("rename_exercise", "Переименовать упражнение.", property{"current_name": text("Текущее название"), "new_name": text("Новое название"), "muscle_group": text("Группа мышц")}, "current_name", "new_name"),
 		definition("delete_workout", "Удалить запись за день.", property{"exercise_name": text("Упражнение"), "performed_on": text("Дата YYYY-MM-DD")}, "exercise_name"),
 		definition("log_workout", "Записать тренировку. notation: 70 3*10/12, 70 10/12, 70 10/10, 70 7/7/7 или 70/75/80 10/10/10.", property{"exercise_name": text("Упражнение"), "notation": text("Запись подходов"), "date": text("Дата YYYY-MM-DD")}, "exercise_name", "notation"),
