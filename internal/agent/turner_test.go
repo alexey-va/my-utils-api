@@ -30,10 +30,18 @@ func (f *fakeConversation) Context(_ context.Context, _ int64, _ int) ([]openrou
 }
 func (f *fakeConversation) PromptContext(context.Context, int64) (string, error) { return "", nil }
 
-type fakeTools struct{ calls []string }
+type fakeTools struct {
+	calls []string
+	args  []map[string]any
+}
 
-func (f *fakeTools) Execute(_ context.Context, _ int64, name string, _ map[string]any, _ string, sandbox bool) (string, error) {
+func (f *fakeTools) Execute(_ context.Context, _ int64, name string, args map[string]any, _ string, sandbox bool) (string, error) {
 	f.calls = append(f.calls, name)
+	copyArgs := make(map[string]any, len(args))
+	for key, value := range args {
+		copyArgs[key] = value
+	}
+	f.args = append(f.args, copyArgs)
 	if !sandbox {
 		return "", errTest("expected sandbox")
 	}
@@ -125,6 +133,49 @@ func TestTurnerRejectsUnapprovedMutationBeforeExecutor(t *testing.T) {
 	}
 	if got, _ := conversation.messages[2].Content.(string); got == "" {
 		t.Fatalf("denial feedback missing: %#v", conversation.messages[2])
+	}
+}
+
+func TestTurnerAllowsMutationAfterBoundedClarification(t *testing.T) {
+	t.Parallel()
+	llm := &fakeCompleter{responses: []openrouter.Response{
+		{Message: openrouter.Message{Role: "assistant", ToolCalls: []openrouter.ToolCall{{ID: "call-delete", Type: "function", Function: openrouter.ToolFunction{Name: "delete_workout", Arguments: `{"exercise_name":"Бабочка","performed_on":"2026-08-21"}`}}}}},
+		{Message: openrouter.Message{Role: "assistant", Content: "удалено"}},
+	}}
+	conversation := &fakeConversation{messages: []openrouter.Message{
+		{Role: "user", Content: "Удали запись на пятницу для бабочки"},
+		{Role: "assistant", Content: "Уточни: удалить обычную «Бабочку» или «Бабочка на заднюю дельту» за пятницу, 21.08?"},
+	}}
+	tools := &fakeTools{}
+	turner := NewTurner(TurnerConfig{Model: func() string { return "p/m" }, MaxToolIterations: func() int { return 2 }, RecentMessages: func() int { return 10 }, SystemPrompt: func() string { return "system" }}, llm, conversation, tools)
+
+	if _, err := turner.Turn(context.Background(), 1, "Обычную бабочку", nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(tools.calls) != 1 || tools.calls[0] != "delete_workout" {
+		t.Fatalf("tool calls = %#v", tools.calls)
+	}
+}
+
+func TestTurnerGroundsMultipleWorkoutCallsIndependently(t *testing.T) {
+	t.Parallel()
+	llm := &fakeCompleter{responses: []openrouter.Response{
+		{Message: openrouter.Message{Role: "assistant", ToolCalls: []openrouter.ToolCall{
+			{ID: "call-adductor", Type: "function", Function: openrouter.ToolFunction{Name: "log_workout", Arguments: `{"exercise_name":"Приводящие ног","notation":"90 3*12/15"}`}},
+			{ID: "call-triceps", Type: "function", Function: openrouter.ToolFunction{Name: "log_workout", Arguments: `{"exercise_name":"Трицепс","notation":"35 3*10/12"}`}},
+		}}},
+		{Message: openrouter.Message{Role: "assistant", Content: "записано"}},
+	}}
+	conversation := &fakeConversation{}
+	tools := &fakeTools{}
+	turner := NewTurner(TurnerConfig{Model: func() string { return "p/m" }, MaxToolIterations: func() int { return 2 }, RecentMessages: func() int { return 10 }, SystemPrompt: func() string { return "system" }}, llm, conversation, tools)
+
+	message := "Запиши приводящую ног сегодня 90кг 12/15 и трицепс 77 фунтов 10/12"
+	if _, err := turner.Turn(context.Background(), 1, message, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	if len(tools.args) != 2 || tools.args[0]["notation"] != "90 12/15" || tools.args[1]["notation"] != "35 10/12" {
+		t.Fatalf("tool args = %#v", tools.args)
 	}
 }
 

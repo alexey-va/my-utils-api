@@ -28,12 +28,29 @@ const (
 //go:embed agent_system_prompt.txt
 var agentSystemPromptDefault string
 
+//go:embed agent_required_rules.txt
+var agentRequiredRules string
+
+const agentRequiredRulesMarker = "## Обязательные runtime-инварианты (не переопределять)"
+
+func EffectiveAgentSystemPrompt(configured string) string {
+	configured = strings.TrimSpace(configured)
+	if strings.Contains(configured, agentRequiredRulesMarker) {
+		return configured
+	}
+	rules := strings.TrimSpace(agentRequiredRules)
+	if configured == "" {
+		return rules
+	}
+	return configured + "\n\n" + rules
+}
+
 func AppCatalog(reminderChanged ApplyFunc) Catalog {
 	prompt := String(
 		AgentSystemPrompt,
 		"System prompt Telegram-агента (OpenRouter). Редактируется без перезапуска.",
 		[]string{"agent", "telegram"},
-		strings.TrimSpace(agentSystemPromptDefault),
+		EffectiveAgentSystemPrompt(agentSystemPromptDefault),
 		func(value string) bool { return strings.TrimSpace(value) != "" && len(value) <= 32_000 },
 		nil,
 	)

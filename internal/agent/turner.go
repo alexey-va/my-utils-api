@@ -88,6 +88,7 @@ func (t *AgentTurner) Turn(ctx context.Context, chatID int64, content string, im
 		return TurnResult{}, err
 	}
 	appended := []Message{first}
+	grounder := newToolArgumentGrounder(content)
 
 	maxIterations := t.config.MaxToolIterations()
 	if maxIterations < 1 {
@@ -177,10 +178,11 @@ func (t *AgentTurner) Turn(ctx context.Context, chatID int64, content string, im
 			var args map[string]any
 			if err := json.Unmarshal([]byte(call.Function.Arguments), &args); err != nil {
 				result = `{"ok":false,"error":"Неверный arguments JSON","hint":"Исправь JSON и вызови инструмент снова."}`
-			} else if !MutationAllowed(call.Function.Name, content) {
+			} else if !MutationAllowedWithContext(call.Function.Name, content, memory) {
 				result = `{"ok":false,"error":"Текущее сообщение — только чтение: нет явной команды или данных для изменения.","hint":"Ответь без изменения данных."}`
+			} else if groundErr := grounder.Ground(call.Function.Name, args); groundErr != nil {
+				result = fmt.Sprintf(`{"ok":false,"error":%q}`, groundErr.Error())
 			} else {
-				GroundToolArguments(call.Function.Name, args, content)
 				result, err = t.tools.Execute(ctx, chatID, call.Function.Name, args, content, sandbox)
 				if err != nil {
 					result = fmt.Sprintf(`{"ok":false,"error":%q}`, err.Error())

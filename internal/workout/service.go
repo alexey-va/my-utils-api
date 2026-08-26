@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 	"time"
 
@@ -136,7 +135,7 @@ func (s *Service) CreateExercise(ctx context.Context, request CreateExerciseRequ
 	if exists {
 		return Exercise{}, conflict("Exercise already exists")
 	}
-	group := normalizeMuscleGroup(request.MuscleGroup)
+	group := NormalizeMuscleGroup(pointerValue(request.MuscleGroup))
 	var result Exercise
 	err = s.pool.QueryRow(ctx, `INSERT INTO exercises(user_id,name,muscle_group) VALUES($1::uuid,$2,$3) RETURNING id::text,name,muscle_group`, userID, name, group).Scan(&result.ID, &result.Name, &result.MuscleGroup)
 	return result, err
@@ -164,7 +163,7 @@ func (s *Service) UpdateExercise(ctx context.Context, id string, request CreateE
 	}
 	group := current.MuscleGroup
 	if request.MuscleGroup != nil {
-		group = normalizeMuscleGroup(request.MuscleGroup)
+		group = NormalizeMuscleGroup(pointerValue(request.MuscleGroup))
 	}
 	var result Exercise
 	err = s.pool.QueryRow(ctx, `UPDATE exercises SET name=$2,muscle_group=$3 WHERE id=$1::uuid RETURNING id::text,name,muscle_group`, id, name, group).Scan(&result.ID, &result.Name, &result.MuscleGroup)
@@ -424,16 +423,21 @@ func stats(points []ProgressPoint) Stats {
 	return result
 }
 
-func normalizeMuscleGroup(raw *string) string {
-	if raw == nil {
+func NormalizeMuscleGroup(raw string) string {
+	value := strings.ToLower(strings.TrimSpace(raw))
+	switch value {
+	case "arms", "back", "chest", "core", "legs", "other", "shoulders":
+		return value
+	default:
 		return "other"
 	}
-	value := strings.ToLower(strings.TrimSpace(*raw))
-	allowed := []string{"arms", "back", "chest", "core", "legs", "other", "shoulders"}
-	if _, ok := sort.Find(len(allowed), func(index int) int { return strings.Compare(allowed[index], value) }); ok {
-		return value
+}
+
+func pointerValue(value *string) string {
+	if value == nil {
+		return ""
 	}
-	return "other"
+	return *value
 }
 
 func badRequest(message string) error { return &Error{Status: http.StatusBadRequest, Message: message} }

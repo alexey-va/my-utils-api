@@ -209,8 +209,10 @@ func run(ctx context.Context) error {
 			Model:             func() string { return runtimeSettings.String(settings.OpenRouterModel) },
 			MaxToolIterations: func() int { return runtimeSettings.Int(settings.OpenRouterMaxTools) },
 			RecentMessages:    func() int { return runtimeSettings.Int(settings.AgentRecentMessages) },
-			SystemPrompt:      func() string { return runtimeSettings.String(settings.AgentSystemPrompt) },
-			TemporalEnabled:   cfg.Temporal.Enabled,
+			SystemPrompt: func() string {
+				return settings.EffectiveAgentSystemPrompt(runtimeSettings.String(settings.AgentSystemPrompt))
+			},
+			TemporalEnabled: cfg.Temporal.Enabled,
 		}, openRouterClient, contextualConversation, toolService)
 		turner.SetMetrics(metrics)
 		toolService.SetMetrics(metrics)

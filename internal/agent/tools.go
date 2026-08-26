@@ -426,10 +426,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 				return "", fmt.Errorf("в SANDBOX уже есть упражнение %q", nameArg)
 			}
 		}
-		group := optionalString(args, "muscle_group")
-		if group == "" {
-			group = "other"
-		}
+		group := workout.NormalizeMuscleGroup(optionalString(args, "muscle_group"))
 		state.Exercises = append(state.Exercises, sandboxExercise{ID: randomID("exercise"), Name: nameArg, MuscleGroup: group})
 		return fmt.Sprintf("SANDBOX: создано упражнение «%s» (%s).", nameArg, group), nil
 	case "rename_exercise":
@@ -440,7 +437,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 		previous := exercise.Name
 		exercise.Name = requiredString(args, "new_name")
 		if group := optionalString(args, "muscle_group"); group != "" {
-			exercise.MuscleGroup = group
+			exercise.MuscleGroup = workout.NormalizeMuscleGroup(group)
 		}
 		for index := range state.Workouts {
 			if state.Workouts[index].ExerciseID == exercise.ID {
@@ -639,26 +636,52 @@ func (s *ToolService) findExercise(ctx context.Context, name string) (workout.Ex
 	if err != nil {
 		return workout.Exercise{}, err
 	}
-	needle := strings.ToLower(strings.TrimSpace(name))
-	matches := []workout.Exercise{}
-	for _, exercise := range exercises {
-		if exerciseNameMatches(exercise.Name, needle) {
-			matches = append(matches, exercise)
-		}
+	names := make([]string, len(exercises))
+	for index := range exercises {
+		names[index] = exercises[index].Name
 	}
+	matches := bestExerciseMatchIndexes(names, name)
 	if len(matches) == 0 {
 		return workout.Exercise{}, fmt.Errorf("упражнение %q не найдено", name)
 	}
 	if len(matches) > 1 {
 		return workout.Exercise{}, fmt.Errorf("упражнение %q неоднозначно", name)
 	}
-	return matches[0], nil
+	return exercises[matches[0]], nil
 }
 
 func exerciseNameMatches(candidate, requested string) bool {
+	return exerciseNameMatchRank(candidate, requested) > 0
+}
+
+func exerciseNameMatchRank(candidate, requested string) int {
 	candidate = strings.ToLower(strings.TrimSpace(candidate))
 	requested = strings.ToLower(strings.TrimSpace(requested))
-	return candidate == requested || strings.Contains(candidate, requested)
+	if candidate == requested {
+		return 2
+	}
+	if requested != "" && strings.Contains(candidate, requested) {
+		return 1
+	}
+	return 0
+}
+
+func bestExerciseMatchIndexes(candidates []string, requested string) []int {
+	bestRank := 0
+	matches := []int{}
+	for index, candidate := range candidates {
+		rank := exerciseNameMatchRank(candidate, requested)
+		switch {
+		case rank == 0:
+			continue
+		case rank > bestRank:
+			bestRank = rank
+			matches = []int{index}
+		case rank == bestRank:
+			matches = append(matches, index)
+		}
+	}
+	return matches
 }
 
 func (s *ToolService) today() string {
@@ -770,21 +793,18 @@ func formatGridDays(grid workout.Grid, dates []string) string {
 }
 
 func sandboxExerciseByName(state *sandboxState, name string) (*sandboxExercise, error) {
-	needle := strings.ToLower(strings.TrimSpace(name))
-	var found *sandboxExercise
+	names := make([]string, len(state.Exercises))
 	for index := range state.Exercises {
-		exercise := &state.Exercises[index]
-		if exerciseNameMatches(exercise.Name, needle) {
-			if found != nil {
-				return nil, fmt.Errorf("неоднозначное sandbox-упражнение %q", name)
-			}
-			found = exercise
-		}
+		names[index] = state.Exercises[index].Name
 	}
-	if found == nil {
+	matches := bestExerciseMatchIndexes(names, name)
+	if len(matches) == 0 {
 		return nil, fmt.Errorf("в SANDBOX нет упражнения %q", name)
 	}
-	return found, nil
+	if len(matches) > 1 {
+		return nil, fmt.Errorf("неоднозначное sandbox-упражнение %q", name)
+	}
+	return &state.Exercises[matches[0]], nil
 }
 
 func sandboxForgetFact(state *sandboxState, id string) (string, error) {

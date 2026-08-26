@@ -2,6 +2,7 @@ package settings
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -44,4 +45,41 @@ func TestAppCatalogContainsEveryKotlinRuntimeProperty(t *testing.T) {
 	if len(wantDefaults) != 0 {
 		t.Fatalf("missing property defaults: %#v", wantDefaults)
 	}
+}
+
+func TestEffectiveAgentSystemPromptAppendsMandatoryRulesToStaleSetting(t *testing.T) {
+	t.Parallel()
+	effective := EffectiveAgentSystemPrompt("старый пользовательский prompt")
+	for _, want := range []string{
+		"старый пользовательский prompt",
+		agentRequiredRulesMarker,
+		"фунты × 0.45359237",
+		"Никогда не копируй числа первого упражнения",
+		"продолжай исходную явно запрошенную операцию",
+	} {
+		if !strings.Contains(effective, want) {
+			t.Fatalf("effective prompt does not contain %q", want)
+		}
+	}
+	if repeated := EffectiveAgentSystemPrompt(effective); repeated != effective {
+		t.Fatal("mandatory rules must be appended exactly once")
+	}
+}
+
+func TestAgentSystemPromptDefaultContainsMandatoryRules(t *testing.T) {
+	t.Parallel()
+	for _, definition := range AppCatalog(nil).Definitions() {
+		if definition.Key != AgentSystemPrompt {
+			continue
+		}
+		var prompt string
+		if err := json.Unmarshal(definition.Default, &prompt); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(prompt, agentRequiredRulesMarker) {
+			t.Fatalf("default prompt = %q", prompt)
+		}
+		return
+	}
+	t.Fatal("agent system prompt definition not found")
 }
