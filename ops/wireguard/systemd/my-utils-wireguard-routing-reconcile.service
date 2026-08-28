@@ -1,0 +1,18 @@
+[Unit]
+Description=Restore my-utils VPN policy rules after networkd restarts
+After=systemd-networkd.service my-utils-wireguard-routing.service
+Wants=my-utils-wireguard-routing.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/my-utils-wireguard-routing-reconcile
+User=root
+Group=root
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/run -/var/lib/my-utils-wireguard
+NoNewPrivileges=true
+
+[Install]
+WantedBy=systemd-networkd.service

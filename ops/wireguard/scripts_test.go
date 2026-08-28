@@ -792,6 +792,141 @@ func TestHAWireGuardRoutingPreservesManagedSelectionAndAllowsBothExits(t *testin
 	}
 }
 
+func TestRoutingRecoversAfterNetworkdRestart(t *testing.T) {
+	for _, path := range []string{
+		"veesp-exit/my-utils-wireguard-routing-ha.service",
+		"systemd/my-utils-geo-routing.service",
+		"systemd/my-utils-api-proxy-routing.service",
+	} {
+		unit := readFile(t, path)
+		if !strings.Contains(unit, "After=systemd-networkd.service") {
+			t.Errorf("%s does not start after systemd-networkd", path)
+		}
+		if strings.Contains(unit, "PartOf=systemd-networkd.service") {
+			t.Errorf("%s must not stop and destroy owned state during networkd restart", path)
+		}
+	}
+	reconcileUnit := readFile(t, "systemd/my-utils-wireguard-routing-reconcile.service")
+	for _, want := range []string{
+		"After=systemd-networkd.service",
+		"ExecStart=/usr/local/libexec/my-utils-wireguard-routing-reconcile",
+		"WantedBy=systemd-networkd.service",
+	} {
+		if !strings.Contains(reconcileUnit, want) {
+			t.Errorf("routing reconcile unit does not contain %q", want)
+		}
+	}
+
+	agentUnit := readFile(t, "systemd/my-utils-wireguard-agent.service")
+	if !strings.Contains(agentUnit, "ExecStartPre=/usr/local/libexec/my-utils-wireguard-routing-reconcile") {
+		t.Fatal("WireGuard agent must repair lost policy rules before reporting health")
+	}
+
+	installer := readFile(t, "install-relay.sh")
+	if !strings.Contains(installer, "routing-reconcile.sh") ||
+		!strings.Contains(installer, "/usr/local/libexec/my-utils-wireguard-routing-reconcile") ||
+		!strings.Contains(installer, "systemctl enable --now my-utils-wireguard-routing-reconcile.service") {
+		t.Fatal("relay installer must install the routing reconciler")
+	}
+	stageFiles := readFile(t, "ansible/stage-files.txt")
+	if !strings.Contains(stageFiles, "routing-reconcile.sh") || !strings.Contains(stageFiles, "systemd/my-utils-wireguard-routing-reconcile.service") {
+		t.Fatal("Ansible must stage the routing reconciler")
+	}
+	playbook := readFile(t, "ansible/site.yml")
+	for _, want := range []string{
+		"1087:.*fwmark 0x51891 lookup 51889",
+		"1088:.*fwmark 0x51890 lookup main",
+		`1089:.*from 10\.89\.0\.0/24 lookup 51889`,
+		"ExecStartPre=/usr/local/libexec/my-utils-wireguard-routing-reconcile",
+		"is-enabled",
+		"my-utils-wireguard-routing-reconcile.service",
+	} {
+		if !strings.Contains(playbook, want) {
+			t.Errorf("Ansible verification does not contain %q", want)
+		}
+	}
+}
+
+func TestRoutingReconcilerRepairsMissingStateOnce(t *testing.T) {
+	tempDir := t.TempDir()
+	stateDir := tempDir + "/state"
+	libexecDir := tempDir + "/libexec"
+	if err := os.MkdirAll(stateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(libexecDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	writeExecutable(t, tempDir+"/systemctl", `#!/bin/sh
+test "$1" = is-active && exit 0
+exit 2
+`)
+	writeExecutable(t, tempDir+"/flock", `#!/bin/sh
+exit 0
+`)
+	writeExecutable(t, tempDir+"/ip", `#!/bin/sh
+case "$*" in
+  '-4 rule show')
+    printf '%s\n' '0: from all lookup local'
+    test -e "$RECONCILE_STATE_DIR/proxy" && printf '%s\n' '1087: from all fwmark 0x51891 lookup 51889'
+    test -e "$RECONCILE_STATE_DIR/geo" && printf '%s\n' '1088: from all fwmark 0x51890 lookup main'
+    test -e "$RECONCILE_STATE_DIR/main" && printf '%s\n' '1089: from 10.89.0.0/24 lookup 51889'
+    exit 0
+    ;;
+  '-4 route show table 51889')
+    if test -e "$RECONCILE_STATE_DIR/main"; then
+      printf '%s\n' '10.89.0.0/24 dev wg-users scope link'
+      printf '%s\n' 'unreachable default metric 32767'
+    fi
+    exit 0
+    ;;
+  *) exit 2 ;;
+esac
+`)
+	for _, name := range []string{"main", "geo", "proxy"} {
+		target := map[string]string{
+			"main":  "my-utils-wireguard-routing",
+			"geo":   "my-utils-geo-routing",
+			"proxy": "my-utils-api-proxy-routing",
+		}[name]
+		writeExecutable(t, libexecDir+"/"+target, fmt.Sprintf(`#!/bin/sh
+printf '%%s\n' '%s' >>"$RECONCILE_STATE_DIR/calls"
+touch "$RECONCILE_STATE_DIR/%s"
+`, name, name))
+	}
+
+	command := exec.Command("bash", "routing-reconcile.sh")
+	command.Env = append(os.Environ(),
+		"PATH="+tempDir+":"+os.Getenv("PATH"),
+		"RECONCILE_STATE_DIR="+stateDir,
+		"WIREGUARD_ROUTING_LIBEXEC_DIR="+libexecDir,
+		"WIREGUARD_ROUTING_RECONCILE_LOCK_FILE="+tempDir+"/reconcile.lock",
+		"WIREGUARD_FAILOVER_LOCK_FILE="+tempDir+"/failover.lock",
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("first reconcile failed: %v\n%s", err, output)
+	}
+	if calls := readPath(t, stateDir+"/calls"); calls != "main\ngeo\nproxy\n" {
+		t.Fatalf("repair calls = %q, want dependency order", calls)
+	}
+
+	command = exec.Command("bash", "routing-reconcile.sh")
+	command.Env = append(os.Environ(),
+		"PATH="+tempDir+":"+os.Getenv("PATH"),
+		"RECONCILE_STATE_DIR="+stateDir,
+		"WIREGUARD_ROUTING_LIBEXEC_DIR="+libexecDir,
+		"WIREGUARD_ROUTING_RECONCILE_LOCK_FILE="+tempDir+"/reconcile.lock",
+		"WIREGUARD_FAILOVER_LOCK_FILE="+tempDir+"/failover.lock",
+	)
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("healthy reconcile failed: %v\n%s", err, output)
+	}
+	if calls := readPath(t, stateDir+"/calls"); calls != "main\ngeo\nproxy\n" {
+		t.Fatalf("healthy state was needlessly reapplied: %q", calls)
+	}
+}
+
 func TestRoutingUnitStateCapturesOnlyActiveDependents(t *testing.T) {
 	tempDir := t.TempDir()
 	activeFile := tempDir + "/active"

@@ -180,6 +180,18 @@ Table `51889` also contains the connected `10.89.0.0/24 dev wg-users` route.
 Without it, locally generated replies from `10.89.0.1` (notably DNS) would
 follow the AWG default instead of returning to the client.
 
+The policy rules are kernel state and disappear when `systemd-networkd` is
+restarted, including restarts requested by `needrestart` after unattended
+library upgrades. `my-utils-wireguard-routing-reconcile.service` is wanted by
+`systemd-networkd.service` and runs after every networkd start. It invokes the
+idempotent start actions directly: the long-lived routing units are not
+restarted, so the validated RU prefix set and selected AWG exit survive. As a
+second line of defence, the 15-second relay agent runs the same reconciler
+before every heartbeat. It reapplies only missing owned rules and routes and
+serializes repairs with the failover worker. The subsequent heartbeat reports
+healthy only after exact read-back of priorities `1087` through `1089`, table
+`51889`, nftables state, and client DNS.
+
 The updater runs daily through `my-utils-geo-routing-update.timer`. Its
 non-secret status file is read by the existing agent and shown in the admin UI.
 Country selection is IP-based: CDN placement can differ from a domain's

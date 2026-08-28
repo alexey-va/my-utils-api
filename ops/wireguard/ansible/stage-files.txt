@@ -6,6 +6,7 @@ install-geo-routing.sh
 install-relay.sh
 render-geo-prefixes.py
 route-probe.sh
+routing-reconcile.sh
 update-geo-routing.sh
 wireguard-agent.sh
 systemd/my-utils-api-proxy-routing.service
@@ -15,6 +16,7 @@ systemd/my-utils-geo-routing.service
 systemd/my-utils-wireguard-agent.service
 systemd/my-utils-wireguard-agent.timer
 systemd/my-utils-wireguard-dns.service
+systemd/my-utils-wireguard-routing-reconcile.service
 veesp-exit/.dockerignore
 veesp-exit/Dockerfile.awg
 veesp-exit/Dockerfile.tinyproxy

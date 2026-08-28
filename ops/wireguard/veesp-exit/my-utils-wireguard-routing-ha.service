@@ -1,6 +1,6 @@
 [Unit]
 Description=Fail-closed HA routing for my-utils WireGuard clients
-After=network-online.target my-utils-awg-exit.service my-utils-awg-exit-b.service wg-quick@wg-users.service
+After=systemd-networkd.service network-online.target my-utils-awg-exit.service my-utils-awg-exit-b.service wg-quick@wg-users.service
 Wants=my-utils-awg-exit.service my-utils-awg-exit-b.service
 Requires=wg-quick@wg-users.service
 

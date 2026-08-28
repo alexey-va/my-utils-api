@@ -195,7 +195,7 @@ install -m 755 -o root -g root "$tmp_dir/wireguard-routing" /usr/local/libexec/m
 cat >"/etc/systemd/system/my-utils-wireguard-routing.service" <<EOF
 [Unit]
 Description=Fail-closed routing for my-utils WireGuard clients
-After=network-online.target my-utils-awg-exit.service wg-quick@$interface.service
+After=systemd-networkd.service network-online.target my-utils-awg-exit.service wg-quick@$interface.service
 Wants=my-utils-awg-exit.service
 Requires=wg-quick@$interface.service
 
@@ -210,9 +210,11 @@ WantedBy=multi-user.target
 EOF
 
 install -m 755 -o root -g root "$(dirname "$0")/route-probe.sh" /usr/local/libexec/my-utils-wireguard-route-probe
+install -m 755 -o root -g root "$(dirname "$0")/routing-reconcile.sh" /usr/local/libexec/my-utils-wireguard-routing-reconcile
 install -m 755 -o root -g root "$(dirname "$0")/wireguard-agent.sh" /usr/local/libexec/my-utils-wireguard-agent
 install -m 644 -o root -g root "$(dirname "$0")/systemd/my-utils-wireguard-agent.service" /etc/systemd/system/
 install -m 644 -o root -g root "$(dirname "$0")/systemd/my-utils-wireguard-agent.timer" /etc/systemd/system/
+install -m 644 -o root -g root "$(dirname "$0")/systemd/my-utils-wireguard-routing-reconcile.service" /etc/systemd/system/
 agent_token="$(<"$agent_token_file")"
 if [[ ${#agent_token} -lt 40 || "$agent_token" == *$'\n'* || "$agent_token" == *$'\r'* ]]; then
   echo "Agent token file is invalid" >&2
@@ -236,6 +238,7 @@ sysctl --system >/dev/null
 systemctl daemon-reload
 systemctl enable --now "wg-quick@$interface.service"
 systemctl enable --now my-utils-wireguard-routing.service
+systemctl enable --now my-utils-wireguard-routing-reconcile.service
 systemctl enable --now my-utils-wireguard-agent.timer
 systemctl start my-utils-wireguard-agent.service
 

@@ -407,6 +407,21 @@
             wg show wg-users >/dev/null;
             jq -e '.overallStatus == "HEALTHY" and (.activeExit == "primary" or .activeExit == "secondary")'
             /var/lib/my-utils-wireguard/exit-health.json >/dev/null;
-            ip -4 route show table 51889 | grep -Fq 'unreachable default'
+            ip -4 route show table 51889 | grep -Fq 'unreachable default';
+            ip -4 rule show | grep -Eq '1087:.*fwmark 0x51891 lookup 51889';
+            ip -4 rule show | grep -Eq '1088:.*fwmark 0x51890 lookup main';
+            ip -4 rule show | grep -Eq '1089:.*from 10\.89\.0\.0/24 lookup 51889';
+            test -x /usr/local/libexec/my-utils-wireguard-routing-reconcile;
+            systemctl cat my-utils-wireguard-agent.service |
+            grep -Fq 'ExecStartPre=/usr/local/libexec/my-utils-wireguard-routing-reconcile'
+      when: vpn_apply | bool
+      changed_when: false
+
+    - name: Verify networkd-triggered routing recovery is enabled
+      ansible.builtin.command:
+        argv:
+          - systemctl
+          - is-enabled
+          - my-utils-wireguard-routing-reconcile.service
       when: vpn_apply | bool
       changed_when: false

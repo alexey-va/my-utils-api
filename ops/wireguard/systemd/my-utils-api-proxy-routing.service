@@ -1,6 +1,6 @@
 [Unit]
 Description=Route my-utils API outbound proxy through AmneziaWG
-After=network-online.target docker.service my-utils-wireguard-routing.service
+After=systemd-networkd.service network-online.target docker.service my-utils-wireguard-routing.service
 Requires=my-utils-wireguard-routing.service
 Wants=docker.service
 

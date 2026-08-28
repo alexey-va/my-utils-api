@@ -1,11 +1,12 @@
 [Unit]
 Description=Converge my-utils WireGuard peers and report heartbeat
-After=network-online.target wg-quick@wg-users.service my-utils-wireguard-routing.service
+After=systemd-networkd.service network-online.target wg-quick@wg-users.service my-utils-wireguard-routing.service
 Wants=network-online.target
 Requires=wg-quick@wg-users.service
 
 [Service]
 Type=oneshot
+ExecStartPre=/usr/local/libexec/my-utils-wireguard-routing-reconcile
 ExecStart=/usr/local/libexec/my-utils-wireguard-agent
 User=root
 Group=root
