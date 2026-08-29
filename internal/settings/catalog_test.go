@@ -10,8 +10,8 @@ func TestAppCatalogContainsEveryKotlinRuntimeProperty(t *testing.T) {
 	t.Parallel()
 
 	catalog := AppCatalog(nil)
-	if len(catalog.Definitions()) != 16 {
-		t.Fatalf("definition count = %d, want 16", len(catalog.Definitions()))
+	if len(catalog.Definitions()) != 17 {
+		t.Fatalf("definition count = %d, want 17", len(catalog.Definitions()))
 	}
 	wantDefaults := map[string]any{
 		"temporal.evening-reminder.enabled":       false,
@@ -19,6 +19,7 @@ func TestAppCatalogContainsEveryKotlinRuntimeProperty(t *testing.T) {
 		"temporal.evening-reminder.minute":        float64(0),
 		"temporal.zone-id":                        "Europe/Moscow",
 		"openrouter.model":                        "@preset/deepseek",
+		"openrouter.transcription-model":          "openai/whisper-1",
 		"openrouter.max-tool-iterations":          float64(30),
 		"agent.memory.recent-messages":            float64(10),
 		"agent.context.recent-entries":            float64(30),

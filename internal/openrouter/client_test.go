@@ -46,6 +46,70 @@ func TestClientSendsOpenAICompatibleRequestAndHeaders(t *testing.T) {
 	}
 }
 
+func TestClientTranscribesOggAudioThroughSTTEndpoint(t *testing.T) {
+	t.Parallel()
+	var got map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/audio/transcriptions" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if r.Header.Get("Authorization") != "Bearer secret" {
+			t.Fatalf("authorization = %q", r.Header.Get("Authorization"))
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"text":" жим лёжа 70 кг, три по десять "}`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{APIKey: "secret", BaseURL: server.URL, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Transcribe(context.Background(), "openai/whisper-1", "ogg", []byte{1, 2, 3})
+	if err != nil {
+		t.Fatal(err)
+	}
+	input, ok := got["input_audio"].(map[string]any)
+	if !ok {
+		t.Fatalf("input_audio = %#v", got["input_audio"])
+	}
+	if got["model"] != "openai/whisper-1" || input["format"] != "ogg" || input["data"] != "AQID" {
+		t.Fatalf("request = %#v", got)
+	}
+	if response.Text != "жим лёжа 70 кг, три по десять" {
+		t.Fatalf("text = %q", response.Text)
+	}
+}
+
+func TestClientTranscriptionRetriesRetryableStatus(t *testing.T) {
+	t.Parallel()
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts++
+		if attempts == 1 {
+			http.Error(w, "busy", http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write([]byte(`{"text":"готово"}`))
+	}))
+	defer server.Close()
+
+	client, err := New(Config{APIKey: "secret", BaseURL: server.URL, Timeout: time.Second, MaxAttempts: 2, InitialDelay: time.Millisecond})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response, err := client.Transcribe(context.Background(), "openai/whisper-1", "ogg", []byte{1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attempts != 2 || response.Text != "готово" {
+		t.Fatalf("attempts = %d, response = %#v", attempts, response)
+	}
+}
+
 func TestClientRetriesRetryableStatus(t *testing.T) {
 	t.Parallel()
 	attempts := 0

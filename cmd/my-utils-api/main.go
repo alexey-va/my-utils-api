@@ -176,8 +176,10 @@ func run(ctx context.Context) error {
 	}
 	var turner *agent.AgentTurner
 	var autoCompactor *agent.AutoCompactor
+	var openRouterClient *openrouter.Client
 	if cfg.OpenRouter.APIKey != "" {
-		openRouterClient, clientErr := openrouter.New(openrouter.Config{
+		var clientErr error
+		openRouterClient, clientErr = openrouter.New(openrouter.Config{
 			APIKey: cfg.OpenRouter.APIKey, BaseURL: cfg.OpenRouter.BaseURL,
 			HTTPReferer: cfg.OpenRouter.HTTPReferer, AppTitle: cfg.OpenRouter.AppTitle,
 			Timeout:         3 * time.Minute,
@@ -238,14 +240,9 @@ func run(ctx context.Context) error {
 		if turner == nil {
 			return errors.New("OPENROUTER_API_KEY is required when Telegram is enabled")
 		}
-		var dispatcher telegram.Dispatcher
+		var textHandler telegram.TextHandler
 		if temporalService != nil {
-			dispatcher = telegram.DispatchFunc(func(dispatchContext context.Context, chatID, userID int64, text string) error {
-				if len(allowedUsers) > 0 && !allowedUsers[userID] {
-					metrics.RecordAgentRequest("none", "rejected")
-					_, dispatchErr := telegramClient.SendHTMLMessage(dispatchContext, chatID, "У вас нет доступа к этому боту.", "")
-					return dispatchErr
-				}
+			textHandler = func(dispatchContext context.Context, chatID, userID int64, text string) error {
 				if text != "/start" && agentStatus != nil {
 					agentStatus.Begin(dispatchContext, chatID)
 				}
@@ -256,18 +253,13 @@ func run(ctx context.Context) error {
 					agentStatus.Complete(dispatchContext, chatID)
 				}
 				return dispatchErr
-			})
+			}
 		} else {
-			dispatcher = telegram.DispatchFunc(func(dispatchContext context.Context, chatID, userID int64, text string) error {
-				if len(allowedUsers) > 0 && !allowedUsers[userID] {
-					metrics.RecordAgentRequest("none", "rejected")
-					_, dispatchErr := telegramClient.SendHTMLMessage(dispatchContext, chatID, "У вас нет доступа к этому боту.", "")
-					return dispatchErr
-				}
+			textHandler = func(dispatchContext context.Context, chatID, userID int64, text string) error {
 				if text == "/start" {
 					metrics.RecordAgentRequest("direct", "received")
 					metrics.RecordAgentTurn("direct", "start_command", 0)
-					_, dispatchErr := telegramClient.SendHTMLMessage(dispatchContext, chatID, "Тренер по дневнику. Напиши «что на сегодня» — скажу, что уже было, и предложу план. Или сразу запиши подход: «жим 70 3*10/12».", "")
+					_, dispatchErr := telegramClient.SendHTMLMessage(dispatchContext, chatID, telegram.WorkoutStartMessage, "")
 					return dispatchErr
 				}
 				if agentStatus != nil {
@@ -280,8 +272,20 @@ func run(ctx context.Context) error {
 				}
 				_, dispatchErr = telegramClient.SendHTMLMessage(dispatchContext, chatID, agent.NormalizeReply(result.Reply), "")
 				return dispatchErr
-			})
+			}
 		}
+		voiceResolver := telegram.NewVoiceResolver(
+			telegramClient,
+			func(transcriptionContext context.Context, model, format string, audio []byte) (string, error) {
+				response, transcriptionErr := openRouterClient.Transcribe(transcriptionContext, model, format, audio)
+				return response.Text, transcriptionErr
+			},
+			func() string { return runtimeSettings.String(settings.OpenRouterTranscriptionModel) },
+			telegram.DefaultMaxVoiceBytes,
+		)
+		dispatcher := telegram.NewInboundHandler(allowedUsers, telegramClient, voiceResolver, func() {
+			metrics.RecordAgentRequest("none", "rejected")
+		}, textHandler)
 		telegramRunner = telegram.NewRunner(telegramClient, dispatcher, cfg.Telegram.PollingEnabled)
 		defer telegramRunner.Close()
 	}

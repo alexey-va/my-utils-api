@@ -8,6 +8,7 @@ import (
 
 	"github.com/alexey-va/my-utils-api/internal/agent"
 	"github.com/alexey-va/my-utils-api/internal/health"
+	"github.com/alexey-va/my-utils-api/internal/telegram"
 	"github.com/alexey-va/my-utils-api/internal/workout"
 )
 
@@ -111,7 +112,7 @@ func (a *Activities) RunAgentTurn(ctx context.Context, input AgentTurnInput) err
 			a.Metrics.RecordAgentTurn("temporal", "start_command", 0)
 		}
 		if input.DeliverToTelegram {
-			return a.SendTelegramMessage(ctx, input.ChatID, "Тренер по дневнику. Напиши «что на сегодня» — скажу, что уже было, и предложу план. Или сразу запиши подход: «жим 70 3*10/12».")
+			return a.SendTelegramMessage(ctx, input.ChatID, telegram.WorkoutStartMessage)
 		}
 		return nil
 	}

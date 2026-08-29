@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/textproto"
 	"net/url"
+	"path"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -160,6 +161,13 @@ type Message struct {
 	From      *User  `json:"from"`
 	Chat      Chat   `json:"chat"`
 	Text      string `json:"text"`
+	Voice     *Voice `json:"voice"`
+}
+type Voice struct {
+	FileID   string `json:"file_id"`
+	FileSize int64  `json:"file_size"`
+	Duration int    `json:"duration"`
+	MimeType string `json:"mime_type"`
 }
 type User struct {
 	ID int64 `json:"id"`
@@ -174,10 +182,72 @@ type CallbackQuery struct {
 	Data    string   `json:"data"`
 }
 
+type File struct {
+	FileID   string `json:"file_id"`
+	FileSize int64  `json:"file_size"`
+	FilePath string `json:"file_path"`
+}
+
 func (c *Client) GetUpdates(ctx context.Context, offset int64, timeoutSeconds int) ([]Update, error) {
 	var result []Update
 	err := c.callJSON(ctx, "getUpdates", map[string]any{"offset": offset, "timeout": timeoutSeconds, "allowed_updates": []string{"message", "edited_message", "callback_query"}}, &result)
 	return result, err
+}
+
+func (c *Client) DownloadFile(ctx context.Context, fileID string, maxBytes int64) ([]byte, error) {
+	if strings.TrimSpace(fileID) == "" {
+		return nil, errors.New("Telegram file_id is empty")
+	}
+	if maxBytes < 1 {
+		return nil, errors.New("Telegram file size limit must be positive")
+	}
+	var file File
+	if err := c.callJSON(ctx, "getFile", map[string]any{"file_id": fileID}, &file); err != nil {
+		return nil, err
+	}
+	if file.FileSize > maxBytes {
+		return nil, fmt.Errorf("Telegram file is too large: %d bytes exceeds %d", file.FileSize, maxBytes)
+	}
+	escapedPath, err := escapeTelegramFilePath(file.FilePath)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/file/bot"+c.token+"/"+escapedPath, nil)
+	if err != nil {
+		return nil, err
+	}
+	response, err := c.http.Do(request)
+	if err != nil {
+		var urlError *url.Error
+		if errors.As(err, &urlError) {
+			return nil, fmt.Errorf("Telegram file download failed: %w", urlError.Err)
+		}
+		return nil, errors.New("Telegram file download failed")
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return nil, fmt.Errorf("Telegram file download failed: HTTP %d", response.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(response.Body, maxBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("read Telegram file: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("Telegram file is too large: downloaded more than %d bytes", maxBytes)
+	}
+	return data, nil
+}
+
+func escapeTelegramFilePath(raw string) (string, error) {
+	cleaned := path.Clean("/" + strings.TrimSpace(raw))
+	if cleaned == "/" {
+		return "", errors.New("Telegram getFile succeeded without file_path")
+	}
+	segments := strings.Split(strings.TrimPrefix(cleaned, "/"), "/")
+	for index := range segments {
+		segments[index] = url.PathEscape(segments[index])
+	}
+	return strings.Join(segments, "/"), nil
 }
 
 func (c *Client) callJSON(ctx context.Context, method string, payload any, result any) error {

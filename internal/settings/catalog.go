@@ -7,22 +7,23 @@ import (
 )
 
 const (
-	TemporalReminderEnabled = "temporal.evening-reminder.enabled"
-	TemporalReminderHour    = "temporal.evening-reminder.hour"
-	TemporalReminderMinute  = "temporal.evening-reminder.minute"
-	TemporalZoneID          = "temporal.zone-id"
-	OpenRouterModel         = "openrouter.model"
-	OpenRouterMaxTools      = "openrouter.max-tool-iterations"
-	AgentRecentMessages     = "agent.memory.recent-messages"
-	AgentRecentEntries      = "agent.context.recent-entries"
-	AgentCalendarDays       = "agent.context.calendar-days"
-	AgentProgressSessions   = "agent.context.progress-sessions"
-	AgentCompactThreshold   = "agent.memory.compact-threshold-messages"
-	AgentCompactModel       = "agent.memory.compact-model"
-	OpenRouterRetryAttempts = "openrouter.retry.max-attempts"
-	OpenRouterRetryDelayMS  = "openrouter.retry.initial-delay-ms"
-	TelegramConversationTTL = "telegram.conversation-ttl-hours"
-	AgentSystemPrompt       = "agent.system-prompt"
+	TemporalReminderEnabled      = "temporal.evening-reminder.enabled"
+	TemporalReminderHour         = "temporal.evening-reminder.hour"
+	TemporalReminderMinute       = "temporal.evening-reminder.minute"
+	TemporalZoneID               = "temporal.zone-id"
+	OpenRouterModel              = "openrouter.model"
+	OpenRouterTranscriptionModel = "openrouter.transcription-model"
+	OpenRouterMaxTools           = "openrouter.max-tool-iterations"
+	AgentRecentMessages          = "agent.memory.recent-messages"
+	AgentRecentEntries           = "agent.context.recent-entries"
+	AgentCalendarDays            = "agent.context.calendar-days"
+	AgentProgressSessions        = "agent.context.progress-sessions"
+	AgentCompactThreshold        = "agent.memory.compact-threshold-messages"
+	AgentCompactModel            = "agent.memory.compact-model"
+	OpenRouterRetryAttempts      = "openrouter.retry.max-attempts"
+	OpenRouterRetryDelayMS       = "openrouter.retry.initial-delay-ms"
+	TelegramConversationTTL      = "telegram.conversation-ttl-hours"
+	AgentSystemPrompt            = "agent.system-prompt"
 )
 
 //go:embed agent_system_prompt.txt
@@ -61,6 +62,7 @@ func AppCatalog(reminderChanged ApplyFunc) Catalog {
 		Int(TemporalReminderMinute, "Минута напоминания (0–59).", []string{"temporal"}, 0, 0, 59, reminderChanged),
 		String(TemporalZoneID, "Часовой пояс для напоминаний и снимка дневника (например Europe/Moscow).", []string{"temporal"}, "Europe/Moscow", validTimeZone, reminderChanged),
 		String(OpenRouterModel, "Модель OpenRouter для Telegram-агента (provider/model-id или @preset/…).", []string{"agent"}, "@preset/deepseek", validModel, nil),
+		String(OpenRouterTranscriptionModel, "Модель OpenRouter STT для распознавания голосовых сообщений.", []string{"agent", "telegram"}, "openai/whisper-1", validModel, nil),
 		Int(OpenRouterMaxTools, "Максимум итераций tool-calling за одно сообщение.", []string{"agent"}, 30, 1, 64, nil),
 		Int(AgentRecentMessages, "Сколько последних сообщений диалога подставлять в запрос LLM (полная история хранится в Postgres).", []string{"agent"}, 10, 1, 50, nil),
 		Int(AgentRecentEntries, "Сколько последних записей дневника включать в снимок контекста агента при каждом запросе.", []string{"agent"}, 30, 1, 100, nil),

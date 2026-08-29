@@ -23,13 +23,12 @@ func (f *fakeBot) SendHTMLMessage(_ context.Context, _ int64, text, _ string) (i
 }
 
 type dispatched struct {
-	chatID, userID int64
-	text           string
+	input InboundMessage
 }
 type fakeDispatcher struct{ values chan dispatched }
 
-func (f *fakeDispatcher) Dispatch(_ context.Context, chatID, userID int64, text string) error {
-	f.values <- dispatched{chatID, userID, text}
+func (f *fakeDispatcher) Dispatch(_ context.Context, input InboundMessage) error {
+	f.values <- dispatched{input: input}
 	return nil
 }
 
@@ -44,7 +43,7 @@ func TestRunnerRoutesTextAndCallbackThroughSerialQueue(t *testing.T) {
 	for _, want := range []string{"hello", "next"} {
 		select {
 		case got := <-dispatcher.values:
-			if got.chatID != 42 || got.userID != 7 || got.text != want {
+			if got.input.ChatID != 42 || got.input.UserID != 7 || got.input.Text != want || got.input.Voice != nil {
 				t.Fatalf("dispatch = %#v", got)
 			}
 		case <-time.After(time.Second):
@@ -53,6 +52,32 @@ func TestRunnerRoutesTextAndCallbackThroughSerialQueue(t *testing.T) {
 	}
 	if len(bot.callbackIDs) != 1 || bot.callbackIDs[0] != "cb-1" {
 		t.Fatalf("callbacks = %#v", bot.callbackIDs)
+	}
+}
+
+func TestRunnerRoutesVoiceThroughSerialQueue(t *testing.T) {
+	t.Parallel()
+	bot := &fakeBot{}
+	dispatcher := &fakeDispatcher{values: make(chan dispatched, 1)}
+	runner := NewRunner(bot, dispatcher, false)
+	defer runner.Close()
+	runner.routeUpdate(Update{Message: &Message{
+		From: &User{ID: 7}, Chat: Chat{ID: 42},
+		Voice: &Voice{FileID: "voice-1", FileSize: 123, Duration: 8, MimeType: "audio/ogg"},
+	}})
+	select {
+	case got := <-dispatcher.values:
+		if got.input.ChatID != 42 || got.input.UserID != 7 || got.input.Text != "" || got.input.Voice == nil {
+			t.Fatalf("dispatch = %#v", got)
+		}
+		if got.input.Voice.FileID != "voice-1" || got.input.Voice.MimeType != "audio/ogg" {
+			t.Fatalf("voice = %#v", got.input.Voice)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("dispatch timeout")
+	}
+	if len(bot.messages) != 0 {
+		t.Fatalf("voice was rejected: %#v", bot.messages)
 	}
 }
 

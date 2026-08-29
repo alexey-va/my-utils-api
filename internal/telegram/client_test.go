@@ -54,6 +54,55 @@ func TestEditHTMLMessageTreatsIdenticalContentAsSuccess(t *testing.T) {
 	}
 }
 
+func TestDownloadFileResolvesTelegramPath(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/botsecret/getFile":
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"file_id":"voice-1","file_size":3,"file_path":"voice/file_1.oga"}}`))
+		case "/file/botsecret/voice/file_1.oga":
+			_, _ = w.Write([]byte{1, 2, 3})
+		default:
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient("secret", server.URL, nil)
+	data, err := client.DownloadFile(context.Background(), "voice-1", 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != string([]byte{1, 2, 3}) {
+		t.Fatalf("data = %v", data)
+	}
+}
+
+func TestDownloadFileRejectsAdvertisedSizeAboveLimit(t *testing.T) {
+	t.Parallel()
+	fileDownloaded := false
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/botsecret/getFile":
+			_, _ = w.Write([]byte(`{"ok":true,"result":{"file_id":"voice-1","file_size":3,"file_path":"voice/file_1.oga"}}`))
+		case "/file/botsecret/voice/file_1.oga":
+			fileDownloaded = true
+			_, _ = w.Write([]byte{1, 2, 3})
+		default:
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	client := NewClient("secret", server.URL, nil)
+	if _, err := client.DownloadFile(context.Background(), "voice-1", 2); err == nil {
+		t.Fatal("expected advertised file-size limit error")
+	}
+	if fileDownloaded {
+		t.Fatal("oversized Telegram file must not be downloaded")
+	}
+}
+
 func TestParseButtonsRows(t *testing.T) {
 	t.Parallel()
 	rows, err := ParseButtons("Да:yes,Нет:no;Позже:later")

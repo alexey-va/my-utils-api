@@ -94,8 +94,10 @@ zero lines preserve missing calendar days.
 
 ## Telegram agent and Temporal
 
-Telegram uses long polling. OpenRouter handles the tool loop; every message and
-tool result is stored in PostgreSQL. Old dialogs are compressed into one rolling
+Telegram uses long polling and accepts text or voice messages. Allowed voice
+messages are downloaded with a 20 MB limit, transcribed through OpenRouter STT,
+then passed into the same serial agent turn as text. Every message and tool
+result is stored in PostgreSQL. Old dialogs are compressed into one rolling
 summary automatically while the configured recent tail stays verbatim.
 
 All Go workers poll task queue `myutils-go-v1`. Workflow IDs use the `go-v1-`
@@ -119,9 +121,9 @@ latest ten actual measurements.
 | `MYUTILS_TEMPORAL_ENABLED` | Enable Temporal workers |
 | `TEMPORAL_TARGET` | Temporal frontend address |
 
-Model, retry policy, recent memory, compaction threshold and reminders are
-runtime settings in PostgreSQL. Change existing values only through
-`PUT /api/admin/settings/{key}` and read them back.
+Agent model, `openrouter.transcription-model`, retry policy, recent memory,
+compaction threshold and reminders are runtime settings in PostgreSQL. Change
+existing values only through `PUT /api/admin/settings/{key}` and read them back.
 
 ### Agent test console
 

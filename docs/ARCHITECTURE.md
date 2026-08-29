@@ -49,6 +49,8 @@ credential changes revoke the corresponding Redis records.
 ```text
 Telegram getUpdates
   → serial per-chat runner
+  → allowlist check
+  → voice file download + OpenRouter STT (voice messages only)
   → Temporal AgentTurn workflow (when enabled) or direct turner
   → OpenRouter completion
   ↔ validated tool execution
@@ -84,10 +86,10 @@ zones work in the small Alpine image.
 ## Runtime settings
 
 `internal/settings/catalog.go` defines typed values backed by `app_settings`.
-They refresh every minute. Model, OpenRouter retry policy, agent context and
-compaction, report/reminder timing are read through callbacks so edits apply
-without rebuilding clients. Existing values must be changed through the admin
-API and read back.
+They refresh every minute. Agent and voice-transcription models, OpenRouter
+retry policy, agent context and compaction, report/reminder timing are read
+through callbacks so edits apply without rebuilding clients. Existing values
+must be changed through the admin API and read back.
 
 ## Observability
 

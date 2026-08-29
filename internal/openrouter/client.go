@@ -3,6 +3,7 @@ package openrouter
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -58,6 +59,10 @@ type Request struct {
 
 type Response struct {
 	Message Message
+}
+
+type TranscriptionResponse struct {
+	Text string `json:"text"`
 }
 
 type apiResponse struct {
@@ -144,6 +149,81 @@ func (c *Client) Complete(ctx context.Context, request Request) (Response, error
 		}
 	}
 	return Response{}, last
+}
+
+func (c *Client) Transcribe(ctx context.Context, model, format string, audio []byte) (TranscriptionResponse, error) {
+	payload, err := json.Marshal(struct {
+		Model      string `json:"model"`
+		InputAudio struct {
+			Data   string `json:"data"`
+			Format string `json:"format"`
+		} `json:"input_audio"`
+	}{
+		Model: model,
+		InputAudio: struct {
+			Data   string `json:"data"`
+			Format string `json:"format"`
+		}{Data: base64.StdEncoding.EncodeToString(audio), Format: format},
+	})
+	if err != nil {
+		return TranscriptionResponse{}, fmt.Errorf("encode OpenRouter transcription request: %w", err)
+	}
+	var last error
+	maxAttempts := c.maxAttempts()
+	initialDelay := c.initialDelay()
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		response, retryable, requestErr := c.transcribeOnce(ctx, payload)
+		if requestErr == nil {
+			return response, nil
+		}
+		last = requestErr
+		if !retryable || attempt == maxAttempts {
+			break
+		}
+		timer := time.NewTimer(retryDelay(initialDelay, attempt))
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return TranscriptionResponse{}, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return TranscriptionResponse{}, last
+}
+
+func (c *Client) transcribeOnce(ctx context.Context, payload []byte) (TranscriptionResponse, bool, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, c.config.BaseURL+"/audio/transcriptions", bytes.NewReader(payload))
+	if err != nil {
+		return TranscriptionResponse{}, false, err
+	}
+	request.Header.Set("Authorization", "Bearer "+c.config.APIKey)
+	request.Header.Set("Content-Type", "application/json")
+	if c.config.HTTPReferer != "" {
+		request.Header.Set("HTTP-Referer", c.config.HTTPReferer)
+	}
+	if c.config.AppTitle != "" {
+		request.Header.Set("X-Title", c.config.AppTitle)
+	}
+	response, err := c.http.Do(request)
+	if err != nil {
+		var netErr net.Error
+		return TranscriptionResponse{}, errors.As(err, &netErr), fmt.Errorf("OpenRouter transcription request: %w", err)
+	}
+	defer response.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(response.Body, 4<<20))
+	if err != nil {
+		return TranscriptionResponse{}, true, fmt.Errorf("read OpenRouter transcription response: %w", err)
+	}
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return TranscriptionResponse{}, response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500,
+			fmt.Errorf("OpenRouter transcription returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+	}
+	var decoded TranscriptionResponse
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		return TranscriptionResponse{}, false, fmt.Errorf("decode OpenRouter transcription response: %w", err)
+	}
+	decoded.Text = strings.TrimSpace(decoded.Text)
+	return decoded, false, nil
 }
 
 func retryDelay(initial time.Duration, failedAttempt int) time.Duration {

@@ -14,6 +14,17 @@ func TestNormalizeReplyForTelegram(t *testing.T) {
 	}
 }
 
+func TestNormalizeReplyRemovesEncodedLeadingWhitespace(t *testing.T) {
+	t.Parallel()
+	want := "<b>Вес записан:</b> 81,5 кг за субботу, 29.08.\nИ еще поправь"
+	for _, entity := range []string{"&#x20;", "&#32;", "&nbsp;"} {
+		raw := "**Вес записан:** 81,5 кг за субботу, 29.08.\n" + entity + "И еще поправь"
+		if got := NormalizeReply(raw); got != want {
+			t.Fatalf("entity %q: reply = %q, want %q", entity, got, want)
+		}
+	}
+}
+
 func TestRussianReplyGuard(t *testing.T) {
 	t.Parallel()
 	if !LooksInvalidForRussianUser("作为一个人工智能语言模型，我还没学习") {
