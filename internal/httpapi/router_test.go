@@ -176,6 +176,12 @@ type wireGuardExitPreferenceService struct {
 	preference string
 }
 
+type wireGuardCategoryService struct {
+	WireGuardService
+	relayID string
+	name    string
+}
+
 func (service *wireGuardExitPreferenceService) UpdateExitPreference(_ context.Context, relayID string, body wireguard.UpdateExitPreferenceRequest) (wireguard.Relay, error) {
 	service.relayID = relayID
 	service.preference = body.Preference
@@ -185,6 +191,12 @@ func (service *wireGuardExitPreferenceService) UpdateExitPreference(_ context.Co
 func (service *wireGuardSnapshotService) Snapshot(_ context.Context, _ string, rangeName string) (wireguard.Snapshot, error) {
 	service.rangeIn = rangeName
 	return service.snapshot, nil
+}
+
+func (service *wireGuardCategoryService) CreatePeerCategory(_ context.Context, relayID string, body wireguard.CreatePeerCategoryRequest) (wireguard.PeerCategory, error) {
+	service.relayID = relayID
+	service.name = body.Name
+	return wireguard.PeerCategory{ID: "category-1", Name: body.Name, SortOrder: 2}, nil
 }
 
 func TestWireGuardRelayCollectionRouteIsNotShadowedByNestedRoutes(t *testing.T) {
@@ -269,6 +281,33 @@ func TestWireGuardExitPreferenceRouteUpdatesRelay(t *testing.T) {
 	}
 	if relay.ID != "relay-1" || relay.ExitPreference != "SECONDARY" {
 		t.Fatalf("relay = %#v", relay)
+	}
+}
+
+func TestWireGuardPeerCategoryRouteCreatesPersistentRecord(t *testing.T) {
+	t.Parallel()
+
+	service := &wireGuardCategoryService{}
+	router := NewRouter(Dependencies{Auth: fakeAuth{}, Settings: fakeSettings{}, WireGuard: service})
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/wireguard/relays/relay-1/categories", strings.NewReader(`{"name":"Личные"}`))
+	request.Header.Set("Authorization", "Bearer ready-admin")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	router.ServeHTTP(response, request)
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want %d, body=%s", response.Code, http.StatusCreated, response.Body.String())
+	}
+	if service.relayID != "relay-1" || service.name != "Личные" {
+		t.Fatalf("create category = relay %q name %q", service.relayID, service.name)
+	}
+	var category wireguard.PeerCategory
+	if err := json.Unmarshal(response.Body.Bytes(), &category); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if category.ID != "category-1" || category.Name != "Личные" || category.SortOrder != 2 {
+		t.Fatalf("category = %#v", category)
 	}
 }
 
