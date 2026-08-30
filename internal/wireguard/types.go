@@ -13,6 +13,26 @@ type UpdateExitPreferenceRequest struct {
 	Preference string `json:"preference"`
 }
 
+type CreatePeerRequest struct {
+	Name     string `json:"name"`
+	Category string `json:"category"`
+}
+
+type UpdatePeerRequest struct {
+	Name     *string `json:"name"`
+	Category *string `json:"category"`
+	Enabled  *bool   `json:"enabled"`
+}
+
+type PeerOrderItem struct {
+	PeerID   string `json:"peerId"`
+	Category string `json:"category"`
+}
+
+type UpdatePeerOrderRequest struct {
+	Items []PeerOrderItem `json:"items"`
+}
+
 type RouteProbe struct {
 	Target            string   `json:"target"`
 	PacketLossPercent float64  `json:"packetLossPercent"`
@@ -89,6 +109,8 @@ type AgentTokenResponse struct {
 type Peer struct {
 	ID                            string        `json:"id"`
 	Name                          string        `json:"name"`
+	Category                      string        `json:"category"`
+	SortOrder                     int           `json:"sortOrder"`
 	PublicKey                     string        `json:"publicKey"`
 	AssignedIP                    string        `json:"assignedIp"`
 	Enabled                       bool          `json:"enabled"`

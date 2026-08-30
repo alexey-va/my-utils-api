@@ -67,9 +67,10 @@ type WireGuardService interface {
 	UpdateExitPreference(context.Context, string, wireguard.UpdateExitPreferenceRequest) (wireguard.Relay, error)
 	Snapshot(context.Context, string, string) (wireguard.Snapshot, error)
 	ListPeers(context.Context, string, string) ([]wireguard.Peer, error)
-	CreatePeer(context.Context, string, string) (wireguard.PeerCredentials, error)
+	CreatePeer(context.Context, string, wireguard.CreatePeerRequest) (wireguard.PeerCredentials, error)
 	Credentials(context.Context, string, string) (wireguard.PeerCredentials, error)
-	UpdatePeer(context.Context, string, string, bool) (wireguard.Peer, error)
+	UpdatePeer(context.Context, string, string, wireguard.UpdatePeerRequest) (wireguard.Peer, error)
+	ReorderPeers(context.Context, string, wireguard.UpdatePeerOrderRequest) error
 	DeletePeer(context.Context, string, string) error
 	Desired(context.Context, string) (wireguard.DesiredState, error)
 	Heartbeat(context.Context, string, wireguard.Heartbeat) error

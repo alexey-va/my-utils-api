@@ -21,6 +21,7 @@ func (a *API) registerWireGuardAdminRoutes(router chi.Router) {
 		routes.Get("/{relayId}/snapshot", a.wireGuardSnapshot)
 		routes.Get("/{relayId}/peers", a.listWireGuardPeers)
 		routes.Post("/{relayId}/peers", a.createWireGuardPeer)
+		routes.Put("/{relayId}/peers/order", a.reorderWireGuardPeers)
 		routes.Get("/{relayId}/peers/{peerId}/credentials", a.wireGuardCredentials)
 		routes.Get("/{relayId}/peers/{peerId}/metrics", a.wireGuardMetrics)
 		routes.Patch("/{relayId}/peers/{peerId}", a.updateWireGuardPeer)
@@ -102,13 +103,11 @@ func (a *API) listWireGuardPeers(w http.ResponseWriter, r *http.Request) {
 }
 func (a *API) createWireGuardPeer(w http.ResponseWriter, r *http.Request) {
 	noStore(w)
-	var b struct {
-		Name string `json:"name"`
-	}
+	var b wireguard.CreatePeerRequest
 	if !decodeJSON(w, r, &b) {
 		return
 	}
-	v, e := a.wireGuard.CreatePeer(r.Context(), chi.URLParam(r, "relayId"), b.Name)
+	v, e := a.wireGuard.CreatePeer(r.Context(), chi.URLParam(r, "relayId"), b)
 	if e != nil {
 		writeDomainError(w, e)
 		return
@@ -126,14 +125,24 @@ func (a *API) wireGuardMetrics(w http.ResponseWriter, r *http.Request) {
 	writeDomainResult(w, v, e)
 }
 func (a *API) updateWireGuardPeer(w http.ResponseWriter, r *http.Request) {
-	var b struct {
-		Enabled bool `json:"enabled"`
-	}
+	noStore(w)
+	var b wireguard.UpdatePeerRequest
 	if !decodeJSON(w, r, &b) {
 		return
 	}
-	v, e := a.wireGuard.UpdatePeer(r.Context(), chi.URLParam(r, "relayId"), chi.URLParam(r, "peerId"), b.Enabled)
+	v, e := a.wireGuard.UpdatePeer(r.Context(), chi.URLParam(r, "relayId"), chi.URLParam(r, "peerId"), b)
 	writeDomainResult(w, v, e)
+}
+func (a *API) reorderWireGuardPeers(w http.ResponseWriter, r *http.Request) {
+	var b wireguard.UpdatePeerOrderRequest
+	if !decodeJSON(w, r, &b) {
+		return
+	}
+	if e := a.wireGuard.ReorderPeers(r.Context(), chi.URLParam(r, "relayId"), b); e != nil {
+		writeDomainError(w, e)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 func (a *API) deleteWireGuardPeer(w http.ResponseWriter, r *http.Request) {
 	if e := a.wireGuard.DeletePeer(r.Context(), chi.URLParam(r, "relayId"), chi.URLParam(r, "peerId")); e != nil {

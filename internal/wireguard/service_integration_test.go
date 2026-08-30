@@ -48,7 +48,7 @@ func TestControlPlaneProvisionHeartbeatAndCounters(t *testing.T) {
 	if relay.Status != "WAITING_FOR_AGENT" || len(relay.AgentToken) < 40 || !service.AgentTokenMatches(ctx, relay.ID, relay.AgentToken) {
 		t.Fatalf("created relay = %#v", relay)
 	}
-	if _, err := service.CreatePeer(ctx, relay.ID, "Phone"); err == nil || !strings.Contains(err.Error(), "server public key") {
+	if _, err := service.CreatePeer(ctx, relay.ID, CreatePeerRequest{Name: "Phone"}); err == nil || !strings.Contains(err.Error(), "server public key") {
 		t.Fatalf("CreatePeer before heartbeat error = %v", err)
 	}
 	serverKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
@@ -70,7 +70,7 @@ func TestControlPlaneProvisionHeartbeatAndCounters(t *testing.T) {
 	if persisted.Status != "READY" || persisted.RoutingHealthy == nil || !*persisted.RoutingHealthy || persisted.ExitHealth == nil || persisted.ExitHealth.ActiveExit == nil || *persisted.ExitHealth.ActiveExit != "primary" {
 		t.Fatalf("persisted relay health = %#v", persisted)
 	}
-	peer, err := service.CreatePeer(ctx, relay.ID, "Alex phone")
+	peer, err := service.CreatePeer(ctx, relay.ID, CreatePeerRequest{Name: "Alex phone"})
 	if err != nil {
 		t.Fatalf("CreatePeer() error = %v", err)
 	}
@@ -180,5 +180,114 @@ func TestControlPlaneProvisionHeartbeatAndCounters(t *testing.T) {
 	desired, err = service.Desired(ctx, relay.ID)
 	if err != nil || desired.ExitPreference != "SECONDARY" || desired.Revision != 2 {
 		t.Fatalf("Desired() after exit preference = %#v, %v", desired, err)
+	}
+}
+
+func TestPeerOrganizationRenameReorderAndDelete(t *testing.T) {
+	databaseURL := os.Getenv("TEST_POSTGRES_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_POSTGRES_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	cipher, err := NewCredentialsCipher(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(pool, cipher)
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	service.clock = func() time.Time { return now }
+	relay, err := service.CreateRelay(ctx, CreateRelayRequest{
+		Name: fmt.Sprintf("Peer organization %d", time.Now().UnixNano()), PublicEndpoint: "203.0.113.10:51820",
+		ClientCIDR: "10.91.0.0/29", ClientDNS: "1.1.1.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateRelay() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_peers WHERE relay_id=$1::uuid`, relay.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_relays WHERE id=$1::uuid`, relay.ID)
+	})
+	serverKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	if err := service.Heartbeat(ctx, relay.ID, Heartbeat{
+		ServerPublicKey: serverKey,
+		PublicEndpoint:  relay.PublicEndpoint,
+		AppliedRevision: 0,
+	}); err != nil {
+		t.Fatalf("Heartbeat() error = %v", err)
+	}
+
+	phone, err := service.CreatePeer(ctx, relay.ID, CreatePeerRequest{Name: "Phone"})
+	if err != nil {
+		t.Fatalf("CreatePeer(phone) error = %v", err)
+	}
+	proxy, err := service.CreatePeer(ctx, relay.ID, CreatePeerRequest{Name: "Proxy", Category: "Служебные"})
+	if err != nil {
+		t.Fatalf("CreatePeer(proxy) error = %v", err)
+	}
+	if phone.Peer.Category != "Пользовательские" || phone.Peer.SortOrder != 0 || proxy.Peer.Category != "Служебные" || proxy.Peer.SortOrder != 1 {
+		t.Fatalf("created peer organization = phone %#v, proxy %#v", phone.Peer, proxy.Peer)
+	}
+
+	renamed := "Main phone"
+	userCategory := "Личные"
+	updated, err := service.UpdatePeer(ctx, relay.ID, phone.Peer.ID, UpdatePeerRequest{Name: &renamed, Category: &userCategory})
+	if err != nil {
+		t.Fatalf("UpdatePeer() error = %v", err)
+	}
+	if updated.Name != renamed || updated.Category != userCategory {
+		t.Fatalf("updated peer = %#v", updated)
+	}
+	desired, err := service.Desired(ctx, relay.ID)
+	if err != nil || desired.Revision != 2 {
+		t.Fatalf("metadata update changed desired state = %#v, %v", desired, err)
+	}
+
+	if err := service.ReorderPeers(ctx, relay.ID, UpdatePeerOrderRequest{Items: []PeerOrderItem{
+		{PeerID: proxy.Peer.ID, Category: "Служебные"},
+		{PeerID: phone.Peer.ID, Category: "Пользовательские"},
+	}}); err != nil {
+		t.Fatalf("ReorderPeers() error = %v", err)
+	}
+	peers, err := service.ListPeers(ctx, relay.ID, "DAY")
+	if err != nil {
+		t.Fatalf("ListPeers() error = %v", err)
+	}
+	if len(peers) != 2 || peers[0].ID != proxy.Peer.ID || peers[0].SortOrder != 0 || peers[1].ID != phone.Peer.ID || peers[1].Category != "Пользовательские" || peers[1].SortOrder != 1 {
+		t.Fatalf("reordered peers = %#v", peers)
+	}
+	if err := service.ReorderPeers(ctx, relay.ID, UpdatePeerOrderRequest{Items: []PeerOrderItem{{PeerID: phone.Peer.ID, Category: "Пользовательские"}}}); err == nil {
+		t.Fatal("ReorderPeers() accepted an incomplete peer list")
+	}
+
+	now = now.Add(time.Second)
+	if err := service.Heartbeat(ctx, relay.ID, Heartbeat{
+		ServerPublicKey: serverKey,
+		PublicEndpoint:  relay.PublicEndpoint,
+		AppliedRevision: 2,
+		Peers:           []PeerCounter{{PublicKey: proxy.Peer.PublicKey, ReceiveBytes: 100, TransmitBytes: 50}},
+	}); err != nil {
+		t.Fatalf("Heartbeat(peer sample) error = %v", err)
+	}
+	deleteCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	if err := service.DeletePeer(deleteCtx, relay.ID, proxy.Peer.ID); err != nil {
+		t.Fatalf("DeletePeer() error = %v", err)
+	}
+	peers, err = service.ListPeers(ctx, relay.ID, "DAY")
+	if err != nil || len(peers) != 1 || peers[0].ID != phone.Peer.ID {
+		t.Fatalf("ListPeers() after delete = %#v, %v", peers, err)
+	}
+	var samples int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM wireguard_peer_metric_samples WHERE peer_id=$1::uuid`, proxy.Peer.ID).Scan(&samples); err != nil || samples != 0 {
+		t.Fatalf("peer metric samples after delete = %d, %v", samples, err)
 	}
 }

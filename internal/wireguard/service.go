@@ -25,6 +25,7 @@ import (
 )
 
 const relayColumns = `id::text,name,public_endpoint,client_cidr,client_dns,interface_name,agent_token_hash,server_public_key,desired_revision,applied_revision,last_seen_at,routing_mode,ru_prefix_count,routing_updated_at,routing_healthy,routing_checked_at,exit_health,exit_preference,direct_probe_target,direct_packet_loss_percent,direct_average_rtt_ms,veesp_probe_target,veesp_packet_loss_percent,veesp_average_rtt_ms,route_quality_updated_at,created_at,updated_at`
+const defaultPeerCategory = "Пользовательские"
 
 type Service struct {
 	pool   *pgxpool.Pool
@@ -166,11 +167,11 @@ type peerRecord struct {
 	RawRUDownload, RawRUUpload, RawNonRUDownload, RawNonRUUpload int64
 }
 
-const peerColumns = `id::text,name,public_key,assigned_ip,enabled,latest_handshake_at,total_receive_bytes,total_transmit_bytes,current_download_bytes_per_second,current_upload_bytes_per_second,metrics_updated_at,created_at,updated_at,private_key_ciphertext,private_key_nonce,raw_receive_bytes,raw_transmit_bytes,raw_ru_download_bytes,raw_ru_upload_bytes,raw_non_ru_download_bytes,raw_non_ru_upload_bytes`
+const peerColumns = `id::text,name,category,sort_order,public_key,assigned_ip,enabled,latest_handshake_at,total_receive_bytes,total_transmit_bytes,current_download_bytes_per_second,current_upload_bytes_per_second,metrics_updated_at,created_at,updated_at,private_key_ciphertext,private_key_nonce,raw_receive_bytes,raw_transmit_bytes,raw_ru_download_bytes,raw_ru_upload_bytes,raw_non_ru_download_bytes,raw_non_ru_upload_bytes`
 
 func scanPeer(source row) (peerRecord, error) {
 	var value peerRecord
-	err := source.Scan(&value.ID, &value.Name, &value.PublicKey, &value.AssignedIP, &value.Enabled, &value.LatestHandshakeAt, &value.TotalReceiveBytes, &value.TotalTransmitBytes, &value.CurrentDownloadBytesPerSecond, &value.CurrentUploadBytesPerSecond, &value.MetricsUpdatedAt, &value.CreatedAt, &value.UpdatedAt, &value.Ciphertext, &value.Nonce, &value.RawReceive, &value.RawTransmit, &value.RawRUDownload, &value.RawRUUpload, &value.RawNonRUDownload, &value.RawNonRUUpload)
+	err := source.Scan(&value.ID, &value.Name, &value.Category, &value.SortOrder, &value.PublicKey, &value.AssignedIP, &value.Enabled, &value.LatestHandshakeAt, &value.TotalReceiveBytes, &value.TotalTransmitBytes, &value.CurrentDownloadBytesPerSecond, &value.CurrentUploadBytesPerSecond, &value.MetricsUpdatedAt, &value.CreatedAt, &value.UpdatedAt, &value.Ciphertext, &value.Nonce, &value.RawReceive, &value.RawTransmit, &value.RawRUDownload, &value.RawRUUpload, &value.RawNonRUDownload, &value.RawNonRUUpload)
 	return value, err
 }
 
@@ -182,7 +183,7 @@ func (s *Service) ListPeers(ctx context.Context, relayID, rangeName string) ([]P
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT `+peerColumns+` FROM wireguard_peers WHERE relay_id=$1::uuid ORDER BY created_at ASC`, relayID)
+	rows, err := s.pool.Query(ctx, `SELECT `+peerColumns+` FROM wireguard_peers WHERE relay_id=$1::uuid ORDER BY sort_order ASC,created_at ASC`, relayID)
 	if err != nil {
 		return nil, err
 	}
@@ -208,11 +209,19 @@ func (s *Service) ListPeers(ctx context.Context, relayID, rangeName string) ([]P
 	return result, nil
 }
 
-func (s *Service) CreatePeer(ctx context.Context, relayID, nameInput string) (PeerCredentials, error) {
+func (s *Service) CreatePeer(ctx context.Context, relayID string, body CreatePeerRequest) (PeerCredentials, error) {
 	if s.cipher == nil || !s.cipher.Configured() {
 		return PeerCredentials{}, unavailable("WireGuard credential encryption is not configured")
 	}
-	name, err := requiredText(nameInput, "Peer name", 120)
+	name, err := requiredText(body.Name, "Peer name", 120)
+	if err != nil {
+		return PeerCredentials{}, err
+	}
+	category := strings.TrimSpace(body.Category)
+	if category == "" {
+		category = defaultPeerCategory
+	}
+	category, err = requiredText(category, "Peer category", 80)
 	if err != nil {
 		return PeerCredentials{}, err
 	}
@@ -276,7 +285,11 @@ func (s *Service) CreatePeer(ctx context.Context, relayID, nameInput string) (Pe
 		return PeerCredentials{}, err
 	}
 	now := s.now()
-	peer, err := scanPeer(tx.QueryRow(ctx, `INSERT INTO wireguard_peers(id,relay_id,name,public_key,private_key_ciphertext,private_key_nonce,assigned_ip,created_at,updated_at) VALUES(gen_random_uuid(),$1::uuid,$2,$3,$4,$5,$6,$7,$7) RETURNING `+peerColumns, relayID, name, pair.PublicKey, encrypted.Ciphertext, encrypted.Nonce, assigned, now))
+	var sortOrder int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(sort_order),-1)+1 FROM wireguard_peers WHERE relay_id=$1::uuid`, relayID).Scan(&sortOrder); err != nil {
+		return PeerCredentials{}, err
+	}
+	peer, err := scanPeer(tx.QueryRow(ctx, `INSERT INTO wireguard_peers(id,relay_id,name,category,sort_order,public_key,private_key_ciphertext,private_key_nonce,assigned_ip,created_at,updated_at) VALUES(gen_random_uuid(),$1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$9) RETURNING `+peerColumns, relayID, name, category, sortOrder, pair.PublicKey, encrypted.Ciphertext, encrypted.Nonce, assigned, now))
 	if err != nil {
 		return PeerCredentials{}, err
 	}
@@ -319,7 +332,10 @@ func credentials(peer peerRecord, relay Relay, private, serverPublic string) (Pe
 	return PeerCredentials{Peer: peer.Peer, ClientConfig: config, FileName: fileSlug(peer.Name, peer.ID) + ".conf"}, nil
 }
 
-func (s *Service) UpdatePeer(ctx context.Context, relayID, peerID string, enabled bool) (Peer, error) {
+func (s *Service) UpdatePeer(ctx context.Context, relayID, peerID string, body UpdatePeerRequest) (Peer, error) {
+	if body.Enabled == nil && body.Name == nil && body.Category == nil {
+		return Peer{}, badRequest("Peer update is empty")
+	}
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return Peer{}, err
@@ -332,21 +348,96 @@ func (s *Service) UpdatePeer(ctx context.Context, relayID, peerID string, enable
 	if err != nil {
 		return Peer{}, err
 	}
-	if peer.Enabled != enabled {
-		now := s.now()
-		peer.Enabled = enabled
-		peer.UpdatedAt = now
-		if _, err := tx.Exec(ctx, `UPDATE wireguard_peers SET enabled=$2,updated_at=$3 WHERE id=$1::uuid`, peerID, enabled, now); err != nil {
+	name := peer.Name
+	if body.Name != nil {
+		name, err = requiredText(*body.Name, "Peer name", 120)
+		if err != nil {
 			return Peer{}, err
 		}
-		if _, err := tx.Exec(ctx, `UPDATE wireguard_relays SET desired_revision=desired_revision+1,updated_at=$2 WHERE id=$1::uuid`, relayID, now); err != nil {
+		var duplicate bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wireguard_peers WHERE relay_id=$1::uuid AND id<>$2::uuid AND lower(name)=lower($3))`, relayID, peerID, name).Scan(&duplicate); err != nil {
 			return Peer{}, err
+		}
+		if duplicate {
+			return Peer{}, conflict("Peer name already exists")
+		}
+	}
+	category := peer.Category
+	if body.Category != nil {
+		category, err = requiredText(*body.Category, "Peer category", 80)
+		if err != nil {
+			return Peer{}, err
+		}
+	}
+	enabled := peer.Enabled
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+	metadataChanged := peer.Name != name || peer.Category != category
+	enabledChanged := peer.Enabled != enabled
+	if metadataChanged || enabledChanged {
+		now := s.now()
+		peer.Name = name
+		peer.Category = category
+		peer.Enabled = enabled
+		peer.UpdatedAt = now
+		if _, err := tx.Exec(ctx, `UPDATE wireguard_peers SET name=$2,category=$3,enabled=$4,updated_at=$5 WHERE id=$1::uuid`, peerID, name, category, enabled, now); err != nil {
+			return Peer{}, err
+		}
+		if enabledChanged {
+			if _, err := tx.Exec(ctx, `UPDATE wireguard_relays SET desired_revision=desired_revision+1,updated_at=$2 WHERE id=$1::uuid`, relayID, now); err != nil {
+				return Peer{}, err
+			}
 		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return Peer{}, err
 	}
 	return peer.Peer, nil
+}
+
+func (s *Service) ReorderPeers(ctx context.Context, relayID string, body UpdatePeerOrderRequest) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	rows, err := tx.Query(ctx, `SELECT id::text FROM wireguard_peers WHERE relay_id=$1::uuid FOR UPDATE`, relayID)
+	if err != nil {
+		return err
+	}
+	existing := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		existing[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(body.Items) != len(existing) {
+		return conflict("Peer list changed; refresh and try again")
+	}
+	seen := make(map[string]bool, len(body.Items))
+	for index, item := range body.Items {
+		if !existing[item.PeerID] || seen[item.PeerID] {
+			return conflict("Peer list changed; refresh and try again")
+		}
+		category, err := requiredText(item.Category, "Peer category", 80)
+		if err != nil {
+			return err
+		}
+		seen[item.PeerID] = true
+		if _, err := tx.Exec(ctx, `UPDATE wireguard_peers SET category=$3,sort_order=$4,updated_at=$5 WHERE id=$1::uuid AND relay_id=$2::uuid`, item.PeerID, relayID, category, index, s.now()); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Service) DeletePeer(ctx context.Context, relayID, peerID string) error {
@@ -640,7 +731,7 @@ func (s *Service) Snapshot(ctx context.Context, relayID, rangeName string) (Snap
 		return Snapshot{}, err
 	}
 
-	peerRows, err := s.pool.Query(ctx, `SELECT `+peerColumns+` FROM wireguard_peers WHERE relay_id=$1::uuid ORDER BY created_at ASC`, relayID)
+	peerRows, err := s.pool.Query(ctx, `SELECT `+peerColumns+` FROM wireguard_peers WHERE relay_id=$1::uuid ORDER BY sort_order ASC,created_at ASC`, relayID)
 	if err != nil {
 		return Snapshot{}, err
 	}

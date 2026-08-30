@@ -194,6 +194,11 @@ from validated agent heartbeats and retained for 31 days.
 `PUT .../relays/{id}/exit-preference` accepts `AUTO`, `PRIMARY`, or `SECONDARY`.
 The preference is delivered through agent desired state and keeps a safe
 fallback to the other healthy exit.
+Peer metadata is managed independently from WireGuard key material: `PATCH
+.../relays/{id}/peers/{peerId}` updates the display name, category, or enabled
+state, while `PUT .../relays/{id}/peers/order` atomically persists the complete
+ordered peer list and its categories. Deleting a peer also removes its retained
+traffic samples in the same transaction.
 
 The Prometheus endpoint exports relay readiness, routing health, agent
 freshness, per-exit health/selection/latency, configured preference, and Internal/External packet loss

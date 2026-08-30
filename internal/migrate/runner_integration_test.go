@@ -37,8 +37,8 @@ func TestRunnerAppliesFlywaySchemaAndIsIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM flyway_schema_history WHERE success`).Scan(&successful); err != nil {
 		t.Fatalf("count schema history: %v", err)
 	}
-	if successful != 30 {
-		t.Errorf("successful migration rows = %d, want 30", successful)
+	if successful != 31 {
+		t.Errorf("successful migration rows = %d, want 31", successful)
 	}
 	for _, table := range []string{"users", "workout_entries", "app_settings", "agent_test_sandbox_states", "wireguard_peer_metric_samples", "wireguard_exit_health_samples"} {
 		var exists bool
@@ -87,6 +87,15 @@ func TestRunnerAppliesFlywaySchemaAndIsIdempotent(t *testing.T) {
 			  AND column_name = 'exit_preference'
 		)`).Scan(&exitPreferenceColumn); err != nil || !exitPreferenceColumn {
 		t.Errorf("V30 exit preference column exists = %v, error = %v", exitPreferenceColumn, err)
+	}
+	var peerOrganizationColumns int
+	if err := pool.QueryRow(ctx, `
+		SELECT count(*) FROM information_schema.columns
+		WHERE table_schema = 'public'
+		  AND table_name = 'wireguard_peers'
+		  AND column_name IN ('category', 'sort_order')
+	`).Scan(&peerOrganizationColumns); err != nil || peerOrganizationColumns != 2 {
+		t.Errorf("V31 peer organization columns = %d, error = %v", peerOrganizationColumns, err)
 	}
 }
 
