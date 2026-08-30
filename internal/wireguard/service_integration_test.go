@@ -291,3 +291,119 @@ func TestPeerOrganizationRenameReorderAndDelete(t *testing.T) {
 		t.Fatalf("peer metric samples after delete = %d, %v", samples, err)
 	}
 }
+
+func TestDeletePeerDoesNotWaitForHeartbeatRetentionCleanup(t *testing.T) {
+	databaseURL := os.Getenv("TEST_POSTGRES_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_POSTGRES_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	key := make([]byte, 32)
+	for i := range key {
+		key[i] = byte(i + 1)
+	}
+	cipher, err := NewCredentialsCipher(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(pool, cipher)
+	now := time.Date(2026, time.August, 30, 12, 0, 0, 0, time.UTC)
+	service.clock = func() time.Time { return now }
+	relay, err := service.CreateRelay(ctx, CreateRelayRequest{
+		Name: fmt.Sprintf("Retention lock %d", time.Now().UnixNano()), PublicEndpoint: "203.0.113.11:51820",
+		ClientCIDR: "10.92.0.0/29", ClientDNS: "1.1.1.1",
+	})
+	if err != nil {
+		t.Fatalf("CreateRelay() error = %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_peers WHERE relay_id=$1::uuid`, relay.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_relays WHERE id=$1::uuid`, relay.ID)
+	})
+	serverKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	if err := service.Heartbeat(ctx, relay.ID, Heartbeat{
+		ServerPublicKey: serverKey,
+		PublicEndpoint:  relay.PublicEndpoint,
+		AppliedRevision: 0,
+	}); err != nil {
+		t.Fatalf("initial Heartbeat() error = %v", err)
+	}
+	oldMac, err := service.CreatePeer(ctx, relay.ID, CreatePeerRequest{Name: "oldmac"})
+	if err != nil {
+		t.Fatalf("CreatePeer(oldmac) error = %v", err)
+	}
+	metricPeer, err := service.CreatePeer(ctx, relay.ID, CreatePeerRequest{Name: "Metric holder"})
+	if err != nil {
+		t.Fatalf("CreatePeer(metric holder) error = %v", err)
+	}
+
+	now = now.Add(2 * time.Hour)
+	var sampleID string
+	if err := pool.QueryRow(ctx, `INSERT INTO wireguard_peer_metric_samples(id,peer_id,recorded_at,download_bytes,upload_bytes) VALUES(gen_random_uuid(),$1::uuid,$2,0,0) RETURNING id::text`, metricPeer.Peer.ID, now.Add(-32*24*time.Hour)).Scan(&sampleID); err != nil {
+		t.Fatalf("insert stale metric sample: %v", err)
+	}
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = blocker.Rollback(context.Background()) })
+	if _, err := blocker.Exec(ctx, `SELECT id FROM wireguard_peer_metric_samples WHERE id=$1::uuid FOR UPDATE`, sampleID); err != nil {
+		t.Fatalf("lock stale metric sample: %v", err)
+	}
+
+	cleanupService := NewService(pool, cipher)
+	cleanupService.clock = func() time.Time { return now }
+	heartbeatDone := make(chan error, 1)
+	go func() {
+		heartbeatDone <- cleanupService.Heartbeat(ctx, relay.ID, Heartbeat{
+			ServerPublicKey: serverKey,
+			PublicEndpoint:  relay.PublicEndpoint,
+			AppliedRevision: 2,
+		})
+	}()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		var lastSeen time.Time
+		if err := pool.QueryRow(ctx, `SELECT last_seen_at FROM wireguard_relays WHERE id=$1::uuid`, relay.ID).Scan(&lastSeen); err != nil {
+			t.Fatalf("read heartbeat commit marker: %v", err)
+		}
+		if lastSeen.Equal(now) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("heartbeat kept its relay row lock while retention cleanup was blocked")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	deleteCtx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	if err := cleanupService.DeletePeer(deleteCtx, relay.ID, oldMac.Peer.ID); err != nil {
+		t.Fatalf("DeletePeer(oldmac) while cleanup is blocked error = %v", err)
+	}
+	if err := blocker.Commit(ctx); err != nil {
+		t.Fatalf("release stale metric sample: %v", err)
+	}
+	select {
+	case err := <-heartbeatDone:
+		if err != nil {
+			t.Fatalf("Heartbeat() after releasing cleanup error = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Heartbeat() did not finish after retention cleanup was released")
+	}
+
+	var oldMacCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM wireguard_peers WHERE id=$1::uuid`, oldMac.Peer.ID).Scan(&oldMacCount); err != nil {
+		t.Fatalf("read oldmac after delete: %v", err)
+	}
+	if oldMacCount != 0 {
+		t.Fatalf("oldmac row count after delete = %d, want 0", oldMacCount)
+	}
+}

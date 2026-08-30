@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math"
 	"net"
 	"net/http"
@@ -17,10 +18,12 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/alexey-va/my-utils-api/internal/workout"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -28,13 +31,20 @@ const relayColumns = `id::text,name,public_endpoint,client_cidr,client_dns,inter
 const defaultPeerCategory = "Пользовательские"
 
 type Service struct {
-	pool   *pgxpool.Pool
-	cipher *CredentialsCipher
-	clock  func() time.Time
+	pool                 *pgxpool.Pool
+	cipher               *CredentialsCipher
+	clock                func() time.Time
+	retentionMu          sync.Mutex
+	lastRetentionCleanup map[string]time.Time
 }
 
 func NewService(pool *pgxpool.Pool, cipher *CredentialsCipher) *Service {
-	return &Service{pool: pool, cipher: cipher, clock: time.Now}
+	return &Service{
+		pool:                 pool,
+		cipher:               cipher,
+		clock:                time.Now,
+		lastRetentionCleanup: make(map[string]time.Time),
+	}
 }
 
 type relayRecord struct {
@@ -446,15 +456,21 @@ func (s *Service) DeletePeer(ctx context.Context, relayID, peerID string) error 
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '5s'`); err != nil {
+		return err
+	}
+	// Lock the relay first, matching Heartbeat's lock order. This avoids a
+	// relay -> peer / peer -> relay deadlock when the agent reports counters
+	// while an administrator removes a peer.
+	if _, err := tx.Exec(ctx, `UPDATE wireguard_relays SET desired_revision=desired_revision+1,updated_at=$2 WHERE id=$1::uuid`, relayID, s.now()); err != nil {
+		return peerMutationError(err)
+	}
 	result, err := tx.Exec(ctx, `DELETE FROM wireguard_peers WHERE id=$1::uuid AND relay_id=$2::uuid`, peerID, relayID)
 	if err != nil {
-		return err
+		return peerMutationError(err)
 	}
 	if result.RowsAffected() == 0 {
 		return notFound("WireGuard peer not found")
-	}
-	if _, err := tx.Exec(ctx, `UPDATE wireguard_relays SET desired_revision=desired_revision+1,updated_at=$2 WHERE id=$1::uuid`, relayID, s.now()); err != nil {
-		return err
 	}
 	return tx.Commit(ctx)
 }
@@ -659,13 +675,51 @@ func (s *Service) Heartbeat(ctx context.Context, relayID string, body Heartbeat)
 			return err
 		}
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM wireguard_peer_metric_samples WHERE recorded_at<$1`, now.Add(-31*24*time.Hour)); err != nil {
+	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM wireguard_exit_health_samples WHERE relay_id=$1::uuid AND recorded_at<$2`, relayID, now.Add(-31*24*time.Hour)); err != nil {
-		return err
+
+	// Retention can touch millions of metric rows. It must not run while the
+	// heartbeat transaction owns the relay row lock, otherwise admin mutations
+	// (notably peer deletion) wait behind housekeeping until the HTTP request
+	// times out and its transaction rolls back.
+	s.runRetentionCleanup(ctx, relayID, now)
+	return nil
+}
+
+const (
+	retentionCleanupInterval = time.Hour
+	retentionCleanupTimeout  = 15 * time.Second
+)
+
+func (s *Service) runRetentionCleanup(ctx context.Context, relayID string, now time.Time) {
+	s.retentionMu.Lock()
+	lastCleanup := s.lastRetentionCleanup[relayID]
+	if !lastCleanup.IsZero() && now.Sub(lastCleanup) < retentionCleanupInterval {
+		s.retentionMu.Unlock()
+		return
 	}
-	return tx.Commit(ctx)
+	s.lastRetentionCleanup[relayID] = now
+	s.retentionMu.Unlock()
+
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), retentionCleanupTimeout)
+	defer cancel()
+	cutoff := now.Add(-31 * 24 * time.Hour)
+	if _, err := s.pool.Exec(cleanupCtx, `DELETE FROM wireguard_peer_metric_samples WHERE recorded_at<$1`, cutoff); err != nil {
+		slog.Warn("WireGuard peer metric retention cleanup failed", "relay_id", relayID, "error", err)
+		return
+	}
+	if _, err := s.pool.Exec(cleanupCtx, `DELETE FROM wireguard_exit_health_samples WHERE relay_id=$1::uuid AND recorded_at<$2`, relayID, cutoff); err != nil {
+		slog.Warn("WireGuard exit health retention cleanup failed", "relay_id", relayID, "error", err)
+	}
+}
+
+func peerMutationError(err error) error {
+	var postgresError *pgconn.PgError
+	if errors.As(err, &postgresError) && postgresError.Code == "55P03" {
+		return conflict("WireGuard is updating; try again")
+	}
+	return err
 }
 
 func (s *Service) Metrics(ctx context.Context, relayID, peerID, rangeName string) (Metrics, error) {
