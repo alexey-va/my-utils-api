@@ -212,7 +212,9 @@ func (m *Memory) Context(ctx context.Context, id int64, limit int) ([]openrouter
 		content := ""
 		if stored.Content != nil {
 			content = timestampContent(stored.Role, *stored.Content, createdAt, location)
-			message.Content = content
+			if content != "" {
+				message.Content = content
+			}
 		}
 		if len(stored.Images) > 0 {
 			parts := []openrouter.ContentPart{}
@@ -232,6 +234,9 @@ func (m *Memory) Context(ctx context.Context, id int64, limit int) ([]openrouter
 		}
 		if stored.Name != nil {
 			message.Name = *stored.Name
+		}
+		if strings.EqualFold(strings.TrimSpace(stored.Role), "assistant") && content == "" && len(stored.Images) == 0 && len(stored.ToolCalls) == 0 {
+			continue
 		}
 		result = append(result, message)
 	}
@@ -255,7 +260,14 @@ func (m *Memory) memoryLocation() *time.Location {
 
 func timestampContent(role, content string, createdAt time.Time, location *time.Location) string {
 	role = strings.ToLower(strings.TrimSpace(role))
-	if (role != "user" && role != "assistant") || strings.TrimSpace(content) == "" {
+	if role == "assistant" {
+		content = stripInternalHistoryPrefix(content)
+		if LooksInvalidForRussianUser(content) {
+			return ""
+		}
+		return content
+	}
+	if role != "user" || strings.TrimSpace(content) == "" {
 		return content
 	}
 	return fmt.Sprintf("[Отправлено %s %s] %s", createdAt.In(location).Format("02.01.2006 15:04"), location.String(), content)

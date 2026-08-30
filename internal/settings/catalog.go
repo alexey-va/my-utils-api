@@ -36,8 +36,8 @@ const agentRequiredRulesMarker = "## Обязательные runtime-инвар
 
 func EffectiveAgentSystemPrompt(configured string) string {
 	configured = strings.TrimSpace(configured)
-	if strings.Contains(configured, agentRequiredRulesMarker) {
-		return configured
+	if markerIndex := strings.Index(configured, agentRequiredRulesMarker); markerIndex >= 0 {
+		configured = strings.TrimSpace(configured[:markerIndex])
 	}
 	rules := strings.TrimSpace(agentRequiredRules)
 	if configured == "" {

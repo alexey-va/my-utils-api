@@ -127,19 +127,15 @@ func (t *AgentTurner) Turn(ctx context.Context, chatID int64, content string, im
 		}
 		assistant := response.Message
 		assistant.Role = "assistant"
-		storedAssistant, err := t.conversation.Append(ctx, chatID, assistant)
-		if err != nil {
-			return TurnResult{}, err
-		}
-		appended = append(appended, storedAssistant)
 		if len(assistant.ToolCalls) == 0 {
-			reply := strings.TrimSpace(contentString(assistant.Content))
+			reply := stripInternalHistoryPrefix(contentString(assistant.Content))
 			if reply == "" {
 				return TurnResult{}, errors.New("OpenRouter returned an empty assistant reply")
 			}
+			messageToStore := assistant
 			if LooksInvalidForRussianUser(reply) {
 				retryMessages := append([]openrouter.Message(nil), messages...)
-				retryMessages = append(retryMessages, openrouter.Message{Role: "user", Content: "Ответь только на русском. Кратко подведи итог записей для пользователя."})
+				retryMessages = append(retryMessages, openrouter.Message{Role: "user", Content: "Ответь только на русском без внутренних метаданных, префиксов ролей и служебных маркеров. Кратко подведи итог для пользователя."})
 				retryStarted := time.Now()
 				retry, retryErr := t.client.Complete(ctx, openrouter.Request{Model: t.config.Model(), Messages: retryMessages})
 				if t.metrics != nil {
@@ -148,20 +144,30 @@ func (t *AgentTurner) Turn(ctx context.Context, chatID int64, content string, im
 				if retryErr != nil {
 					return TurnResult{}, fmt.Errorf("OpenRouter Russian reply retry: %w", retryErr)
 				}
-				retryReply := strings.TrimSpace(contentString(retry.Message.Content))
+				retryReply := stripInternalHistoryPrefix(contentString(retry.Message.Content))
 				if retryReply != "" && !LooksInvalidForRussianUser(retryReply) {
 					retry.Message.Role = "assistant"
-					storedRetry, appendErr := t.conversation.Append(ctx, chatID, retry.Message)
-					if appendErr != nil {
-						return TurnResult{}, appendErr
-					}
-					appended = append(appended, storedRetry)
 					reply = retryReply
+					messageToStore = retry.Message
+				} else {
+					reply = safeReplyFallback
+					messageToStore = openrouter.Message{Role: "assistant"}
 				}
 			}
+			messageToStore.Content = reply
+			storedReply, appendErr := t.conversation.Append(ctx, chatID, messageToStore)
+			if appendErr != nil {
+				return TurnResult{}, appendErr
+			}
+			appended = append(appended, storedReply)
 			outcome = "reply"
 			return TurnResult{Reply: reply, Messages: appended}, nil
 		}
+		storedAssistant, err := t.conversation.Append(ctx, chatID, assistant)
+		if err != nil {
+			return TurnResult{}, err
+		}
+		appended = append(appended, storedAssistant)
 		if status != nil && len(assistant.ToolCalls) > 1 {
 			names := make([]string, len(assistant.ToolCalls))
 			for index, call := range assistant.ToolCalls {

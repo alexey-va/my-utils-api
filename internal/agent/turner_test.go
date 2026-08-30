@@ -212,3 +212,60 @@ func TestTurnerRetriesNonRussianReplyWithoutTools(t *testing.T) {
 		t.Fatal("language-only retry must not call tools")
 	}
 }
+
+func TestTurnerRetriesMalformedInternalMetadataLeak(t *testing.T) {
+	t.Parallel()
+	llm := &fakeCompleter{responses: []openrouter.Response{
+		{Message: openrouter.Message{Role: "assistant", Content: "[Отправoutput truncated..."}},
+		{Message: openrouter.Message{Role: "assistant", Content: "<b>Плечи блок</b> — 9 кг 3×10/12."}},
+	}}
+	conversation := &fakeConversation{}
+	turner := NewTurner(TurnerConfig{Model: func() string { return "p/m" }, MaxToolIterations: func() int { return 1 }, RecentMessages: func() int { return 10 }, SystemPrompt: func() string { return "system" }}, llm, conversation, &fakeTools{})
+	result, err := turner.Turn(context.Background(), 1, "повтори", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Reply != "<b>Плечи блок</b> — 9 кг 3×10/12." || len(llm.requests) != 2 {
+		t.Fatalf("result=%#v requests=%d", result, len(llm.requests))
+	}
+	if len(conversation.messages) != 2 || conversation.messages[1].Content != result.Reply {
+		t.Fatalf("only the clean retry must be stored: %#v", conversation.messages)
+	}
+}
+
+func TestTurnerStripsLeakedHistoryTimestampWithoutRetry(t *testing.T) {
+	t.Parallel()
+	llm := &fakeCompleter{responses: []openrouter.Response{{Message: openrouter.Message{Role: "assistant", Content: "[Отправлено 29.08.2026 19:20 Europe/Moscow] <b>Плечи</b> — 22 кг."}}}}
+	conversation := &fakeConversation{}
+	turner := NewTurner(TurnerConfig{Model: func() string { return "p/m" }, MaxToolIterations: func() int { return 1 }, RecentMessages: func() int { return 10 }, SystemPrompt: func() string { return "system" }}, llm, conversation, &fakeTools{})
+	result, err := turner.Turn(context.Background(), 1, "сколько плечи", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Reply != "<b>Плечи</b> — 22 кг." || len(llm.requests) != 1 {
+		t.Fatalf("result=%#v requests=%d", result, len(llm.requests))
+	}
+	if len(conversation.messages) != 2 || conversation.messages[1].Content != result.Reply {
+		t.Fatalf("clean reply must be stored: %#v", conversation.messages)
+	}
+}
+
+func TestTurnerUsesSafeFallbackAfterRepeatedInvalidReply(t *testing.T) {
+	t.Parallel()
+	llm := &fakeCompleter{responses: []openrouter.Response{
+		{Message: openrouter.Message{Role: "assistant", Content: "[Отправoutput truncated..."}},
+		{Message: openrouter.Message{Role: "assistant", Content: "output truncated..."}},
+	}}
+	conversation := &fakeConversation{}
+	turner := NewTurner(TurnerConfig{Model: func() string { return "p/m" }, MaxToolIterations: func() int { return 1 }, RecentMessages: func() int { return 10 }, SystemPrompt: func() string { return "system" }}, llm, conversation, &fakeTools{})
+	result, err := turner.Turn(context.Background(), 1, "повтори", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Reply != safeReplyFallback {
+		t.Fatalf("reply = %q", result.Reply)
+	}
+	if len(conversation.messages) != 2 || conversation.messages[1].Content != safeReplyFallback {
+		t.Fatalf("only the safe fallback must be stored: %#v", conversation.messages)
+	}
+}

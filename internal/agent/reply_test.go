@@ -25,6 +25,18 @@ func TestNormalizeReplyRemovesEncodedLeadingWhitespace(t *testing.T) {
 	}
 }
 
+func TestNormalizeReplyRemovesLeakedHistoryTimestamp(t *testing.T) {
+	t.Parallel()
+	raw := "[Отправлено 29.08.2026 19:20 Europe/Moscow] <b>Плечи</b> — <code>22 кг 10/10</code>."
+	want := "<b>Плечи</b> — <code>22 кг 10/10</code>."
+	if got := NormalizeReply(raw); got != want {
+		t.Fatalf("reply = %q, want %q", got, want)
+	}
+	if got := NormalizeReply("[Отправoutput truncated..."); got != safeReplyFallback {
+		t.Fatalf("corrupted reply = %q", got)
+	}
+}
+
 func TestRussianReplyGuard(t *testing.T) {
 	t.Parallel()
 	if !LooksInvalidForRussianUser("作为一个人工智能语言模型，我还没学习") {
@@ -32,5 +44,13 @@ func TestRussianReplyGuard(t *testing.T) {
 	}
 	if LooksInvalidForRussianUser("Сегодня тренировка: жим и присед.") {
 		t.Fatal("Russian reply should be accepted")
+	}
+	for _, reply := range []string{
+		"[Отправoutput truncated...",
+		"output truncated...",
+	} {
+		if !LooksInvalidForRussianUser(reply) {
+			t.Fatalf("internal truncation leak should be rejected: %q", reply)
+		}
 	}
 }

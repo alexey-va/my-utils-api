@@ -65,6 +65,11 @@ func TestEffectiveAgentSystemPromptAppendsMandatoryRulesToStaleSetting(t *testin
 	if repeated := EffectiveAgentSystemPrompt(effective); repeated != effective {
 		t.Fatal("mandatory rules must be appended exactly once")
 	}
+	legacy := "пользовательский prompt\n\n" + agentRequiredRulesMarker + "\n- устаревшее правило"
+	refreshed := EffectiveAgentSystemPrompt(legacy)
+	if strings.Contains(refreshed, "устаревшее правило") || !strings.Contains(refreshed, "внутренние метаданные истории") {
+		t.Fatalf("mandatory rules were not refreshed: %q", refreshed)
+	}
 }
 
 func TestAgentSystemPromptDefaultContainsMandatoryRules(t *testing.T) {

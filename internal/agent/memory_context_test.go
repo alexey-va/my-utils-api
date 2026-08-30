@@ -24,6 +24,21 @@ func TestTimestampContentMakesRelativeDatesAbsolute(t *testing.T) {
 	}
 }
 
+func TestTimestampContentKeepsInternalMetadataOutOfAssistantHistory(t *testing.T) {
+	t.Parallel()
+	zone, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	created := time.Date(2026, 8, 29, 16, 20, 0, 0, time.UTC)
+	if got := timestampContent("assistant", "[Отправлено 29.08.2026 19:20 Europe/Moscow] <b>Плечи</b> — 22 кг.", created, zone); got != "<b>Плечи</b> — 22 кг." {
+		t.Fatalf("assistant content = %q", got)
+	}
+	if got := timestampContent("assistant", "[Отправoutput truncated...", created, zone); got != "" {
+		t.Fatalf("corrupted assistant content = %q", got)
+	}
+}
+
 func TestDropIncompleteToolTurns(t *testing.T) {
 	t.Parallel()
 	call := openrouter.Message{Role: "assistant", ToolCalls: []openrouter.ToolCall{{ID: "a1"}}}
