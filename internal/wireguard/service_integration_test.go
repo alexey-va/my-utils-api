@@ -150,6 +150,9 @@ func TestControlPlaneProvisionHeartbeatAndCounters(t *testing.T) {
 	if snapshot.Relay.ID != relay.ID || len(snapshot.Peers) != 1 || snapshot.Peers[0].ID != peer.Peer.ID {
 		t.Fatalf("Snapshot relay/peers = %#v", snapshot)
 	}
+	if len(snapshot.Categories) != 2 || snapshot.Categories[0].Name != "Пользовательские" || snapshot.Categories[1].Name != "Служебные" {
+		t.Fatalf("Snapshot categories = %#v", snapshot.Categories)
+	}
 	preview, ok := snapshot.PeerMetrics[peer.Peer.ID]
 	if !ok || preview.Range != "HOUR" || preview.Summary.DownloadBytes != 280 || preview.Summary.UploadBytes != 160 {
 		t.Fatalf("Snapshot metrics = %#v", snapshot.PeerMetrics)
@@ -224,6 +227,20 @@ func TestPeerOrganizationRenameReorderAndDelete(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("Heartbeat() error = %v", err)
 	}
+	categories, err := service.ListPeerCategories(ctx, relay.ID)
+	if err != nil || len(categories) != 2 || categories[0].Name != "Пользовательские" || categories[1].Name != "Служебные" {
+		t.Fatalf("default peer categories = %#v, %v", categories, err)
+	}
+	customCategory, err := service.CreatePeerCategory(ctx, relay.ID, CreatePeerCategoryRequest{Name: "Мои"})
+	if err != nil {
+		t.Fatalf("CreatePeerCategory() error = %v", err)
+	}
+	if customCategory.SortOrder != 2 {
+		t.Fatalf("created peer category = %#v", customCategory)
+	}
+	if _, err := service.CreatePeerCategory(ctx, relay.ID, CreatePeerCategoryRequest{Name: "мои"}); err == nil {
+		t.Fatal("CreatePeerCategory() accepted a duplicate name")
+	}
 
 	phone, err := service.CreatePeer(ctx, relay.ID, CreatePeerRequest{Name: "Phone"})
 	if err != nil {
@@ -238,13 +255,35 @@ func TestPeerOrganizationRenameReorderAndDelete(t *testing.T) {
 	}
 
 	renamed := "Main phone"
-	userCategory := "Личные"
+	userCategory := customCategory.Name
 	updated, err := service.UpdatePeer(ctx, relay.ID, phone.Peer.ID, UpdatePeerRequest{Name: &renamed, Category: &userCategory})
 	if err != nil {
 		t.Fatalf("UpdatePeer() error = %v", err)
 	}
 	if updated.Name != renamed || updated.Category != userCategory {
 		t.Fatalf("updated peer = %#v", updated)
+	}
+	customCategory, err = service.UpdatePeerCategory(ctx, relay.ID, customCategory.ID, UpdatePeerCategoryRequest{Name: "Личные"})
+	if err != nil || customCategory.Name != "Личные" {
+		t.Fatalf("UpdatePeerCategory() = %#v, %v", customCategory, err)
+	}
+	peers, err := service.ListPeers(ctx, relay.ID, "DAY")
+	if err != nil || len(peers) != 2 || peers[0].Category != "Личные" {
+		t.Fatalf("peers after category rename = %#v, %v", peers, err)
+	}
+	if err := service.DeletePeerCategory(ctx, relay.ID, customCategory.ID); err == nil {
+		t.Fatal("DeletePeerCategory() deleted a non-empty category")
+	}
+	if err := service.ReorderPeerCategories(ctx, relay.ID, UpdatePeerCategoryOrderRequest{Items: []PeerCategoryOrderItem{
+		{CategoryID: customCategory.ID},
+		{CategoryID: categories[0].ID},
+		{CategoryID: categories[1].ID},
+	}}); err != nil {
+		t.Fatalf("ReorderPeerCategories() error = %v", err)
+	}
+	categories, err = service.ListPeerCategories(ctx, relay.ID)
+	if err != nil || len(categories) != 3 || categories[0].ID != customCategory.ID || categories[0].SortOrder != 0 {
+		t.Fatalf("reordered peer categories = %#v, %v", categories, err)
 	}
 	desired, err := service.Desired(ctx, relay.ID)
 	if err != nil || desired.Revision != 2 {
@@ -257,7 +296,7 @@ func TestPeerOrganizationRenameReorderAndDelete(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("ReorderPeers() error = %v", err)
 	}
-	peers, err := service.ListPeers(ctx, relay.ID, "DAY")
+	peers, err = service.ListPeers(ctx, relay.ID, "DAY")
 	if err != nil {
 		t.Fatalf("ListPeers() error = %v", err)
 	}
@@ -266,6 +305,27 @@ func TestPeerOrganizationRenameReorderAndDelete(t *testing.T) {
 	}
 	if err := service.ReorderPeers(ctx, relay.ID, UpdatePeerOrderRequest{Items: []PeerOrderItem{{PeerID: phone.Peer.ID, Category: "Пользовательские"}}}); err == nil {
 		t.Fatal("ReorderPeers() accepted an incomplete peer list")
+	}
+	if err := service.DeletePeerCategory(ctx, relay.ID, customCategory.ID); err != nil {
+		t.Fatalf("DeletePeerCategory() after moving peers error = %v", err)
+	}
+	emptyCategory, err := service.CreatePeerCategory(ctx, relay.ID, CreatePeerCategoryRequest{Name: "Пустая"})
+	if err != nil {
+		t.Fatalf("CreatePeerCategory(empty) error = %v", err)
+	}
+	snapshot, err := service.Snapshot(ctx, relay.ID, "DAY")
+	if err != nil {
+		t.Fatalf("Snapshot() with empty category error = %v", err)
+	}
+	foundEmpty := false
+	for _, category := range snapshot.Categories {
+		foundEmpty = foundEmpty || category.ID == emptyCategory.ID
+	}
+	if !foundEmpty {
+		t.Fatalf("empty category missing from snapshot = %#v", snapshot.Categories)
+	}
+	if err := service.DeletePeerCategory(ctx, relay.ID, emptyCategory.ID); err != nil {
+		t.Fatalf("DeletePeerCategory(empty) error = %v", err)
 	}
 
 	now = now.Add(time.Second)

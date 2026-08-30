@@ -22,6 +22,11 @@ func (a *API) registerWireGuardAdminRoutes(router chi.Router) {
 		routes.Get("/{relayId}/peers", a.listWireGuardPeers)
 		routes.Post("/{relayId}/peers", a.createWireGuardPeer)
 		routes.Put("/{relayId}/peers/order", a.reorderWireGuardPeers)
+		routes.Get("/{relayId}/categories", a.listWireGuardPeerCategories)
+		routes.Post("/{relayId}/categories", a.createWireGuardPeerCategory)
+		routes.Put("/{relayId}/categories/order", a.reorderWireGuardPeerCategories)
+		routes.Patch("/{relayId}/categories/{categoryId}", a.updateWireGuardPeerCategory)
+		routes.Delete("/{relayId}/categories/{categoryId}", a.deleteWireGuardPeerCategory)
 		routes.Get("/{relayId}/peers/{peerId}/credentials", a.wireGuardCredentials)
 		routes.Get("/{relayId}/peers/{peerId}/metrics", a.wireGuardMetrics)
 		routes.Patch("/{relayId}/peers/{peerId}", a.updateWireGuardPeer)
@@ -139,6 +144,51 @@ func (a *API) reorderWireGuardPeers(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e := a.wireGuard.ReorderPeers(r.Context(), chi.URLParam(r, "relayId"), b); e != nil {
+		writeDomainError(w, e)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+func (a *API) listWireGuardPeerCategories(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	v, e := a.wireGuard.ListPeerCategories(r.Context(), chi.URLParam(r, "relayId"))
+	writeDomainResult(w, v, e)
+}
+func (a *API) createWireGuardPeerCategory(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	var b wireguard.CreatePeerCategoryRequest
+	if !decodeJSON(w, r, &b) {
+		return
+	}
+	v, e := a.wireGuard.CreatePeerCategory(r.Context(), chi.URLParam(r, "relayId"), b)
+	if e != nil {
+		writeDomainError(w, e)
+		return
+	}
+	writeJSON(w, http.StatusCreated, v)
+}
+func (a *API) updateWireGuardPeerCategory(w http.ResponseWriter, r *http.Request) {
+	noStore(w)
+	var b wireguard.UpdatePeerCategoryRequest
+	if !decodeJSON(w, r, &b) {
+		return
+	}
+	v, e := a.wireGuard.UpdatePeerCategory(r.Context(), chi.URLParam(r, "relayId"), chi.URLParam(r, "categoryId"), b)
+	writeDomainResult(w, v, e)
+}
+func (a *API) reorderWireGuardPeerCategories(w http.ResponseWriter, r *http.Request) {
+	var b wireguard.UpdatePeerCategoryOrderRequest
+	if !decodeJSON(w, r, &b) {
+		return
+	}
+	if e := a.wireGuard.ReorderPeerCategories(r.Context(), chi.URLParam(r, "relayId"), b); e != nil {
+		writeDomainError(w, e)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+func (a *API) deleteWireGuardPeerCategory(w http.ResponseWriter, r *http.Request) {
+	if e := a.wireGuard.DeletePeerCategory(r.Context(), chi.URLParam(r, "relayId"), chi.URLParam(r, "categoryId")); e != nil {
 		writeDomainError(w, e)
 		return
 	}

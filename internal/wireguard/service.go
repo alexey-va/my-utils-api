@@ -30,6 +30,8 @@ import (
 const relayColumns = `id::text,name,public_endpoint,client_cidr,client_dns,interface_name,agent_token_hash,server_public_key,desired_revision,applied_revision,last_seen_at,routing_mode,ru_prefix_count,routing_updated_at,routing_healthy,routing_checked_at,exit_health,exit_preference,direct_probe_target,direct_packet_loss_percent,direct_average_rtt_ms,veesp_probe_target,veesp_packet_loss_percent,veesp_average_rtt_ms,route_quality_updated_at,created_at,updated_at`
 const defaultPeerCategory = "Пользовательские"
 
+var defaultPeerCategories = []string{defaultPeerCategory, "Служебные"}
+
 type Service struct {
 	pool                 *pgxpool.Pool
 	cipher               *CredentialsCipher
@@ -124,20 +126,33 @@ func (s *Service) CreateRelay(ctx context.Context, body CreateRelayRequest) (Cre
 	if err != nil {
 		return CreatedRelay{}, err
 	}
+	token, err := generateToken()
+	if err != nil {
+		return CreatedRelay{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return CreatedRelay{}, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	var duplicate bool
-	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wireguard_relays WHERE lower(name)=lower($1))`, name).Scan(&duplicate); err != nil {
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wireguard_relays WHERE lower(name)=lower($1))`, name).Scan(&duplicate); err != nil {
 		return CreatedRelay{}, err
 	}
 	if duplicate {
 		return CreatedRelay{}, conflict("Relay name already exists")
 	}
-	token, err := generateToken()
+	now := s.now()
+	record, err := scanRelay(tx.QueryRow(ctx, `INSERT INTO wireguard_relays(id,name,public_endpoint,client_cidr,client_dns,interface_name,agent_token_hash,created_at,updated_at) VALUES(gen_random_uuid(),$1,$2,$3,$4,'wg-users',$5,$6,$6) RETURNING `+relayColumns, name, endpoint, cidr.String(), dns, tokenHash(token), now), now)
 	if err != nil {
 		return CreatedRelay{}, err
 	}
-	now := s.now()
-	record, err := scanRelay(s.pool.QueryRow(ctx, `INSERT INTO wireguard_relays(id,name,public_endpoint,client_cidr,client_dns,interface_name,agent_token_hash,created_at,updated_at) VALUES(gen_random_uuid(),$1,$2,$3,$4,'wg-users',$5,$6,$6) RETURNING `+relayColumns, name, endpoint, cidr.String(), dns, tokenHash(token), now), now)
-	if err != nil {
+	for sortOrder, category := range defaultPeerCategories {
+		if _, err := tx.Exec(ctx, `INSERT INTO wireguard_peer_categories(relay_id,name,sort_order,created_at,updated_at) VALUES($1::uuid,$2,$3,$4,$4)`, record.ID, category, sortOrder, now); err != nil {
+			return CreatedRelay{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
 		return CreatedRelay{}, err
 	}
 	return CreatedRelay{Relay: record.Relay, AgentToken: token}, nil
@@ -175,6 +190,236 @@ type peerRecord struct {
 	Ciphertext, Nonce                                            string
 	RawReceive, RawTransmit                                      int64
 	RawRUDownload, RawRUUpload, RawNonRUDownload, RawNonRUUpload int64
+}
+
+const peerCategoryColumns = `id::text,name,sort_order,created_at,updated_at`
+
+func scanPeerCategory(source row) (PeerCategory, error) {
+	var value PeerCategory
+	err := source.Scan(&value.ID, &value.Name, &value.SortOrder, &value.CreatedAt, &value.UpdatedAt)
+	return value, err
+}
+
+type rowsQuerier interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+}
+
+func listPeerCategories(ctx context.Context, source rowsQuerier, relayID string) ([]PeerCategory, error) {
+	rows, err := source.Query(ctx, `SELECT `+peerCategoryColumns+` FROM wireguard_peer_categories WHERE relay_id=$1::uuid ORDER BY sort_order ASC,created_at ASC`, relayID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make([]PeerCategory, 0)
+	for rows.Next() {
+		category, err := scanPeerCategory(rows)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, category)
+	}
+	return result, rows.Err()
+}
+
+func (s *Service) ListPeerCategories(ctx context.Context, relayID string) ([]PeerCategory, error) {
+	if _, err := s.relay(ctx, relayID); err != nil {
+		return nil, err
+	}
+	return listPeerCategories(ctx, s.pool, relayID)
+}
+
+func lockRelayTx(ctx context.Context, tx pgx.Tx, relayID string) error {
+	var id string
+	err := tx.QueryRow(ctx, `SELECT id::text FROM wireguard_relays WHERE id=$1::uuid FOR UPDATE`, relayID).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return notFound("WireGuard relay not found")
+	}
+	return err
+}
+
+func ensurePeerCategoryTx(ctx context.Context, tx pgx.Tx, relayID, requestedName string, now time.Time) (string, error) {
+	name, err := requiredText(requestedName, "Peer category", 80)
+	if err != nil {
+		return "", err
+	}
+	category, err := scanPeerCategory(tx.QueryRow(ctx, `SELECT `+peerCategoryColumns+` FROM wireguard_peer_categories WHERE relay_id=$1::uuid AND lower(name)=lower($2)`, relayID, name))
+	if err == nil {
+		return category.Name, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return "", err
+	}
+	var sortOrder int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(sort_order),-1)+1 FROM wireguard_peer_categories WHERE relay_id=$1::uuid`, relayID).Scan(&sortOrder); err != nil {
+		return "", err
+	}
+	category, err = scanPeerCategory(tx.QueryRow(ctx, `INSERT INTO wireguard_peer_categories(relay_id,name,sort_order,created_at,updated_at) VALUES($1::uuid,$2,$3,$4,$4) RETURNING `+peerCategoryColumns, relayID, name, sortOrder, now))
+	if err != nil {
+		return "", err
+	}
+	return category.Name, nil
+}
+
+func (s *Service) CreatePeerCategory(ctx context.Context, relayID string, body CreatePeerCategoryRequest) (PeerCategory, error) {
+	name, err := requiredText(body.Name, "Peer category", 80)
+	if err != nil {
+		return PeerCategory{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return PeerCategory{}, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := lockRelayTx(ctx, tx, relayID); err != nil {
+		return PeerCategory{}, err
+	}
+	var duplicate bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wireguard_peer_categories WHERE relay_id=$1::uuid AND lower(name)=lower($2))`, relayID, name).Scan(&duplicate); err != nil {
+		return PeerCategory{}, err
+	}
+	if duplicate {
+		return PeerCategory{}, conflict("Peer category already exists")
+	}
+	var sortOrder int
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(sort_order),-1)+1 FROM wireguard_peer_categories WHERE relay_id=$1::uuid`, relayID).Scan(&sortOrder); err != nil {
+		return PeerCategory{}, err
+	}
+	now := s.now()
+	category, err := scanPeerCategory(tx.QueryRow(ctx, `INSERT INTO wireguard_peer_categories(relay_id,name,sort_order,created_at,updated_at) VALUES($1::uuid,$2,$3,$4,$4) RETURNING `+peerCategoryColumns, relayID, name, sortOrder, now))
+	if err != nil {
+		return PeerCategory{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return PeerCategory{}, err
+	}
+	return category, nil
+}
+
+func (s *Service) UpdatePeerCategory(ctx context.Context, relayID, categoryID string, body UpdatePeerCategoryRequest) (PeerCategory, error) {
+	name, err := requiredText(body.Name, "Peer category", 80)
+	if err != nil {
+		return PeerCategory{}, err
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return PeerCategory{}, err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := lockRelayTx(ctx, tx, relayID); err != nil {
+		return PeerCategory{}, err
+	}
+	category, err := scanPeerCategory(tx.QueryRow(ctx, `SELECT `+peerCategoryColumns+` FROM wireguard_peer_categories WHERE id=$1::uuid AND relay_id=$2::uuid FOR UPDATE`, categoryID, relayID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return PeerCategory{}, notFound("WireGuard peer category not found")
+	}
+	if err != nil {
+		return PeerCategory{}, err
+	}
+	var duplicate bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM wireguard_peer_categories WHERE relay_id=$1::uuid AND id<>$2::uuid AND lower(name)=lower($3))`, relayID, categoryID, name).Scan(&duplicate); err != nil {
+		return PeerCategory{}, err
+	}
+	if duplicate {
+		return PeerCategory{}, conflict("Peer category already exists")
+	}
+	if category.Name != name {
+		now := s.now()
+		previousName := category.Name
+		category, err = scanPeerCategory(tx.QueryRow(ctx, `UPDATE wireguard_peer_categories SET name=$3,updated_at=$4 WHERE id=$1::uuid AND relay_id=$2::uuid RETURNING `+peerCategoryColumns, categoryID, relayID, name, now))
+		if err != nil {
+			return PeerCategory{}, err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE wireguard_peers SET category=$3,updated_at=$4 WHERE relay_id=$1::uuid AND lower(category)=lower($2)`, relayID, previousName, name, now); err != nil {
+			return PeerCategory{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return PeerCategory{}, err
+	}
+	return category, nil
+}
+
+func (s *Service) ReorderPeerCategories(ctx context.Context, relayID string, body UpdatePeerCategoryOrderRequest) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := lockRelayTx(ctx, tx, relayID); err != nil {
+		return err
+	}
+	rows, err := tx.Query(ctx, `SELECT id::text FROM wireguard_peer_categories WHERE relay_id=$1::uuid FOR UPDATE`, relayID)
+	if err != nil {
+		return err
+	}
+	existing := map[string]bool{}
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return err
+		}
+		existing[id] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
+	if len(body.Items) != len(existing) {
+		return conflict("Peer category list changed; refresh and try again")
+	}
+	seen := make(map[string]bool, len(body.Items))
+	now := s.now()
+	for sortOrder, item := range body.Items {
+		if !existing[item.CategoryID] || seen[item.CategoryID] {
+			return conflict("Peer category list changed; refresh and try again")
+		}
+		seen[item.CategoryID] = true
+		if _, err := tx.Exec(ctx, `UPDATE wireguard_peer_categories SET sort_order=$3,updated_at=$4 WHERE id=$1::uuid AND relay_id=$2::uuid`, item.CategoryID, relayID, sortOrder, now); err != nil {
+			return err
+		}
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Service) DeletePeerCategory(ctx context.Context, relayID, categoryID string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := lockRelayTx(ctx, tx, relayID); err != nil {
+		return err
+	}
+	category, err := scanPeerCategory(tx.QueryRow(ctx, `SELECT `+peerCategoryColumns+` FROM wireguard_peer_categories WHERE id=$1::uuid AND relay_id=$2::uuid FOR UPDATE`, categoryID, relayID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return notFound("WireGuard peer category not found")
+	}
+	if err != nil {
+		return err
+	}
+	var peerCount int
+	if err := tx.QueryRow(ctx, `SELECT count(*) FROM wireguard_peers WHERE relay_id=$1::uuid AND lower(category)=lower($2)`, relayID, category.Name).Scan(&peerCount); err != nil {
+		return err
+	}
+	if peerCount > 0 {
+		return conflict("Move peer devices out of the category first")
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM wireguard_peer_categories WHERE id=$1::uuid AND relay_id=$2::uuid`, categoryID, relayID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, `WITH ordered AS (
+		SELECT id,row_number() OVER (ORDER BY sort_order,created_at,id)-1 AS position
+		FROM wireguard_peer_categories
+		WHERE relay_id=$1::uuid
+	) UPDATE wireguard_peer_categories AS category
+	SET sort_order=ordered.position,updated_at=$2
+	FROM ordered
+	WHERE category.id=ordered.id`, relayID, s.now()); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 const peerColumns = `id::text,name,category,sort_order,public_key,assigned_ip,enabled,latest_handshake_at,total_receive_bytes,total_transmit_bytes,current_download_bytes_per_second,current_upload_bytes_per_second,metrics_updated_at,created_at,updated_at,private_key_ciphertext,private_key_nonce,raw_receive_bytes,raw_transmit_bytes,raw_ru_download_bytes,raw_ru_upload_bytes,raw_non_ru_download_bytes,raw_non_ru_upload_bytes`
@@ -295,6 +540,10 @@ func (s *Service) CreatePeer(ctx context.Context, relayID string, body CreatePee
 		return PeerCredentials{}, err
 	}
 	now := s.now()
+	category, err = ensurePeerCategoryTx(ctx, tx, relayID, category, now)
+	if err != nil {
+		return PeerCredentials{}, err
+	}
 	var sortOrder int
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(sort_order),-1)+1 FROM wireguard_peers WHERE relay_id=$1::uuid`, relayID).Scan(&sortOrder); err != nil {
 		return PeerCredentials{}, err
@@ -351,6 +600,9 @@ func (s *Service) UpdatePeer(ctx context.Context, relayID, peerID string, body U
 		return Peer{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := lockRelayTx(ctx, tx, relayID); err != nil {
+		return Peer{}, err
+	}
 	peer, err := scanPeer(tx.QueryRow(ctx, `SELECT `+peerColumns+` FROM wireguard_peers WHERE id=$1::uuid AND relay_id=$2::uuid FOR UPDATE`, peerID, relayID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Peer{}, notFound("WireGuard peer not found")
@@ -374,7 +626,7 @@ func (s *Service) UpdatePeer(ctx context.Context, relayID, peerID string, body U
 	}
 	category := peer.Category
 	if body.Category != nil {
-		category, err = requiredText(*body.Category, "Peer category", 80)
+		category, err = ensurePeerCategoryTx(ctx, tx, relayID, *body.Category, s.now())
 		if err != nil {
 			return Peer{}, err
 		}
@@ -412,6 +664,9 @@ func (s *Service) ReorderPeers(ctx context.Context, relayID string, body UpdateP
 		return err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if err := lockRelayTx(ctx, tx, relayID); err != nil {
+		return err
+	}
 	rows, err := tx.Query(ctx, `SELECT id::text FROM wireguard_peers WHERE relay_id=$1::uuid FOR UPDATE`, relayID)
 	if err != nil {
 		return err
@@ -438,7 +693,7 @@ func (s *Service) ReorderPeers(ctx context.Context, relayID string, body UpdateP
 		if !existing[item.PeerID] || seen[item.PeerID] {
 			return conflict("Peer list changed; refresh and try again")
 		}
-		category, err := requiredText(item.Category, "Peer category", 80)
+		category, err := ensurePeerCategoryTx(ctx, tx, relayID, item.Category, s.now())
 		if err != nil {
 			return err
 		}
@@ -780,6 +1035,10 @@ func (s *Service) Snapshot(ctx context.Context, relayID, rangeName string) (Snap
 	if err != nil {
 		return Snapshot{}, err
 	}
+	categories, err := listPeerCategories(ctx, s.pool, relayID)
+	if err != nil {
+		return Snapshot{}, err
+	}
 	rangeName, from, to, bucket, err := metricRange(rangeName, s.now())
 	if err != nil {
 		return Snapshot{}, err
@@ -867,7 +1126,7 @@ func (s *Service) Snapshot(ctx context.Context, relayID, rangeName string) (Snap
 		return Snapshot{}, err
 	}
 
-	return Snapshot{Relay: relay.Relay, Peers: peers, PeerMetrics: metricsByPeer, ExitHealthHistory: exitHistory}, nil
+	return Snapshot{Relay: relay.Relay, Categories: categories, Peers: peers, PeerMetrics: metricsByPeer, ExitHealthHistory: exitHistory}, nil
 }
 
 type exitHealthBucket struct {

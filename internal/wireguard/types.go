@@ -33,6 +33,22 @@ type UpdatePeerOrderRequest struct {
 	Items []PeerOrderItem `json:"items"`
 }
 
+type CreatePeerCategoryRequest struct {
+	Name string `json:"name"`
+}
+
+type UpdatePeerCategoryRequest struct {
+	Name string `json:"name"`
+}
+
+type PeerCategoryOrderItem struct {
+	CategoryID string `json:"categoryId"`
+}
+
+type UpdatePeerCategoryOrderRequest struct {
+	Items []PeerCategoryOrderItem `json:"items"`
+}
+
 type RouteProbe struct {
 	Target            string   `json:"target"`
 	PacketLossPercent float64  `json:"packetLossPercent"`
@@ -123,6 +139,14 @@ type Peer struct {
 	Traffic                       PeriodTraffic `json:"traffic"`
 	CreatedAt                     time.Time     `json:"createdAt"`
 	UpdatedAt                     time.Time     `json:"updatedAt"`
+}
+
+type PeerCategory struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	SortOrder int       `json:"sortOrder"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 }
 
 type PeerCredentials struct {
@@ -233,6 +257,7 @@ type ExitHealthHistory struct {
 
 type Snapshot struct {
 	Relay             Relay              `json:"relay"`
+	Categories        []PeerCategory     `json:"categories"`
 	Peers             []Peer             `json:"peers"`
 	PeerMetrics       map[string]Metrics `json:"peerMetrics"`
 	ExitHealthHistory ExitHealthHistory  `json:"exitHealthHistory"`

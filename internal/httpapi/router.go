@@ -72,6 +72,11 @@ type WireGuardService interface {
 	UpdatePeer(context.Context, string, string, wireguard.UpdatePeerRequest) (wireguard.Peer, error)
 	ReorderPeers(context.Context, string, wireguard.UpdatePeerOrderRequest) error
 	DeletePeer(context.Context, string, string) error
+	ListPeerCategories(context.Context, string) ([]wireguard.PeerCategory, error)
+	CreatePeerCategory(context.Context, string, wireguard.CreatePeerCategoryRequest) (wireguard.PeerCategory, error)
+	UpdatePeerCategory(context.Context, string, string, wireguard.UpdatePeerCategoryRequest) (wireguard.PeerCategory, error)
+	ReorderPeerCategories(context.Context, string, wireguard.UpdatePeerCategoryOrderRequest) error
+	DeletePeerCategory(context.Context, string, string) error
 	Desired(context.Context, string) (wireguard.DesiredState, error)
 	Heartbeat(context.Context, string, wireguard.Heartbeat) error
 	Metrics(context.Context, string, string, string) (wireguard.Metrics, error)
