@@ -24,6 +24,7 @@ type Config struct {
 	Auth        Auth
 	CORS        CORS
 	Telegram    Telegram
+	VPNTelegram VPNTelegram
 	OpenRouter  OpenRouter
 	Temporal    Temporal
 	WireGuard   WireGuard
@@ -99,6 +100,14 @@ type Telegram struct {
 	BotToken        string
 	FileUploadToken string
 	AllowedUserIDs  []int64
+}
+
+type VPNTelegram struct {
+	Enabled        bool
+	PollingEnabled bool
+	BotToken       string
+	AdminUserIDs   []int64
+	RelayID        string
 }
 
 type OpenRouter struct {
@@ -195,6 +204,14 @@ func Load(lookup LookupEnv) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	vpnTelegramEnabled, err := getBool("MYUTILS_VPN_TELEGRAM_ENABLED", false)
+	if err != nil {
+		return Config{}, err
+	}
+	vpnTelegramPollingEnabled, err := getBool("MYUTILS_VPN_TELEGRAM_POLLING_ENABLED", true)
+	if err != nil {
+		return Config{}, err
+	}
 	proxyEnabled, err := getBool("OPENROUTER_PROXY_ENABLED", false)
 	if err != nil {
 		return Config{}, err
@@ -245,6 +262,13 @@ func Load(lookup LookupEnv) (Config, error) {
 			FileUploadToken: get("TELEGRAM_FILE_UPLOAD_TOKEN", ""),
 			AllowedUserIDs:  parseInt64List(get("TELEGRAM_ALLOWED_USER_IDS", "")),
 		},
+		VPNTelegram: VPNTelegram{
+			Enabled:        vpnTelegramEnabled,
+			PollingEnabled: vpnTelegramPollingEnabled,
+			BotToken:       get("VPN_TELEGRAM_BOT_TOKEN", ""),
+			AdminUserIDs:   parseInt64List(get("VPN_TELEGRAM_ADMIN_USER_IDS", "")),
+			RelayID:        strings.TrimSpace(get("VPN_TELEGRAM_RELAY_ID", "")),
+		},
 		OpenRouter: OpenRouter{
 			APIKey:      get("OPENROUTER_API_KEY", ""),
 			BaseURL:     strings.TrimRight(get("OPENROUTER_BASE_URL", "https://openrouter.ai/api/v1"), "/"),
@@ -289,6 +313,20 @@ func (c Config) validate() error {
 	}
 	if c.Telegram.Enabled && strings.TrimSpace(c.Telegram.BotToken) == "" {
 		return errors.New("TELEGRAM_BOT_TOKEN is required when Telegram is enabled")
+	}
+	if c.VPNTelegram.Enabled {
+		if strings.TrimSpace(c.VPNTelegram.BotToken) == "" {
+			return errors.New("VPN_TELEGRAM_BOT_TOKEN is required when VPN Telegram is enabled")
+		}
+		if len(c.VPNTelegram.AdminUserIDs) == 0 {
+			return errors.New("VPN_TELEGRAM_ADMIN_USER_IDS is required when VPN Telegram is enabled")
+		}
+		if strings.TrimSpace(c.VPNTelegram.RelayID) == "" {
+			return errors.New("VPN_TELEGRAM_RELAY_ID is required when VPN Telegram is enabled")
+		}
+		if strings.TrimSpace(c.VPNTelegram.BotToken) == strings.TrimSpace(c.Telegram.BotToken) && c.Telegram.Enabled {
+			return errors.New("VPN_TELEGRAM_BOT_TOKEN must be different from TELEGRAM_BOT_TOKEN")
+		}
 	}
 	if c.OpenRouter.Proxy.Enabled && c.OpenRouter.Proxy.Host == "" {
 		return errors.New("OPENROUTER_PROXY_HOST is required when the proxy is enabled")

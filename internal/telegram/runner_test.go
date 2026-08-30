@@ -38,12 +38,12 @@ func TestRunnerRoutesTextAndCallbackThroughSerialQueue(t *testing.T) {
 	dispatcher := &fakeDispatcher{values: make(chan dispatched, 2)}
 	runner := NewRunner(bot, dispatcher, false)
 	defer runner.Close()
-	runner.routeUpdate(Update{Message: &Message{From: &User{ID: 7}, Chat: Chat{ID: 42}, Text: " hello "}})
-	runner.routeUpdate(Update{CallbackQuery: &CallbackQuery{ID: "cb-1", From: &User{ID: 7}, Message: &Message{Chat: Chat{ID: 42}}, Data: "next"}})
+	runner.routeUpdate(Update{Message: &Message{From: &User{ID: 7, Username: "bob", FirstName: "Bob", LastName: "B"}, Chat: Chat{ID: 42, Type: "private"}, Text: " hello "}})
+	runner.routeUpdate(Update{CallbackQuery: &CallbackQuery{ID: "cb-1", From: &User{ID: 7, Username: "bob", FirstName: "Bob", LastName: "B"}, Message: &Message{Chat: Chat{ID: 42, Type: "private"}}, Data: "next"}})
 	for _, want := range []string{"hello", "next"} {
 		select {
 		case got := <-dispatcher.values:
-			if got.input.ChatID != 42 || got.input.UserID != 7 || got.input.Text != want || got.input.Voice != nil {
+			if got.input.ChatID != 42 || got.input.UserID != 7 || got.input.ChatType != "private" || got.input.Username != "bob" || got.input.FirstName != "Bob" || got.input.LastName != "B" || got.input.Text != want || got.input.Voice != nil {
 				t.Fatalf("dispatch = %#v", got)
 			}
 		case <-time.After(time.Second):

@@ -125,6 +125,40 @@ Agent model, `openrouter.transcription-model`, retry policy, recent memory,
 compaction threshold and reminders are runtime settings in PostgreSQL. Change
 existing values only through `PUT /api/admin/settings/{key}` and read them back.
 
+### WireGuard self-service bot
+
+The optional VPN bot uses a separate Telegram bot token and polling runner in
+the same API process. It is a deterministic menu application: it never invokes
+OpenRouter, the workout agent, or free-text tool selection.
+
+- A new private-chat user submits an access request. Every configured admin is
+  notified and must approve or reject it explicitly.
+- Approved users can create, list, reissue and delete only their own tunnels,
+  download protected `.conf` files and QR codes, and view 30-day traffic totals.
+- The default limit is one tunnel. An admin can set 1, 2, 3 or 5 from the bot;
+  the database contract permits up to 10.
+- Blocking a user disables every owned WireGuard peer. Re-approval enables the
+  same peers again. All access, credential-delivery and mutation actions are
+  recorded in the VPN-bot audit table without private key material.
+- Group chats are rejected. Ownership is checked in PostgreSQL for every peer
+  operation, even when callback data contains a valid peer UUID.
+
+The feature is disabled by default. Create a separate bot with BotFather, then
+set these deployment secrets/values and restart through the normal pipeline:
+
+| Variable | Purpose |
+| --- | --- |
+| `MYUTILS_VPN_TELEGRAM_ENABLED` | Enable the separate VPN bot |
+| `MYUTILS_VPN_TELEGRAM_POLLING_ENABLED` | Enable its inbound long polling |
+| `VPN_TELEGRAM_BOT_TOKEN` | Separate BotFather token; must differ from the workout bot token |
+| `VPN_TELEGRAM_ADMIN_USER_IDS` | Comma-separated Telegram IDs allowed to approve and manage users |
+| `VPN_TELEGRAM_RELAY_ID` | Existing WireGuard relay used for self-service peers |
+
+Do not commit or paste the token into configuration files. Startup fails closed
+when the bot is enabled without a token, admin IDs or relay ID. After enabling,
+each configured admin must open the new bot and press `/start` once; Telegram
+does not allow a bot to initiate a private chat before that.
+
 ### Agent test console
 
 `/api/admin/agent-test-chats/**` creates isolated sandbox conversations through

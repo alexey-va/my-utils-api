@@ -59,6 +59,11 @@ type inlineMarkup struct {
 	InlineKeyboard [][]InlineButton `json:"inline_keyboard"`
 }
 
+type BotCommand struct {
+	Command     string `json:"command"`
+	Description string `json:"description"`
+}
+
 func ParseButtons(raw string) ([][]InlineButton, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -125,12 +130,32 @@ func (c *Client) AnswerCallback(ctx context.Context, callbackID string) error {
 	return c.callJSON(ctx, "answerCallbackQuery", map[string]any{"callback_query_id": callbackID}, nil)
 }
 
+func (c *Client) SetMyCommands(ctx context.Context, commands []BotCommand) error {
+	return c.callJSON(ctx, "setMyCommands", map[string]any{"commands": commands}, nil)
+}
+
+func (c *Client) SetMyCommandsForChat(ctx context.Context, chatID int64, commands []BotCommand) error {
+	scope := map[string]any{"type": "chat", "chat_id": chatID}
+	return c.callJSON(ctx, "setMyCommands", map[string]any{"commands": commands, "scope": scope}, nil)
+}
+
 func (c *Client) DeleteWebhook(ctx context.Context, dropPending bool) error {
 	return c.callJSON(ctx, "deleteWebhook", map[string]any{"drop_pending_updates": dropPending}, nil)
 }
 
 func (c *Client) SendPhoto(ctx context.Context, chatID int64, png []byte, caption string) error {
+	return c.sendPhoto(ctx, chatID, png, caption, false)
+}
+
+func (c *Client) SendProtectedPhoto(ctx context.Context, chatID int64, png []byte, caption string) error {
+	return c.sendPhoto(ctx, chatID, png, caption, true)
+}
+
+func (c *Client) sendPhoto(ctx context.Context, chatID int64, png []byte, caption string, protected bool) error {
 	fields := map[string]string{"chat_id": strconv.FormatInt(chatID, 10)}
+	if protected {
+		fields["protect_content"] = "true"
+	}
 	if caption = strings.TrimSpace(caption); caption != "" {
 		fields["caption"] = truncateRunes(caption, captionMaxLength)
 		fields["parse_mode"] = "HTML"
@@ -139,11 +164,22 @@ func (c *Client) SendPhoto(ctx context.Context, chatID int64, png []byte, captio
 }
 
 func (c *Client) SendDocument(ctx context.Context, chatID int64, data []byte, fileName, contentType, caption string) error {
+	return c.sendDocument(ctx, chatID, data, fileName, contentType, caption, false)
+}
+
+func (c *Client) SendProtectedDocument(ctx context.Context, chatID int64, data []byte, fileName, contentType, caption string) error {
+	return c.sendDocument(ctx, chatID, data, fileName, contentType, caption, true)
+}
+
+func (c *Client) sendDocument(ctx context.Context, chatID int64, data []byte, fileName, contentType, caption string, protected bool) error {
 	fileName = SafeFileName(fileName)
 	if strings.TrimSpace(contentType) == "" {
 		contentType = "application/octet-stream"
 	}
 	fields := map[string]string{"chat_id": strconv.FormatInt(chatID, 10)}
+	if protected {
+		fields["protect_content"] = "true"
+	}
 	if caption = strings.TrimSpace(caption); caption != "" {
 		fields["caption"] = truncateRunes(caption, captionMaxLength)
 	}
@@ -170,10 +206,14 @@ type Voice struct {
 	MimeType string `json:"mime_type"`
 }
 type User struct {
-	ID int64 `json:"id"`
+	ID        int64  `json:"id"`
+	Username  string `json:"username"`
+	FirstName string `json:"first_name"`
+	LastName  string `json:"last_name"`
 }
 type Chat struct {
-	ID int64 `json:"id"`
+	ID   int64  `json:"id"`
+	Type string `json:"type"`
 }
 type CallbackQuery struct {
 	ID      string   `json:"id"`

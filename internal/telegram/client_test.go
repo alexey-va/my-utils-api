@@ -37,6 +37,55 @@ func TestSendHTMLMessageUsesTelegramContract(t *testing.T) {
 	}
 }
 
+func TestProtectedCredentialDeliverySetsTelegramProtection(t *testing.T) {
+	t.Parallel()
+	methods := []string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		methods = append(methods, r.URL.Path)
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatal(err)
+		}
+		if r.FormValue("protect_content") != "true" || r.FormValue("chat_id") != "42" {
+			t.Fatalf("protected multipart values = %#v", r.MultipartForm.Value)
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":123}}`))
+	}))
+	defer server.Close()
+	client := NewClient("secret", server.URL, nil)
+	if err := client.SendProtectedPhoto(context.Background(), 42, []byte("png"), "QR"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.SendProtectedDocument(context.Background(), 42, []byte("conf"), "phone.conf", "text/plain", "Config"); err != nil {
+		t.Fatal(err)
+	}
+	if len(methods) != 2 || methods[0] != "/botsecret/sendPhoto" || methods[1] != "/botsecret/sendDocument" {
+		t.Fatalf("methods=%#v", methods)
+	}
+}
+
+func TestSetMyCommandsForChatUsesTelegramChatScope(t *testing.T) {
+	t.Parallel()
+	var request map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/botsecret/setMyCommands" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"result":true}`))
+	}))
+	defer server.Close()
+	client := NewClient("secret", server.URL, nil)
+	if err := client.SetMyCommandsForChat(context.Background(), 42, []BotCommand{{Command: "admin", Description: "Admin"}}); err != nil {
+		t.Fatal(err)
+	}
+	scope, ok := request["scope"].(map[string]any)
+	if !ok || scope["type"] != "chat" || scope["chat_id"].(float64) != 42 {
+		t.Fatalf("scope=%#v", request["scope"])
+	}
+}
+
 func TestEditHTMLMessageTreatsIdenticalContentAsSuccess(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

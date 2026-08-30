@@ -37,10 +37,10 @@ func TestRunnerAppliesFlywaySchemaAndIsIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM flyway_schema_history WHERE success`).Scan(&successful); err != nil {
 		t.Fatalf("count schema history: %v", err)
 	}
-	if successful != 31 {
-		t.Errorf("successful migration rows = %d, want 31", successful)
+	if successful != 32 {
+		t.Errorf("successful migration rows = %d, want 32", successful)
 	}
-	for _, table := range []string{"users", "workout_entries", "app_settings", "agent_test_sandbox_states", "wireguard_peer_metric_samples", "wireguard_exit_health_samples"} {
+	for _, table := range []string{"users", "workout_entries", "app_settings", "agent_test_sandbox_states", "wireguard_peer_metric_samples", "wireguard_exit_health_samples", "wireguard_vpn_bot_users", "wireguard_vpn_bot_peer_owners", "wireguard_vpn_bot_audit_events"} {
 		var exists bool
 		if err := pool.QueryRow(ctx, `SELECT to_regclass('public.' || $1) IS NOT NULL`, table).Scan(&exists); err != nil || !exists {
 			t.Errorf("table %s exists = %v, error = %v", table, exists, err)

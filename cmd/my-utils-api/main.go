@@ -30,6 +30,7 @@ import (
 	"github.com/alexey-va/my-utils-api/internal/store"
 	"github.com/alexey-va/my-utils-api/internal/telegram"
 	workflowtemporal "github.com/alexey-va/my-utils-api/internal/temporal"
+	"github.com/alexey-va/my-utils-api/internal/vpnbot"
 	"github.com/alexey-va/my-utils-api/internal/wireguard"
 	"github.com/alexey-va/my-utils-api/internal/workout"
 	migrations "github.com/alexey-va/my-utils-api/src/main/resources/db/migration"
@@ -140,12 +141,16 @@ func run(ctx context.Context) error {
 	reportRenderer := report.NewRenderer()
 	telegramProxy, outboundProxyURL := configuredOutboundProxy(cfg.OpenRouter.Proxy)
 	var telegramClient *telegram.Client
+	var vpnTelegramClient *telegram.Client
 	var agentStatus *telegram.StatusMessenger
 	if cfg.Telegram.Enabled {
 		// Keep the JVM contract: Telegram and OpenRouter share the configured
 		// outbound HTTP proxy. Production cannot reach Telegram directly.
 		telegramClient = telegram.NewClient(cfg.Telegram.BotToken, "https://api.telegram.org", telegramProxy)
 		agentStatus = telegram.NewStatusMessenger(telegramClient, redisClient)
+	}
+	if cfg.VPNTelegram.Enabled {
+		vpnTelegramClient = telegram.NewClient(cfg.VPNTelegram.BotToken, "https://api.telegram.org", telegramProxy)
 	}
 	telegramFiles := telegram.NewFileDelivery(
 		telegram.FileUploadToken(cfg.Telegram.FileUploadToken, cfg.Telegram.BotToken),
@@ -236,6 +241,8 @@ func run(ctx context.Context) error {
 	}
 	temporalActivities.Agent = turner
 	var telegramRunner *telegram.Runner
+	var vpnTelegramRunner *telegram.Runner
+	var vpnTelegramMenu *vpnbot.Service
 	if cfg.Telegram.Enabled {
 		if turner == nil {
 			return errors.New("OPENROUTER_API_KEY is required when Telegram is enabled")
@@ -289,6 +296,13 @@ func run(ctx context.Context) error {
 		telegramRunner = telegram.NewRunner(telegramClient, dispatcher, cfg.Telegram.PollingEnabled)
 		defer telegramRunner.Close()
 	}
+	if cfg.VPNTelegram.Enabled {
+		vpnTelegramMenu = vpnbot.NewService(vpnbot.Config{
+			RelayID: cfg.VPNTelegram.RelayID, AdminUserIDs: cfg.VPNTelegram.AdminUserIDs,
+		}, vpnbot.NewStore(pool), wireGuardService, vpnTelegramClient)
+		vpnTelegramRunner = telegram.NewRunner(vpnTelegramClient, vpnTelegramMenu, cfg.VPNTelegram.PollingEnabled)
+		defer vpnTelegramRunner.Close()
+	}
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Auth: authService, Settings: runtimeSettings, Workout: workoutService, Health: healthService,
 		WireGuard: wireGuardService, AgentMemory: agentMemory, TelegramFiles: telegramFiles,
@@ -309,6 +323,9 @@ func run(ctx context.Context) error {
 	}
 	if telegramRunner != nil {
 		warmers = append(warmers, telegramRunner)
+	}
+	if vpnTelegramMenu != nil {
+		warmers = append(warmers, vpnTelegramMenu, vpnTelegramRunner)
 	}
 	return startup.Run(ctx, warmers, func(servingContext context.Context) error {
 		refreshContext, cancelRefresh := context.WithCancel(servingContext)

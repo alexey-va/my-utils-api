@@ -68,6 +68,15 @@ messages therefore do not own current-day or current-week state. Auto
 compaction is queued outside the request path, respects tool-call boundaries,
 and keeps one rolling summary.
 
+The optional WireGuard self-service bot has a different bot token, client,
+runner and dispatcher in the same process. Its private-chat callback flow is
+fully deterministic and never reaches the agent or OpenRouter. PostgreSQL owns
+the `PENDING`/`APPROVED`/`REJECTED`/`BLOCKED` access state, tunnel limit,
+peer-to-Telegram-user ownership and audit events. Every credential or peer
+mutation resolves ownership server-side; blocking an account disables its
+owned peers in one WireGuard service transaction per relay. QR codes and
+`.conf` files are generated locally and sent with Telegram content protection.
+
 ## Temporal
 
 Task queue: `myutils-go-v1`.

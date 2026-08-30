@@ -120,6 +120,28 @@ func TestProductionDefaultsRefreshCookieToSecure(t *testing.T) {
 	}
 }
 
+func TestVPNTelegramRequiresDedicatedCompleteConfiguration(t *testing.T) {
+	t.Parallel()
+	base := map[string]string{
+		"MYUTILS_VPN_TELEGRAM_ENABLED": "true",
+		"VPN_TELEGRAM_BOT_TOKEN":       "vpn-token",
+		"VPN_TELEGRAM_ADMIN_USER_IDS":  "42,1001",
+		"VPN_TELEGRAM_RELAY_ID":        "00000000-0000-0000-0000-000000000001",
+	}
+	cfg, err := Load(mapLookup(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.VPNTelegram.Enabled || !cfg.VPNTelegram.PollingEnabled || len(cfg.VPNTelegram.AdminUserIDs) != 2 || cfg.VPNTelegram.RelayID == "" {
+		t.Fatalf("VPN Telegram config = %#v", cfg.VPNTelegram)
+	}
+	base["MYUTILS_TELEGRAM_ENABLED"] = "true"
+	base["TELEGRAM_BOT_TOKEN"] = "vpn-token"
+	if _, err := Load(mapLookup(base)); err == nil || !strings.Contains(err.Error(), "must be different") {
+		t.Fatalf("shared Telegram token error = %v", err)
+	}
+}
+
 func mapLookup(values map[string]string) LookupEnv {
 	return func(key string) (string, bool) {
 		value, ok := values[key]
