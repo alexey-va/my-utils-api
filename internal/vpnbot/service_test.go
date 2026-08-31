@@ -213,6 +213,8 @@ type fakeWireGuard struct {
 	created       int
 	createdNames  []string
 	createdStates []bool
+	renamed       []string
+	renameUsers   []int64
 	credentials   int
 	reissued      int
 	deleted       int
@@ -251,6 +253,17 @@ func (f *fakeWireGuard) ReissuePeerCredentials(context.Context, string, string) 
 }
 func (f *fakeWireGuard) ReissuePeerCredentialsForVPNBot(ctx context.Context, relayID, peerID string, _ int64) (wireguard.PeerCredentials, error) {
 	return f.ReissuePeerCredentials(ctx, relayID, peerID)
+}
+func (f *fakeWireGuard) RenamePeerForVPNBot(_ context.Context, _ string, peerID string, telegramUserID int64, name string) (wireguard.Peer, error) {
+	f.renamed = append(f.renamed, name)
+	f.renameUsers = append(f.renameUsers, telegramUserID)
+	for index := range f.peers {
+		if f.peers[index].ID == peerID {
+			f.peers[index].Name = name
+			return f.peers[index], nil
+		}
+	}
+	return wireguard.Peer{}, errors.New("peer not found")
 }
 func (f *fakeWireGuard) DeletePeer(context.Context, string, string) error {
 	f.deleted++
@@ -715,6 +728,65 @@ func TestReissueAndDeleteRequireConfirmationAndMutateOwnedPeer(t *testing.T) {
 	}
 	if wg.deleted != 1 {
 		t.Fatalf("deleted=%d", wg.deleted)
+	}
+}
+
+func TestUserRenamesOwnedTunnelAfterExplicitButtonPrompt(t *testing.T) {
+	t.Parallel()
+	peerID := "00000000-0000-0000-0000-000000000101"
+	repo := &fakeRepository{
+		users:  map[int64]User{42: {Identity: Identity{TelegramUserID: 42, ChatID: 42}, Status: StatusApproved, PeerLimit: 1}},
+		owners: map[int64][]PeerOwnership{42: {{PeerID: peerID, RelayID: "relay"}}},
+	}
+	wg := &fakeWireGuard{peers: []wireguard.Peer{{ID: peerID, Name: "Old name", AssignedIP: "10.89.0.2", Enabled: true}}}
+	bot := &fakeMessenger{}
+	service := NewService(Config{RelayID: "relay"}, repo, wg, bot)
+
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 42, UserID: 42, MessageID: 101, ChatType: "private", Text: "vpn:peer:" + peerID, Callback: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(bot.edits) != 1 || !strings.Contains(bot.edits[0].buttons, "vpn:rename:"+peerID) {
+		t.Fatalf("peer card edits=%#v messages=%#v buttons=%#v", bot.edits, bot.messages, bot.buttons)
+	}
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 42, UserID: 42, MessageID: 101, ChatType: "private", Text: "vpn:rename:" + peerID, Callback: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(wg.renamed) != 0 || len(bot.edits) != 2 || !strings.Contains(bot.edits[1].text, "новое название") {
+		t.Fatalf("rename prompt edits=%#v renamed=%#v", bot.edits, wg.renamed)
+	}
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 42, UserID: 42, MessageID: 202, ChatType: "private", Text: "My laptop"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(wg.renamed) != 1 || wg.renamed[0] != "My laptop" || len(wg.renameUsers) != 1 || wg.renameUsers[0] != 42 {
+		t.Fatalf("renamed=%#v users=%#v", wg.renamed, wg.renameUsers)
+	}
+	if len(bot.edits) != 3 || bot.edits[2].messageID != 101 || !strings.Contains(bot.edits[2].text, "<b>My laptop</b>") {
+		t.Fatalf("renamed card edits=%#v", bot.edits)
+	}
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 42, UserID: 42, ChatType: "private", Text: "Another name"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(wg.renamed) != 1 {
+		t.Fatalf("free text repeated rename: %#v", wg.renamed)
+	}
+}
+
+func TestAdminRenamesOwnTunnelThroughSamePrompt(t *testing.T) {
+	t.Parallel()
+	peerID := "00000000-0000-0000-0000-000000000102"
+	repo := &fakeRepository{owners: map[int64][]PeerOwnership{7: {{PeerID: peerID, RelayID: "relay"}}}}
+	wg := &fakeWireGuard{peers: []wireguard.Peer{{ID: peerID, Name: "Admin tunnel", AssignedIP: "10.89.0.3", Enabled: true}}}
+	bot := &fakeMessenger{}
+	service := NewService(Config{RelayID: "relay", AdminUserIDs: []int64{7}}, repo, wg, bot)
+
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 7, UserID: 7, MessageID: 303, ChatType: "private", Text: "vpn:rename:" + peerID, Callback: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 7, UserID: 7, ChatType: "private", Text: "Unlimited admin tunnel"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(wg.renamed) != 1 || wg.renamed[0] != "Unlimited admin tunnel" || len(bot.edits) != 2 || !strings.Contains(bot.edits[1].text, "Unlimited admin tunnel") {
+		t.Fatalf("renamed=%#v edits=%#v", wg.renamed, bot.edits)
 	}
 }
 

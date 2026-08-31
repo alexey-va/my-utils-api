@@ -133,7 +133,7 @@ OpenRouter, the workout agent, or free-text tool selection.
 
 - A new private-chat user submits an access request. Every configured admin is
   notified and must approve or reject it explicitly.
-- Approved users can create, list, reissue and delete only their own tunnels,
+- Approved users can create, list, rename, reissue and delete only their own tunnels,
   download protected `.conf` files and QR codes, and view 30-day traffic totals.
 - The default limit is one tunnel. An admin can set 1, 2, 3 or 5 from the bot;
   the database contract permits up to 10.

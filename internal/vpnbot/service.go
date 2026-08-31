@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"html"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/alexey-va/my-utils-api/internal/telegram"
 	"github.com/alexey-va/my-utils-api/internal/wireguard"
+	"github.com/alexey-va/my-utils-api/internal/workout"
 	"github.com/jackc/pgx/v5"
 	qrcode "github.com/skip2/go-qrcode"
 )
@@ -33,6 +35,7 @@ type WireGuard interface {
 	CreatePeer(context.Context, string, wireguard.CreatePeerRequest) (wireguard.PeerCredentials, error)
 	Credentials(context.Context, string, string) (wireguard.PeerCredentials, error)
 	Metrics(context.Context, string, string, string) (wireguard.Metrics, error)
+	RenamePeerForVPNBot(context.Context, string, string, int64, string) (wireguard.Peer, error)
 	ReissuePeerCredentialsForVPNBot(context.Context, string, string, int64) (wireguard.PeerCredentials, error)
 	DeletePeer(context.Context, string, string) error
 	DeletePeerForVPNBot(context.Context, string, string, int64) error
@@ -66,7 +69,15 @@ type Service struct {
 	admins                  map[int64]bool
 	commandMu               sync.Mutex
 	adminCommandsConfigured map[int64]bool
+	renameMu                sync.Mutex
+	pendingRenames          map[int64]pendingRename
 	newTunnelSuffix         func() (string, error)
+}
+
+type pendingRename struct {
+	PeerID    string
+	RelayID   string
+	MessageID int
 }
 
 var errTelegramDeliveryUnknown = errors.New("Telegram credential delivery result is unknown")
@@ -82,6 +93,7 @@ func NewService(config Config, store Repository, wg WireGuard, bot Messenger) *S
 	return &Service{
 		config: config, store: store, wg: wg, bot: bot, admins: admins,
 		adminCommandsConfigured: make(map[int64]bool, len(admins)),
+		pendingRenames:          make(map[int64]pendingRename),
 		newTunnelSuffix:         randomTunnelSuffix,
 	}
 }
@@ -145,6 +157,7 @@ func (s *Service) dispatchUser(ctx context.Context, message telegram.InboundMess
 	identity := identityFrom(message)
 	user, err := s.store.User(ctx, message.UserID)
 	if errors.Is(err, pgx.ErrNoRows) {
+		s.clearPendingRename(message.UserID)
 		if text != "/start" && text != "vpn:request" {
 			_, sendErr := s.bot.SendHTMLMessage(ctx, message.ChatID, "Нажми /start, чтобы отправить заявку на VPN.", "")
 			return sendErr
@@ -158,6 +171,9 @@ func (s *Service) dispatchUser(ctx context.Context, message telegram.InboundMess
 		return err
 	}
 	user.Identity = identity
+	if user.Status != StatusApproved {
+		s.clearPendingRename(user.TelegramUserID)
+	}
 	if (text == "/start" || text == "vpn:request") && user.Status == StatusRejected {
 		return s.requestAccess(ctx, identity)
 	}
@@ -171,7 +187,7 @@ func (s *Service) dispatchUser(ctx context.Context, message telegram.InboundMess
 		_, err := s.bot.SendHTMLMessage(ctx, user.ChatID, "Доступ к VPN-боту заблокирован администратором.", "")
 		return err
 	case StatusApproved:
-		return s.dispatchApproved(ctx, user, text, message.Callback)
+		return s.dispatchApproved(ctx, user, message, text)
 	default:
 		return fmt.Errorf("unsupported VPN bot status %q", user.Status)
 	}
@@ -199,7 +215,21 @@ func (s *Service) sendPending(ctx context.Context, chatID int64) error {
 	return err
 }
 
-func (s *Service) dispatchApproved(ctx context.Context, user User, text string, callback bool) error {
+func (s *Service) dispatchApproved(ctx context.Context, user User, message telegram.InboundMessage, text string) error {
+	if message.Callback && strings.HasPrefix(text, "vpn:rename-cancel:") {
+		peerID := strings.TrimPrefix(text, "vpn:rename-cancel:")
+		s.clearPendingRename(user.TelegramUserID)
+		return s.sendPeer(ctx, user, peerID, message.MessageID)
+	}
+	if message.Callback && strings.HasPrefix(text, "vpn:rename:") {
+		return s.beginRename(ctx, user, strings.TrimPrefix(text, "vpn:rename:"), message.MessageID)
+	}
+	if pending, ok := s.pendingRename(user.TelegramUserID); ok {
+		if !message.Callback && !strings.HasPrefix(text, "/") {
+			return s.renameTunnel(ctx, user, pending, text)
+		}
+		s.clearPendingRename(user.TelegramUserID)
+	}
 	switch {
 	case text == "/start", text == "/menu", text == "vpn:home", text == "":
 		return s.sendHome(ctx, user)
@@ -210,7 +240,11 @@ func (s *Service) dispatchApproved(ctx context.Context, user User, text string, 
 	case text == "vpn:create":
 		return s.createTunnel(ctx, user)
 	case strings.HasPrefix(text, "vpn:peer:"):
-		return s.sendPeer(ctx, user, strings.TrimPrefix(text, "vpn:peer:"))
+		messageID := 0
+		if message.Callback {
+			messageID = message.MessageID
+		}
+		return s.sendPeer(ctx, user, strings.TrimPrefix(text, "vpn:peer:"), messageID)
 	case strings.HasPrefix(text, "vpn:config:"):
 		return s.sendConfig(ctx, user, strings.TrimPrefix(text, "vpn:config:"))
 	case strings.HasPrefix(text, "vpn:qr:"):
@@ -220,12 +254,12 @@ func (s *Service) dispatchApproved(ctx context.Context, user User, text string, 
 	case strings.HasPrefix(text, "vpn:reissue-confirm:"):
 		peerID := strings.TrimPrefix(text, "vpn:reissue-confirm:")
 		return s.confirmReissue(ctx, user, peerID)
-	case callback && strings.HasPrefix(text, "vpn:reissue:"):
+	case message.Callback && strings.HasPrefix(text, "vpn:reissue:"):
 		return s.reissue(ctx, user, strings.TrimPrefix(text, "vpn:reissue:"))
 	case strings.HasPrefix(text, "vpn:delete-confirm:"):
 		peerID := strings.TrimPrefix(text, "vpn:delete-confirm:")
 		return s.confirmDelete(ctx, user, peerID)
-	case callback && strings.HasPrefix(text, "vpn:delete:"):
+	case message.Callback && strings.HasPrefix(text, "vpn:delete:"):
 		return s.deleteTunnel(ctx, user, strings.TrimPrefix(text, "vpn:delete:"))
 	default:
 		_, err := s.bot.SendHTMLMessage(ctx, user.ChatID, "Используй кнопки меню — VPN-бот не интерпретирует свободный текст.", "Меню:vpn:home")
@@ -327,7 +361,7 @@ func (s *Service) createTunnel(ctx context.Context, user User) error {
 	return s.deliverCredentials(ctx, user, credentials)
 }
 
-func (s *Service) sendPeer(ctx context.Context, user User, peerID string) error {
+func (s *Service) sendPeer(ctx context.Context, user User, peerID string, messageID int) error {
 	owner, err := s.store.Ownership(ctx, user.TelegramUserID, peerID)
 	if err != nil {
 		return s.notOwned(ctx, user.ChatID)
@@ -340,16 +374,115 @@ func (s *Service) sendPeer(ctx context.Context, user User, peerID string) error 
 		if peer.ID != peerID {
 			continue
 		}
-		handshake := "ещё не подключался"
-		if peer.LatestHandshakeAt != nil {
-			handshake = peer.LatestHandshakeAt.Local().Format("02.01 15:04")
+		text, buttons := peerCard(peer)
+		if messageID > 0 {
+			return s.bot.EditHTMLMessageWithButtons(ctx, user.ChatID, messageID, text, buttons)
 		}
-		text := fmt.Sprintf("<b>%s</b>\nIP: <code>%s</code>\nСтатус: <code>%s</code>\nПоследнее подключение: %s", html.EscapeString(peer.Name), html.EscapeString(peer.AssignedIP), enabledLabel(peer.Enabled), handshake)
-		buttons := fmt.Sprintf("QR:vpn:qr:%s,Файл .conf:vpn:config:%s;📊 Статистика:vpn:stats:%s;♻️ Перевыпустить:vpn:reissue-confirm:%s,🗑 Удалить:vpn:delete-confirm:%s;Назад:vpn:list", peerID, peerID, peerID, peerID, peerID)
 		_, err = s.bot.SendHTMLMessage(ctx, user.ChatID, text, buttons)
 		return err
 	}
 	return s.notOwned(ctx, user.ChatID)
+}
+
+func (s *Service) beginRename(ctx context.Context, user User, peerID string, messageID int) error {
+	owner, err := s.store.Ownership(ctx, user.TelegramUserID, peerID)
+	if err != nil {
+		return s.notOwned(ctx, user.ChatID)
+	}
+	pending := pendingRename{PeerID: peerID, RelayID: owner.RelayID, MessageID: messageID}
+	text, buttons := renamePrompt(peerID, "")
+	if messageID > 0 {
+		if err := s.bot.EditHTMLMessageWithButtons(ctx, user.ChatID, messageID, text, buttons); err != nil {
+			return err
+		}
+	} else {
+		messageID, err = s.bot.SendHTMLMessage(ctx, user.ChatID, text, buttons)
+		if err != nil {
+			return err
+		}
+		pending.MessageID = messageID
+	}
+	s.setPendingRename(user.TelegramUserID, pending)
+	return nil
+}
+
+func (s *Service) renameTunnel(ctx context.Context, user User, pending pendingRename, name string) error {
+	peer, err := s.wg.RenamePeerForVPNBot(ctx, pending.RelayID, pending.PeerID, user.TelegramUserID, name)
+	if err != nil {
+		var domainErr *workout.Error
+		if !errors.As(err, &domainErr) {
+			return err
+		}
+		switch domainErr.Status {
+		case http.StatusBadRequest:
+			return s.editRenamePrompt(ctx, user.ChatID, pending, "Название должно содержать от 1 до 120 символов и помещаться в одну строку.")
+		case http.StatusConflict:
+			if domainErr.Message == "Peer name already exists" {
+				return s.editRenamePrompt(ctx, user.ChatID, pending, "Туннель с таким названием уже существует. Попробуй другое.")
+			}
+			s.clearPendingRename(user.TelegramUserID)
+			_, sendErr := s.bot.SendHTMLMessage(ctx, user.ChatID, "Доступ к VPN изменился. Переименование отменено.", "Обновить:vpn:home")
+			return sendErr
+		case http.StatusNotFound:
+			s.clearPendingRename(user.TelegramUserID)
+			return s.notOwned(ctx, user.ChatID)
+		default:
+			return err
+		}
+	}
+	s.clearPendingRename(user.TelegramUserID)
+	text, buttons := peerCard(peer)
+	if pending.MessageID > 0 {
+		return s.bot.EditHTMLMessageWithButtons(ctx, user.ChatID, pending.MessageID, text, buttons)
+	}
+	_, err = s.bot.SendHTMLMessage(ctx, user.ChatID, text, buttons)
+	return err
+}
+
+func (s *Service) editRenamePrompt(ctx context.Context, chatID int64, pending pendingRename, validationMessage string) error {
+	text, buttons := renamePrompt(pending.PeerID, validationMessage)
+	if pending.MessageID > 0 {
+		return s.bot.EditHTMLMessageWithButtons(ctx, chatID, pending.MessageID, text, buttons)
+	}
+	_, err := s.bot.SendHTMLMessage(ctx, chatID, text, buttons)
+	return err
+}
+
+func (s *Service) pendingRename(userID int64) (pendingRename, bool) {
+	s.renameMu.Lock()
+	defer s.renameMu.Unlock()
+	pending, ok := s.pendingRenames[userID]
+	return pending, ok
+}
+
+func (s *Service) setPendingRename(userID int64, pending pendingRename) {
+	s.renameMu.Lock()
+	s.pendingRenames[userID] = pending
+	s.renameMu.Unlock()
+}
+
+func (s *Service) clearPendingRename(userID int64) {
+	s.renameMu.Lock()
+	delete(s.pendingRenames, userID)
+	s.renameMu.Unlock()
+}
+
+func peerCard(peer wireguard.Peer) (string, string) {
+	handshake := "ещё не подключался"
+	if peer.LatestHandshakeAt != nil {
+		handshake = peer.LatestHandshakeAt.Local().Format("02.01 15:04")
+	}
+	text := fmt.Sprintf("<b>%s</b>\nIP: <code>%s</code>\nСтатус: <code>%s</code>\nПоследнее подключение: %s", html.EscapeString(peer.Name), html.EscapeString(peer.AssignedIP), enabledLabel(peer.Enabled), handshake)
+	buttons := fmt.Sprintf("✏️ Переименовать:vpn:rename:%s;QR:vpn:qr:%s,Файл .conf:vpn:config:%s;📊 Статистика:vpn:stats:%s;♻️ Перевыпустить:vpn:reissue-confirm:%s,🗑 Удалить:vpn:delete-confirm:%s;Назад:vpn:list", peer.ID, peer.ID, peer.ID, peer.ID, peer.ID, peer.ID)
+	return text, buttons
+}
+
+func renamePrompt(peerID, validationMessage string) (string, string) {
+	text := "<b>Новое название туннеля</b>\nОтправь новое название одним сообщением — до 120 символов, без переноса строк."
+	if validationMessage != "" {
+		text += "\n\n" + html.EscapeString(validationMessage)
+	}
+	return text, fmt.Sprintf("Отмена:vpn:rename-cancel:%s", peerID)
 }
 
 func (s *Service) sendConfig(ctx context.Context, user User, peerID string) error {
@@ -591,12 +724,16 @@ func (s *Service) ownedPeers(ctx context.Context, telegramUserID int64) ([]PeerO
 }
 
 func (s *Service) dispatchAdmin(ctx context.Context, message telegram.InboundMessage, text string) error {
-	if adminTunnelCommand(text) {
+	_, renamePending := s.pendingRename(message.UserID)
+	if adminTunnelCommand(text) || (renamePending && !message.Callback && !strings.HasPrefix(text, "/")) {
 		user, err := s.store.EnsureAdmin(ctx, identityFrom(message))
 		if err != nil {
 			return err
 		}
-		return s.dispatchApproved(ctx, user, text, message.Callback)
+		return s.dispatchApproved(ctx, user, message, text)
+	}
+	if renamePending {
+		s.clearPendingRename(message.UserID)
 	}
 	switch {
 	case text == "/admin", text == "vpn:admin:home":
@@ -774,6 +911,7 @@ func adminTunnelCommand(text string) bool {
 	}
 	for _, prefix := range []string{
 		"vpn:peer:", "vpn:config:", "vpn:qr:", "vpn:stats:",
+		"vpn:rename:", "vpn:rename-cancel:",
 		"vpn:reissue-confirm:", "vpn:reissue:", "vpn:delete-confirm:", "vpn:delete:",
 	} {
 		if strings.HasPrefix(text, prefix) {
