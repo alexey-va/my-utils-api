@@ -246,3 +246,127 @@ func (b *blockRelayUpdateBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Co
 }
 
 func (*blockRelayUpdateBarrier) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func TestAddOwnershipRejectsNonApprovedUser(t *testing.T) {
+	pool, ctx := vpnBotTestPool(t)
+	store := NewStore(pool)
+	userID := time.Now().UnixNano() & 0x3fffffffffffffff
+	if _, _, err := store.RequestAccess(ctx, Identity{TelegramUserID: userID, ChatID: userID, DisplayName: "Pending"}); err != nil {
+		t.Fatal(err)
+	}
+	relayID, peerID := insertVPNBotPeer(t, pool, userID, false)
+
+	if err := store.AddOwnership(ctx, userID, relayID, peerID, false); err == nil {
+		t.Fatal("AddOwnership() error = nil for a pending user")
+	}
+	var owners int
+	var enabled bool
+	var revision int64
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM wireguard_vpn_bot_peer_owners WHERE peer_id=$1::uuid`, peerID).Scan(&owners); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT enabled FROM wireguard_peers WHERE id=$1::uuid`, peerID).Scan(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT desired_revision FROM wireguard_relays WHERE id=$1::uuid`, relayID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if owners != 0 || enabled || revision != 0 {
+		t.Fatalf("owners=%d enabled=%v revision=%d", owners, enabled, revision)
+	}
+}
+
+func TestAddOwnershipAtomicallyActivatesApprovedPeer(t *testing.T) {
+	pool, ctx := vpnBotTestPool(t)
+	store := NewStore(pool)
+	userID := time.Now().UnixNano() & 0x3fffffffffffffff
+	if _, _, err := store.RequestAccess(ctx, Identity{TelegramUserID: userID, ChatID: userID, DisplayName: "Approved"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApproveUser(ctx, userID, 7); err != nil {
+		t.Fatal(err)
+	}
+	relayID, peerID := insertVPNBotPeer(t, pool, userID, false)
+
+	if err := store.AddOwnership(ctx, userID, relayID, peerID, false); err != nil {
+		t.Fatal(err)
+	}
+	var enabled bool
+	var revision int64
+	if err := pool.QueryRow(ctx, `SELECT enabled FROM wireguard_peers WHERE id=$1::uuid`, peerID).Scan(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT desired_revision FROM wireguard_relays WHERE id=$1::uuid`, relayID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if !enabled || revision != 1 {
+		t.Fatalf("enabled=%v revision=%d, want enabled peer at revision 1", enabled, revision)
+	}
+}
+
+func TestSetStatusAtomicallyDisablesOwnedPeers(t *testing.T) {
+	pool, ctx := vpnBotTestPool(t)
+	store := NewStore(pool)
+	userID := time.Now().UnixNano() & 0x3fffffffffffffff
+	if _, _, err := store.RequestAccess(ctx, Identity{TelegramUserID: userID, ChatID: userID, DisplayName: "Blocked"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApproveUser(ctx, userID, 7); err != nil {
+		t.Fatal(err)
+	}
+	relayID, peerID := insertVPNBotPeer(t, pool, userID, true)
+	if _, err := pool.Exec(ctx, `INSERT INTO wireguard_vpn_bot_peer_owners(peer_id,telegram_user_id) VALUES($1::uuid,$2)`, peerID, userID); err != nil {
+		t.Fatal(err)
+	}
+
+	user, err := store.BlockUser(ctx, userID, 7)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var enabled bool
+	var revision int64
+	if err := pool.QueryRow(ctx, `SELECT enabled FROM wireguard_peers WHERE id=$1::uuid`, peerID).Scan(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT desired_revision FROM wireguard_relays WHERE id=$1::uuid`, relayID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if user.Status != StatusBlocked || enabled || revision != 1 {
+		t.Fatalf("user=%s enabled=%v revision=%d", user.Status, enabled, revision)
+	}
+}
+
+func vpnBotTestPool(t *testing.T) (*pgxpool.Pool, context.Context) {
+	t.Helper()
+	databaseURL := os.Getenv("TEST_POSTGRES_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_POSTGRES_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return pool, ctx
+}
+
+func insertVPNBotPeer(t *testing.T, pool *pgxpool.Pool, userID int64, enabled bool) (string, string) {
+	t.Helper()
+	ctx := context.Background()
+	var relayID, peerID string
+	name := fmt.Sprintf("VPN bot atomic test %d", userID)
+	if err := pool.QueryRow(ctx, `INSERT INTO wireguard_relays(id,name,public_endpoint,client_cidr,client_dns,interface_name,agent_token_hash,created_at,updated_at) VALUES(gen_random_uuid(),$1,'203.0.113.10:51820','10.89.0.0/29','1.1.1.1','wg-users','hash',now(),now()) RETURNING id::text`, name).Scan(&relayID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_peers WHERE relay_id=$1::uuid`, relayID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_relays WHERE id=$1::uuid`, relayID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_vpn_bot_audit_events WHERE actor_telegram_user_id=$1 OR target_telegram_user_id=$1`, userID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_vpn_bot_users WHERE telegram_user_id=$1`, userID)
+	})
+	if err := pool.QueryRow(ctx, `INSERT INTO wireguard_peers(id,relay_id,name,public_key,private_key_ciphertext,private_key_nonce,assigned_ip,enabled,created_at,updated_at) VALUES(gen_random_uuid(),$1::uuid,'Phone',$2,'cipher','nonce','10.89.0.2',$3,now(),now()) RETURNING id::text`, relayID, fmt.Sprintf("public-%d", userID), enabled).Scan(&peerID); err != nil {
+		t.Fatal(err)
+	}
+	return relayID, peerID
+}

@@ -248,6 +248,191 @@ func TestCreateRelayRejectsConcurrentCaseInsensitiveDuplicateNames(t *testing.T)
 	}
 }
 
+type wireGuardQueryBarrierContextKey struct{}
+
+type wireGuardQueryBarrier struct {
+	pattern     string
+	started     chan struct{}
+	release     chan struct{}
+	startedOnce sync.Once
+	releaseOnce sync.Once
+}
+
+func newWireGuardQueryBarrier(pattern string) *wireGuardQueryBarrier {
+	return &wireGuardQueryBarrier{pattern: pattern, started: make(chan struct{}), release: make(chan struct{})}
+}
+
+func (barrier *wireGuardQueryBarrier) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if ctx.Value(wireGuardQueryBarrierContextKey{}) == true && strings.Contains(data.SQL, barrier.pattern) {
+		barrier.startedOnce.Do(func() { close(barrier.started) })
+		<-barrier.release
+	}
+	return ctx
+}
+
+func (*wireGuardQueryBarrier) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func (barrier *wireGuardQueryBarrier) unblock() {
+	barrier.releaseOnce.Do(func() { close(barrier.release) })
+}
+
+func TestDesiredRevisionAndPeersUseOneSnapshot(t *testing.T) {
+	barrier := newWireGuardQueryBarrier("SELECT public_key,assigned_ip FROM wireguard_peers")
+	pool, service, relay, _ := tracedWireGuardFixture(t, barrier)
+	t.Cleanup(barrier.unblock)
+	if _, err := service.CreatePeer(context.Background(), relay.ID, CreatePeerRequest{Name: "First"}); err != nil {
+		t.Fatal(err)
+	}
+
+	type result struct {
+		state DesiredState
+		err   error
+	}
+	results := make(chan result, 1)
+	ctx := context.WithValue(context.Background(), wireGuardQueryBarrierContextKey{}, true)
+	go func() {
+		state, err := service.Desired(ctx, relay.ID)
+		results <- result{state: state, err: err}
+	}()
+	select {
+	case <-barrier.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Desired() did not reach the peer query")
+	}
+	if _, err := service.CreatePeer(context.Background(), relay.ID, CreatePeerRequest{Name: "Second"}); err != nil {
+		t.Fatal(err)
+	}
+	barrier.unblock()
+	got := <-results
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if got.state.Revision != 1 || len(got.state.Peers) != 1 {
+		t.Fatalf("Desired() mixed snapshots: revision=%d peers=%#v", got.state.Revision, got.state.Peers)
+	}
+	var revision int64
+	if err := pool.QueryRow(context.Background(), `SELECT desired_revision FROM wireguard_relays WHERE id=$1::uuid`, relay.ID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if revision != 2 {
+		t.Fatalf("persisted revision=%d, want 2", revision)
+	}
+}
+
+func TestSnapshotDoesNotMixPeersAndMetricsAcrossQueries(t *testing.T) {
+	barrier := newWireGuardQueryBarrier("FROM wireguard_peer_metric_samples m JOIN wireguard_peers")
+	pool, service, relay, now := tracedWireGuardFixture(t, barrier)
+	t.Cleanup(barrier.unblock)
+	first, err := service.CreatePeer(context.Background(), relay.ID, CreatePeerRequest{Name: "First"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	type result struct {
+		snapshot Snapshot
+		err      error
+	}
+	results := make(chan result, 1)
+	ctx := context.WithValue(context.Background(), wireGuardQueryBarrierContextKey{}, true)
+	go func() {
+		snapshot, err := service.Snapshot(ctx, relay.ID, "HOUR")
+		results <- result{snapshot: snapshot, err: err}
+	}()
+	select {
+	case <-barrier.started:
+	case <-time.After(3 * time.Second):
+		t.Fatal("Snapshot() did not reach the metric query")
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO wireguard_peer_metric_samples(id,peer_id,recorded_at,download_bytes,upload_bytes) VALUES(gen_random_uuid(),$1::uuid,$2,1,1)`, first.Peer.ID, now.Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	barrier.unblock()
+	got := <-results
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if len(got.snapshot.Peers) != 1 || len(got.snapshot.PeerMetrics) != 1 || got.snapshot.PeerMetrics[first.Peer.ID].Summary.DownloadBytes != 0 {
+		t.Fatalf("Snapshot() mixed snapshots: peers=%d metrics=%#v", len(got.snapshot.Peers), got.snapshot.PeerMetrics)
+	}
+}
+
+func TestHeartbeatRejectsAppliedRevisionRegressionWithoutInflatingTraffic(t *testing.T) {
+	pool, service, relay, now := tracedWireGuardFixture(t, nil)
+	peer, err := service.CreatePeer(context.Background(), relay.ID, CreatePeerRequest{Name: "Phone"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	service.clock = func() time.Time { return now.Add(time.Minute) }
+	newer := Heartbeat{
+		ServerPublicKey: *relay.ServerPublicKey, PublicEndpoint: relay.PublicEndpoint, AppliedRevision: 1,
+		Peers: []PeerCounter{{PublicKey: peer.Peer.PublicKey, ReceiveBytes: 200, TransmitBytes: 300}},
+	}
+	if err := service.Heartbeat(context.Background(), relay.ID, newer); err != nil {
+		t.Fatal(err)
+	}
+	service.clock = func() time.Time { return now.Add(2 * time.Minute) }
+	stale := newer
+	stale.AppliedRevision = 0
+	stale.Peers = []PeerCounter{{PublicKey: peer.Peer.PublicKey, ReceiveBytes: 100, TransmitBytes: 150}}
+	if err := service.Heartbeat(context.Background(), relay.ID, stale); err == nil {
+		t.Fatal("Heartbeat() accepted an applied revision regression")
+	}
+	var appliedRevision int64
+	var rawReceive, rawTransmit, totalReceive, totalTransmit int64
+	if err := pool.QueryRow(context.Background(), `SELECT relay.applied_revision,peer.raw_receive_bytes,peer.raw_transmit_bytes,peer.total_receive_bytes,peer.total_transmit_bytes FROM wireguard_relays relay JOIN wireguard_peers peer ON peer.relay_id=relay.id WHERE relay.id=$1::uuid AND peer.id=$2::uuid`, relay.ID, peer.Peer.ID).Scan(&appliedRevision, &rawReceive, &rawTransmit, &totalReceive, &totalTransmit); err != nil {
+		t.Fatal(err)
+	}
+	if appliedRevision != 1 || rawReceive != 200 || rawTransmit != 300 || totalReceive != 200 || totalTransmit != 300 {
+		t.Fatalf("applied=%d raw=%d/%d total=%d/%d", appliedRevision, rawReceive, rawTransmit, totalReceive, totalTransmit)
+	}
+}
+
+func tracedWireGuardFixture(t *testing.T, tracer pgx.QueryTracer) (*pgxpool.Pool, *Service, CreatedRelay, time.Time) {
+	t.Helper()
+	databaseURL := os.Getenv("TEST_POSTGRES_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_POSTGRES_URL is not set")
+	}
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.ConnConfig.Tracer = tracer
+	pool, err := pgxpool.NewWithConfig(context.Background(), config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	key := make([]byte, 32)
+	for index := range key {
+		key[index] = byte(index + 1)
+	}
+	cipher, err := NewCredentialsCipher(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(pool, cipher)
+	now := time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC)
+	service.clock = func() time.Time { return now }
+	relay, err := service.CreateRelay(context.Background(), CreateRelayRequest{
+		Name: fmt.Sprintf("WireGuard snapshot %d", time.Now().UnixNano()), PublicEndpoint: "203.0.113.10:51820",
+		ClientCIDR: "10.94.0.0/29", ClientDNS: "1.1.1.1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_peers WHERE relay_id=$1::uuid`, relay.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_relays WHERE id=$1::uuid`, relay.ID)
+	})
+	serverKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	if err := service.Heartbeat(context.Background(), relay.ID, Heartbeat{ServerPublicKey: serverKey, PublicEndpoint: relay.PublicEndpoint, AppliedRevision: 0}); err != nil {
+		t.Fatal(err)
+	}
+	relay.ServerPublicKey = &serverKey
+	return pool, service, relay, now
+}
+
 func TestPeerOrganizationRenameReorderAndDelete(t *testing.T) {
 	databaseURL := os.Getenv("TEST_POSTGRES_URL")
 	if databaseURL == "" {

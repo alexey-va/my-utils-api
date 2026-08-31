@@ -148,9 +148,11 @@ func (f *fakeRepository) RecordEvent(_ context.Context, _, _ int64, action, _ st
 
 type fakeWireGuard struct {
 	created       int
+	createdNames  []string
 	credentials   int
 	reissued      int
 	deleted       int
+	deleteErr     error
 	enabledCalls  []bool
 	enabledPeers  [][]string
 	enabledRelays []string
@@ -162,6 +164,7 @@ func (f *fakeWireGuard) ListPeers(context.Context, string, string) ([]wireguard.
 }
 func (f *fakeWireGuard) CreatePeer(_ context.Context, _ string, request wireguard.CreatePeerRequest) (wireguard.PeerCredentials, error) {
 	f.created++
+	f.createdNames = append(f.createdNames, request.Name)
 	peer := wireguard.Peer{ID: fmt.Sprintf("00000000-0000-0000-0000-%012d", 100+f.created), Name: request.Name, AssignedIP: fmt.Sprintf("10.89.0.%d", 1+f.created), Enabled: true, CreatedAt: time.Now()}
 	f.peers = append(f.peers, peer)
 	return wireguard.PeerCredentials{Peer: peer, ClientConfig: "[Interface]\nPrivateKey = secret", FileName: "phone.conf"}, nil
@@ -179,7 +182,7 @@ func (f *fakeWireGuard) ReissuePeerCredentials(context.Context, string, string) 
 }
 func (f *fakeWireGuard) DeletePeer(context.Context, string, string) error {
 	f.deleted++
-	return nil
+	return f.deleteErr
 }
 func (f *fakeWireGuard) SetPeerIDsEnabled(_ context.Context, relayID string, peerIDs []string, enabled bool) error {
 	f.enabledCalls = append(f.enabledCalls, enabled)
@@ -193,6 +196,8 @@ type fakeMessenger struct {
 	buttons      []string
 	photos       int
 	documents    int
+	photoErr     error
+	documentErr  error
 	commands     []telegram.BotCommand
 	chatCommands map[int64][]telegram.BotCommand
 }
@@ -204,11 +209,11 @@ func (f *fakeMessenger) SendHTMLMessage(_ context.Context, _ int64, text, button
 }
 func (f *fakeMessenger) SendProtectedPhoto(context.Context, int64, []byte, string) error {
 	f.photos++
-	return nil
+	return f.photoErr
 }
 func (f *fakeMessenger) SendProtectedDocument(context.Context, int64, []byte, string, string, string) error {
 	f.documents++
-	return nil
+	return f.documentErr
 }
 func (f *fakeMessenger) SetMyCommands(_ context.Context, commands []telegram.BotCommand) error {
 	f.commands = append([]telegram.BotCommand(nil), commands...)
@@ -391,6 +396,48 @@ func TestCreateCompensatesWhenAccessIsBlockedAfterDispatchRead(t *testing.T) {
 	}
 }
 
+func TestCreateSurfacesCleanupFailureAfterOwnershipRejection(t *testing.T) {
+	t.Parallel()
+	cleanupErr := errors.New("cleanup unavailable")
+	repo := &fakeRepository{
+		users:  map[int64]User{42: {Identity: Identity{TelegramUserID: 42, ChatID: 42}, Status: StatusApproved, PeerLimit: 2}},
+		owners: map[int64][]PeerOwnership{}, addOwnershipErr: ErrPeerLimitReached,
+	}
+	wg := &fakeWireGuard{deleteErr: cleanupErr}
+	service := NewService(Config{RelayID: "relay"}, repo, wg, &fakeMessenger{})
+	err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 42, UserID: 42, ChatType: "private", Text: "vpn:create"})
+	if !errors.Is(err, cleanupErr) {
+		t.Fatalf("Dispatch() error = %v, want cleanup failure", err)
+	}
+	if wg.created != 1 || wg.deleted != 1 || len(repo.owners[42]) != 0 {
+		t.Fatalf("created=%d deleted=%d owners=%#v", wg.created, wg.deleted, repo.owners[42])
+	}
+}
+
+func TestTunnelNamesStayUniqueAfterDeletingANonLastTunnel(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRepository{
+		users:  map[int64]User{42: {Identity: Identity{TelegramUserID: 42, ChatID: 42, DisplayName: "Bob"}, Status: StatusApproved, PeerLimit: 2}},
+		owners: map[int64][]PeerOwnership{},
+	}
+	wg := &fakeWireGuard{}
+	service := NewService(Config{RelayID: "relay"}, repo, wg, &fakeMessenger{})
+	message := telegram.InboundMessage{ChatID: 42, UserID: 42, ChatType: "private", FirstName: "Bob", Text: "vpn:create"}
+	for range 2 {
+		if err := service.Dispatch(context.Background(), message); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Model the database state after the first of two tunnels was deleted.
+	repo.owners[42] = append([]PeerOwnership(nil), repo.owners[42][1:]...)
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if len(wg.createdNames) != 3 || wg.createdNames[1] == wg.createdNames[2] {
+		t.Fatalf("created tunnel names = %#v", wg.createdNames)
+	}
+}
+
 func TestUserCannotReadAnotherUsersCredentials(t *testing.T) {
 	t.Parallel()
 	peerID := "00000000-0000-0000-0000-000000000101"
@@ -406,6 +453,27 @@ func TestUserCannotReadAnotherUsersCredentials(t *testing.T) {
 	}
 	if wg.credentials != 0 || bot.documents != 0 || !strings.Contains(bot.messages[0], "принадлежит другому") {
 		t.Fatalf("credentials=%d documents=%d messages=%#v", wg.credentials, bot.documents, bot.messages)
+	}
+}
+
+func TestFailedCredentialSendDoesNotClaimDeliveryInAudit(t *testing.T) {
+	t.Parallel()
+	peerID := "00000000-0000-0000-0000-000000000101"
+	repo := &fakeRepository{
+		users:  map[int64]User{42: {Identity: Identity{TelegramUserID: 42, ChatID: 42}, Status: StatusApproved, PeerLimit: 1}},
+		owners: map[int64][]PeerOwnership{42: {{PeerID: peerID, RelayID: "relay"}}},
+	}
+	wg := &fakeWireGuard{peers: []wireguard.Peer{{ID: peerID, Name: "Phone"}}}
+	bot := &fakeMessenger{documentErr: errors.New("telegram unavailable")}
+	service := NewService(Config{RelayID: "relay"}, repo, wg, bot)
+	err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 42, UserID: 42, ChatType: "private", Text: "vpn:config:" + peerID})
+	if err == nil {
+		t.Fatal("Dispatch() error = nil, want Telegram delivery failure")
+	}
+	for _, event := range repo.events {
+		if event == "CONFIG_DELIVERED" {
+			t.Fatalf("events = %#v, failed delivery must not be recorded as successful", repo.events)
+		}
 	}
 }
 
@@ -447,6 +515,27 @@ func TestReissueAndDeleteRequireConfirmationAndMutateOwnedPeer(t *testing.T) {
 	}
 	if wg.deleted != 1 {
 		t.Fatalf("deleted=%d", wg.deleted)
+	}
+}
+
+func TestDeleteActionRequiresCallbackOrigin(t *testing.T) {
+	t.Parallel()
+	peerID := "00000000-0000-0000-0000-000000000101"
+	repo := &fakeRepository{
+		users:  map[int64]User{42: {Identity: Identity{TelegramUserID: 42, ChatID: 42}, Status: StatusApproved, PeerLimit: 1}},
+		owners: map[int64][]PeerOwnership{42: {{PeerID: peerID, RelayID: "relay"}}},
+	}
+	wg := &fakeWireGuard{peers: []wireguard.Peer{{ID: peerID, Name: "Phone"}}}
+	bot := &fakeMessenger{}
+	service := NewService(Config{RelayID: "relay"}, repo, wg, bot)
+	err := service.Dispatch(context.Background(), telegram.InboundMessage{
+		ChatID: 42, UserID: 42, ChatType: "private", Text: "vpn:delete:" + peerID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if wg.deleted != 0 {
+		t.Fatalf("deleted=%d, ordinary text bypassed the confirmation button", wg.deleted)
 	}
 }
 
@@ -612,6 +701,24 @@ func TestBlockingAccountGroupsOwnedPeersByRelay(t *testing.T) {
 	}
 	if groupSizes["relay-a"] != 2 || groupSizes["relay-b"] != 1 {
 		t.Fatalf("groupSizes=%#v", groupSizes)
+	}
+}
+
+func TestStalePendingDecisionCannotOverwriteNewerApprovedStatus(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRepository{
+		users: map[int64]User{42: {
+			Identity: Identity{TelegramUserID: 42, ChatID: 42, DisplayName: "Bob"}, Status: StatusApproved, PeerLimit: 1,
+		}},
+	}
+	wg := &fakeWireGuard{}
+	bot := &fakeMessenger{}
+	service := NewService(Config{RelayID: "relay", AdminUserIDs: []int64{7}}, repo, wg, bot)
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 7, UserID: 7, ChatType: "private", Text: "vpn:admin:reject:42"}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.users[42].Status != StatusApproved {
+		t.Fatalf("status=%s, stale pending decision overwrote a newer approval", repo.users[42].Status)
 	}
 }
 
