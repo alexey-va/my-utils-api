@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/alexey-va/my-utils-api/internal/workout"
 	"github.com/jackc/pgx/v5"
@@ -145,6 +146,10 @@ func (s *Service) CreateRelay(ctx context.Context, body CreateRelayRequest) (Cre
 	now := s.now()
 	record, err := scanRelay(tx.QueryRow(ctx, `INSERT INTO wireguard_relays(id,name,public_endpoint,client_cidr,client_dns,interface_name,agent_token_hash,created_at,updated_at) VALUES(gen_random_uuid(),$1,$2,$3,$4,'wg-users',$5,$6,$6) RETURNING `+relayColumns, name, endpoint, cidr.String(), dns, tokenHash(token), now), now)
 	if err != nil {
+		var postgresError *pgconn.PgError
+		if errors.As(err, &postgresError) && postgresError.Code == "23505" && postgresError.ConstraintName == "idx_wireguard_relays_name_ci" {
+			return CreatedRelay{}, conflict("Relay name already exists")
+		}
 		return CreatedRelay{}, err
 	}
 	for sortOrder, category := range defaultPeerCategories {
@@ -771,11 +776,24 @@ func (s *Service) UpdateExitPreference(ctx context.Context, relayID string, body
 }
 
 func (s *Service) Desired(ctx context.Context, relayID string) (DesiredState, error) {
-	relay, err := s.relay(ctx, relayID)
+	// The revision and peer set are one desired-state snapshot. Under the
+	// default READ COMMITTED isolation, a peer mutation between these two reads
+	// could pair an old revision with a new peer set and make the agent report a
+	// revision it never actually applied. REPEATABLE READ keeps both reads on the
+	// same PostgreSQL snapshot without blocking writers.
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return DesiredState{}, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT public_key,assigned_ip FROM wireguard_peers WHERE relay_id=$1::uuid AND enabled ORDER BY assigned_ip ASC`, relayID)
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	relay, err := scanRelay(tx.QueryRow(ctx, `SELECT `+relayColumns+` FROM wireguard_relays WHERE id=$1::uuid`, relayID), s.now())
+	if errors.Is(err, pgx.ErrNoRows) {
+		return DesiredState{}, notFound("WireGuard relay not found")
+	}
+	if err != nil {
+		return DesiredState{}, err
+	}
+	rows, err := tx.Query(ctx, `SELECT public_key,assigned_ip FROM wireguard_peers WHERE relay_id=$1::uuid AND enabled ORDER BY assigned_ip ASC`, relayID)
 	if err != nil {
 		return DesiredState{}, err
 	}
@@ -789,7 +807,13 @@ func (s *Service) Desired(ctx context.Context, relayID string) (DesiredState, er
 		peer.AllowedIP += "/32"
 		result.Peers = append(result.Peers, peer)
 	}
-	return result, rows.Err()
+	if err := rows.Err(); err != nil {
+		return DesiredState{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return DesiredState{}, err
+	}
+	return result, nil
 }
 
 func (s *Service) Heartbeat(ctx context.Context, relayID string, body Heartbeat) error {
@@ -1304,7 +1328,7 @@ func relayStatus(relay Relay, now time.Time) string {
 }
 func requiredText(value, label string, max int) (string, error) {
 	v := strings.TrimSpace(value)
-	if v == "" || len(v) > max || strings.ContainsAny(v, "\r\n") {
+	if v == "" || utf8.RuneCountInString(v) > max || strings.ContainsAny(v, "\r\n") {
 		return "", badRequest(label + " is invalid")
 	}
 	return v, nil

@@ -236,7 +236,7 @@ func TestWireGuardSnapshotRouteReturnsOneDashboardPayload(t *testing.T) {
 		},
 	}}
 	router := NewRouter(Dependencies{Auth: fakeAuth{}, Settings: fakeSettings{}, WireGuard: service})
-	request := httptest.NewRequest(http.MethodGet, "/api/admin/wireguard/relays/relay-1/snapshot?range=WEEK", nil)
+	request := httptest.NewRequest(http.MethodGet, "/api/admin/wireguard/relays/"+testRelayID+"/snapshot?range=WEEK", nil)
 	request.Header.Set("Authorization", "Bearer ready-admin")
 	response := httptest.NewRecorder()
 
@@ -262,7 +262,7 @@ func TestWireGuardExitPreferenceRouteUpdatesRelay(t *testing.T) {
 
 	service := &wireGuardExitPreferenceService{}
 	router := NewRouter(Dependencies{Auth: fakeAuth{}, Settings: fakeSettings{}, WireGuard: service})
-	request := httptest.NewRequest(http.MethodPut, "/api/admin/wireguard/relays/relay-1/exit-preference", strings.NewReader(`{"preference":"SECONDARY"}`))
+	request := httptest.NewRequest(http.MethodPut, "/api/admin/wireguard/relays/"+testRelayID+"/exit-preference", strings.NewReader(`{"preference":"SECONDARY"}`))
 	request.Header.Set("Authorization", "Bearer ready-admin")
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -272,14 +272,14 @@ func TestWireGuardExitPreferenceRouteUpdatesRelay(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d, body=%s", response.Code, http.StatusOK, response.Body.String())
 	}
-	if service.relayID != "relay-1" || service.preference != "SECONDARY" {
+	if service.relayID != testRelayID || service.preference != "SECONDARY" {
 		t.Fatalf("update = relay %q preference %q", service.relayID, service.preference)
 	}
 	var relay wireguard.Relay
 	if err := json.Unmarshal(response.Body.Bytes(), &relay); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if relay.ID != "relay-1" || relay.ExitPreference != "SECONDARY" {
+	if relay.ID != testRelayID || relay.ExitPreference != "SECONDARY" {
 		t.Fatalf("relay = %#v", relay)
 	}
 }
@@ -289,7 +289,7 @@ func TestWireGuardPeerCategoryRouteCreatesPersistentRecord(t *testing.T) {
 
 	service := &wireGuardCategoryService{}
 	router := NewRouter(Dependencies{Auth: fakeAuth{}, Settings: fakeSettings{}, WireGuard: service})
-	request := httptest.NewRequest(http.MethodPost, "/api/admin/wireguard/relays/relay-1/categories", strings.NewReader(`{"name":"Личные"}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/admin/wireguard/relays/"+testRelayID+"/categories", strings.NewReader(`{"name":"Личные"}`))
 	request.Header.Set("Authorization", "Bearer ready-admin")
 	request.Header.Set("Content-Type", "application/json")
 	response := httptest.NewRecorder()
@@ -299,7 +299,7 @@ func TestWireGuardPeerCategoryRouteCreatesPersistentRecord(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("status = %d, want %d, body=%s", response.Code, http.StatusCreated, response.Body.String())
 	}
-	if service.relayID != "relay-1" || service.name != "Личные" {
+	if service.relayID != testRelayID || service.name != "Личные" {
 		t.Fatalf("create category = relay %q name %q", service.relayID, service.name)
 	}
 	var category wireguard.PeerCategory

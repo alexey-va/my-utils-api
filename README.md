@@ -137,6 +137,8 @@ OpenRouter, the workout agent, or free-text tool selection.
   download protected `.conf` files and QR codes, and view 30-day traffic totals.
 - The default limit is one tunnel. An admin can set 1, 2, 3 or 5 from the bot;
   the database contract permits up to 10.
+- Configured bot admins also have a personal “My tunnels” area. Their own
+  tunnel count is unlimited; user limits and approval checks remain unchanged.
 - Blocking a user disables every owned WireGuard peer. Re-approval enables the
   same peers again. All access, credential-delivery and mutation actions are
   recorded in the VPN-bot audit table without private key material.

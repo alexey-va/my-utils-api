@@ -3,12 +3,17 @@ package wireguard
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/alexey-va/my-utils-api/internal/workout"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -186,6 +191,63 @@ func TestControlPlaneProvisionHeartbeatAndCounters(t *testing.T) {
 	}
 }
 
+func TestCreateRelayRejectsConcurrentCaseInsensitiveDuplicateNames(t *testing.T) {
+	databaseURL := os.Getenv("TEST_POSTGRES_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_POSTGRES_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	service := NewService(pool, nil)
+	name := fmt.Sprintf("Concurrent relay %d", time.Now().UnixNano())
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_relays WHERE lower(name)=lower($1)`, name)
+	})
+
+	type result struct {
+		relay CreatedRelay
+		err   error
+	}
+	start := make(chan struct{})
+	results := make(chan result, 2)
+	for _, candidate := range []string{name, strings.ToUpper(name)} {
+		candidate := candidate
+		go func() {
+			<-start
+			relay, createErr := service.CreateRelay(ctx, CreateRelayRequest{
+				Name:           candidate,
+				PublicEndpoint: "203.0.113.10:51820",
+				ClientCIDR:     "10.95.0.0/29",
+				ClientDNS:      "1.1.1.1",
+			})
+			results <- result{relay: relay, err: createErr}
+		}()
+	}
+	close(start)
+	first, second := <-results, <-results
+
+	created, conflicts := 0, 0
+	for _, got := range []result{first, second} {
+		if got.err == nil {
+			created++
+			continue
+		}
+		var domainError *workout.Error
+		if errors.As(got.err, &domainError) && domainError.Status == http.StatusConflict {
+			conflicts++
+			continue
+		}
+		t.Fatalf("CreateRelay concurrent error = %v, want HTTP 409", got.err)
+	}
+	if created != 1 || conflicts != 1 {
+		t.Fatalf("concurrent results: created=%d conflicts=%d, values=%#v/%#v", created, conflicts, first, second)
+	}
+}
+
 func TestPeerOrganizationRenameReorderAndDelete(t *testing.T) {
 	databaseURL := os.Getenv("TEST_POSTGRES_URL")
 	if databaseURL == "" {
@@ -352,6 +414,106 @@ func TestPeerOrganizationRenameReorderAndDelete(t *testing.T) {
 	}
 }
 
+type desiredBarrierContextKey struct{}
+
+type desiredBarrierTracer struct {
+	started chan struct{}
+	release chan struct{}
+	once    sync.Once
+}
+
+func (tracer *desiredBarrierTracer) TraceQueryStart(ctx context.Context, _ *pgx.Conn, data pgx.TraceQueryStartData) context.Context {
+	if ctx.Value(desiredBarrierContextKey{}) == true && strings.Contains(data.SQL, "SELECT public_key,assigned_ip FROM wireguard_peers") {
+		tracer.once.Do(func() { close(tracer.started) })
+		<-tracer.release
+	}
+	return ctx
+}
+
+func (*desiredBarrierTracer) TraceQueryEnd(context.Context, *pgx.Conn, pgx.TraceQueryEndData) {}
+
+func TestDesiredRevisionAndPeersComeFromOneDatabaseSnapshot(t *testing.T) {
+	databaseURL := os.Getenv("TEST_POSTGRES_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_POSTGRES_URL is not set")
+	}
+	ctx := context.Background()
+	tracer := &desiredBarrierTracer{started: make(chan struct{}), release: make(chan struct{})}
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.ConnConfig.Tracer = tracer
+	pool, err := pgxpool.NewWithConfig(ctx, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	key := make([]byte, 32)
+	for index := range key {
+		key[index] = byte(index + 1)
+	}
+	cipher, err := NewCredentialsCipher(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(pool, cipher)
+	service.clock = func() time.Time { return time.Date(2026, time.August, 31, 12, 0, 0, 0, time.UTC) }
+	relay, err := service.CreateRelay(ctx, CreateRelayRequest{
+		Name: fmt.Sprintf("Desired snapshot %d", time.Now().UnixNano()), PublicEndpoint: "203.0.113.10:51820",
+		ClientCIDR: "10.94.0.0/29", ClientDNS: "1.1.1.1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_peers WHERE relay_id=$1::uuid`, relay.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_relays WHERE id=$1::uuid`, relay.ID)
+	})
+	serverKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	if err := service.Heartbeat(ctx, relay.ID, Heartbeat{
+		ServerPublicKey: serverKey, PublicEndpoint: relay.PublicEndpoint, AppliedRevision: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.CreatePeer(ctx, relay.ID, CreatePeerRequest{Name: "First"}); err != nil {
+		t.Fatal(err)
+	}
+
+	type desiredResult struct {
+		state DesiredState
+		err   error
+	}
+	result := make(chan desiredResult, 1)
+	desiredCtx := context.WithValue(ctx, desiredBarrierContextKey{}, true)
+	go func() {
+		state, desiredErr := service.Desired(desiredCtx, relay.ID)
+		result <- desiredResult{state: state, err: desiredErr}
+	}()
+	select {
+	case <-tracer.started:
+	case <-time.After(2 * time.Second):
+		close(tracer.release)
+		t.Fatal("Desired() did not reach the peer query")
+	}
+	if _, err := service.CreatePeer(ctx, relay.ID, CreatePeerRequest{Name: "Second"}); err != nil {
+		close(tracer.release)
+		t.Fatal(err)
+	}
+	close(tracer.release)
+	got := <-result
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	if got.state.Revision != 1 || len(got.state.Peers) != 1 {
+		t.Fatalf("Desired() mixed revisions: revision=%d peers=%#v", got.state.Revision, got.state.Peers)
+	}
+	fresh, err := service.Desired(ctx, relay.ID)
+	if err != nil || fresh.Revision != 2 || len(fresh.Peers) != 2 {
+		t.Fatalf("fresh Desired() = %#v, %v", fresh, err)
+	}
+}
+
 func TestDeletePeerDoesNotWaitForHeartbeatRetentionCleanup(t *testing.T) {
 	databaseURL := os.Getenv("TEST_POSTGRES_URL")
 	if databaseURL == "" {
@@ -465,5 +627,91 @@ func TestDeletePeerDoesNotWaitForHeartbeatRetentionCleanup(t *testing.T) {
 	}
 	if oldMacCount != 0 {
 		t.Fatalf("oldmac row count after delete = %d, want 0", oldMacCount)
+	}
+}
+
+func TestDeletePeerBoundsSamePeerMetricCascadeLockAndSucceedsAfterRelease(t *testing.T) {
+	databaseURL := os.Getenv("TEST_POSTGRES_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_POSTGRES_URL is not set")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	key := make([]byte, 32)
+	for index := range key {
+		key[index] = byte(index + 1)
+	}
+	cipher, err := NewCredentialsCipher(base64.StdEncoding.EncodeToString(key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(pool, cipher)
+	now := time.Date(2026, time.August, 31, 13, 0, 0, 0, time.UTC)
+	service.clock = func() time.Time { return now }
+	relay, err := service.CreateRelay(ctx, CreateRelayRequest{
+		Name: fmt.Sprintf("Same-peer cascade %d", time.Now().UnixNano()), PublicEndpoint: "203.0.113.12:51820",
+		ClientCIDR: "10.96.0.0/29", ClientDNS: "1.1.1.1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_peers WHERE relay_id=$1::uuid`, relay.ID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_relays WHERE id=$1::uuid`, relay.ID)
+	})
+	serverKey := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	if err := service.Heartbeat(ctx, relay.ID, Heartbeat{
+		ServerPublicKey: serverKey, PublicEndpoint: relay.PublicEndpoint, AppliedRevision: 0,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	created, err := service.CreatePeer(ctx, relay.ID, CreatePeerRequest{Name: "Contended peer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sampleID string
+	if err := pool.QueryRow(ctx, `INSERT INTO wireguard_peer_metric_samples(id,peer_id,recorded_at,download_bytes,upload_bytes) VALUES(gen_random_uuid(),$1::uuid,$2,0,0) RETURNING id::text`, created.Peer.ID, now).Scan(&sampleID); err != nil {
+		t.Fatal(err)
+	}
+	blocker, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = blocker.Rollback(context.Background()) })
+	if _, err := blocker.Exec(ctx, `SELECT id FROM wireguard_peer_metric_samples WHERE id=$1::uuid FOR UPDATE`, sampleID); err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	deleteCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+	err = service.DeletePeer(deleteCtx, relay.ID, created.Peer.ID)
+	cancel()
+	elapsed := time.Since(started)
+	var domainError *workout.Error
+	if !errors.As(err, &domainError) || domainError.Status != http.StatusConflict {
+		t.Fatalf("contended DeletePeer error = %v, want HTTP 409", err)
+	}
+	if elapsed > 7*time.Second {
+		t.Fatalf("contended DeletePeer took %v, want bounded lock wait", elapsed)
+	}
+	if err := blocker.Commit(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DeletePeer(ctx, relay.ID, created.Peer.ID); err != nil {
+		t.Fatalf("DeletePeer after releasing same-peer metric lock: %v", err)
+	}
+	var peerCount, sampleCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM wireguard_peers WHERE id=$1::uuid`, created.Peer.ID).Scan(&peerCount); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM wireguard_peer_metric_samples WHERE id=$1::uuid`, sampleID).Scan(&sampleCount); err != nil {
+		t.Fatal(err)
+	}
+	if peerCount != 0 || sampleCount != 0 {
+		t.Fatalf("cascade cleanup after delete: peers=%d samples=%d", peerCount, sampleCount)
 	}
 }

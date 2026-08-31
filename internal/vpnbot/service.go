@@ -31,18 +31,20 @@ type WireGuard interface {
 	Metrics(context.Context, string, string, string) (wireguard.Metrics, error)
 	ReissuePeerCredentials(context.Context, string, string) (wireguard.PeerCredentials, error)
 	DeletePeer(context.Context, string, string) error
-	SetPeerIDsEnabled(context.Context, string, []string, bool) error
 }
 
 type Repository interface {
 	User(context.Context, int64) (User, error)
+	EnsureAdmin(context.Context, Identity) (User, error)
 	RequestAccess(context.Context, Identity) (User, bool, error)
 	TouchIdentity(context.Context, Identity) error
 	ListUsers(context.Context, int) ([]User, error)
-	SetStatus(context.Context, int64, int64, Status) (User, error)
+	ApproveUser(context.Context, int64, int64) (User, error)
+	RejectUser(context.Context, int64, int64) (User, error)
+	BlockUser(context.Context, int64, int64) (User, error)
 	SetPeerLimit(context.Context, int64, int) (User, error)
 	OwnedPeers(context.Context, int64) ([]PeerOwnership, error)
-	AddOwnership(context.Context, int64, string, string) error
+	AddOwnership(context.Context, int64, string, string, bool) error
 	Ownership(context.Context, int64, string) (PeerOwnership, error)
 	RecordEvent(context.Context, int64, int64, string, string, map[string]any) error
 }
@@ -119,6 +121,8 @@ func (s *Service) ensureAdminCommands(ctx context.Context, adminID int64) {
 	commands := []telegram.BotCommand{
 		{Command: "start", Description: "Открыть админ-меню VPN"},
 		{Command: "admin", Description: "Администрирование доступа"},
+		{Command: "tunnels", Description: "Мои туннели без лимита"},
+		{Command: "help", Description: "Инструкция по установке"},
 	}
 	if err := s.bot.SetMyCommandsForChat(ctx, adminID, commands); err != nil {
 		slog.WarnContext(ctx, "VPN bot admin command menu setup failed", "admin_id", adminID, "error", err)
@@ -227,7 +231,7 @@ func (s *Service) sendHome(ctx context.Context, user User) error {
 	if err != nil {
 		return err
 	}
-	text := fmt.Sprintf("<b>VPN</b>\nТуннелей: <code>%d из %d</code>\n\nЗдесь нет ИИ: все операции выполняются только по кнопкам.", len(owned), user.PeerLimit)
+	text := fmt.Sprintf("<b>VPN</b>\nТуннелей: <code>%s</code>\n\nЗдесь нет ИИ: все операции выполняются только по кнопкам.", s.tunnelCountLabel(user, len(owned)))
 	buttons := "Мои туннели:vpn:list,➕ Новый туннель:vpn:create;📖 Установка:vpn:help"
 	_, err = s.bot.SendHTMLMessage(ctx, user.ChatID, text, buttons)
 	return err
@@ -269,7 +273,7 @@ func (s *Service) sendTunnelList(ctx context.Context, user User) error {
 		}
 	}
 	rows = append(rows, "Меню:vpn:home")
-	_, err = s.bot.SendHTMLMessage(ctx, user.ChatID, fmt.Sprintf("<b>Мои туннели</b>\n<code>%d из %d</code>", len(owned), user.PeerLimit), strings.Join(rows, ";"))
+	_, err = s.bot.SendHTMLMessage(ctx, user.ChatID, fmt.Sprintf("<b>Мои туннели</b>\n<code>%s</code>", s.tunnelCountLabel(user, len(owned))), strings.Join(rows, ";"))
 	return err
 }
 
@@ -278,7 +282,8 @@ func (s *Service) createTunnel(ctx context.Context, user User) error {
 	if err != nil {
 		return err
 	}
-	if len(owned) >= user.PeerLimit {
+	unlimited := s.admins[user.TelegramUserID]
+	if !unlimited && len(owned) >= user.PeerLimit {
 		_, err := s.bot.SendHTMLMessage(ctx, user.ChatID, "Достигнут лимит туннелей. Администратор может увеличить его.", "Мои туннели:vpn:list")
 		return err
 	}
@@ -287,10 +292,14 @@ func (s *Service) createTunnel(ctx context.Context, user User) error {
 	if err != nil {
 		return err
 	}
-	if err := s.store.AddOwnership(ctx, user.TelegramUserID, s.config.RelayID, credentials.Peer.ID); err != nil {
+	if err := s.store.AddOwnership(ctx, user.TelegramUserID, s.config.RelayID, credentials.Peer.ID, unlimited); err != nil {
 		_ = s.wg.DeletePeer(context.WithoutCancel(ctx), s.config.RelayID, credentials.Peer.ID)
 		if errors.Is(err, ErrPeerLimitReached) {
 			_, sendErr := s.bot.SendHTMLMessage(ctx, user.ChatID, "Достигнут лимит туннелей. Администратор может увеличить его.", "Мои туннели:vpn:list")
+			return sendErr
+		}
+		if errors.Is(err, ErrAccessNotApproved) {
+			_, sendErr := s.bot.SendHTMLMessage(ctx, user.ChatID, "Доступ к VPN уже не одобрен. Новый туннель не создан.", "Меню:vpn:home")
 			return sendErr
 		}
 		return err
@@ -459,9 +468,16 @@ func (s *Service) ownedPeers(ctx context.Context, telegramUserID int64) ([]PeerO
 }
 
 func (s *Service) dispatchAdmin(ctx context.Context, message telegram.InboundMessage, text string) error {
+	if adminTunnelCommand(text) {
+		user, err := s.store.EnsureAdmin(ctx, identityFrom(message))
+		if err != nil {
+			return err
+		}
+		return s.dispatchApproved(ctx, user, text)
+	}
 	switch {
 	case text == "/admin", text == "vpn:admin:home":
-		_, err := s.bot.SendHTMLMessage(ctx, message.ChatID, "<b>VPN · администрирование</b>\nДоступ выдаётся только после твоего решения.", "Новые заявки:vpn:admin:pending;Все пользователи:vpn:admin:users")
+		_, err := s.bot.SendHTMLMessage(ctx, message.ChatID, "<b>VPN · администрирование</b>\nДоступ выдаётся только после твоего решения.", "Мои туннели:vpn:home;Новые заявки:vpn:admin:pending;Все пользователи:vpn:admin:users")
 		return err
 	case text == "vpn:admin:pending":
 		return s.sendAdminUsers(ctx, message.ChatID, true)
@@ -518,18 +534,20 @@ func (s *Service) sendAdminUser(ctx context.Context, chatID, userID int64) error
 	if err != nil {
 		return err
 	}
-	text := fmt.Sprintf("<b>%s</b>\nID: <code>%d</code>\nСтатус: <code>%s</code>\nТуннели: <code>%d из %d</code>", userLabel(user), user.TelegramUserID, statusLabel(user.Status), len(owned), user.PeerLimit)
+	text := fmt.Sprintf("<b>%s</b>\nID: <code>%d</code>\nСтатус: <code>%s</code>\nТуннели: <code>%s</code>", userLabel(user), user.TelegramUserID, statusLabel(user.Status), s.tunnelCountLabel(user, len(owned)))
 	rows := []string{}
-	if user.Status != StatusApproved {
-		rows = append(rows, fmt.Sprintf("✅ Одобрить:vpn:admin:approve:%d", userID))
+	if !s.admins[userID] {
+		if user.Status != StatusApproved {
+			rows = append(rows, fmt.Sprintf("✅ Одобрить:vpn:admin:approve:%d", userID))
+		}
+		if user.Status == StatusPending {
+			rows = append(rows, fmt.Sprintf("❌ Отклонить:vpn:admin:reject:%d", userID))
+		}
+		if user.Status != StatusBlocked {
+			rows = append(rows, fmt.Sprintf("⛔ Заблокировать:vpn:admin:block:%d", userID))
+		}
+		rows = append(rows, fmt.Sprintf("Лимит 1:vpn:admin:limit:%d:1,Лимит 2:vpn:admin:limit:%d:2;Лимит 3:vpn:admin:limit:%d:3,Лимит 5:vpn:admin:limit:%d:5", userID, userID, userID, userID))
 	}
-	if user.Status == StatusPending {
-		rows = append(rows, fmt.Sprintf("❌ Отклонить:vpn:admin:reject:%d", userID))
-	}
-	if user.Status != StatusBlocked {
-		rows = append(rows, fmt.Sprintf("⛔ Заблокировать:vpn:admin:block:%d", userID))
-	}
-	rows = append(rows, fmt.Sprintf("Лимит 1:vpn:admin:limit:%d:1,Лимит 2:vpn:admin:limit:%d:2;Лимит 3:vpn:admin:limit:%d:3,Лимит 5:vpn:admin:limit:%d:5", userID, userID, userID, userID))
 	rows = append(rows, "Все пользователи:vpn:admin:users")
 	_, err = s.bot.SendHTMLMessage(ctx, chatID, text, strings.Join(rows, ";"))
 	return err
@@ -539,22 +557,27 @@ func (s *Service) adminSetStatus(ctx context.Context, adminID, userID int64, sta
 	if userID <= 0 {
 		return nil
 	}
-	owned, err := s.store.OwnedPeers(ctx, userID)
-	if err != nil {
-		return err
+	if s.admins[userID] {
+		// Configured administrators are the bot trust boundary: their own VPN
+		// access is always approved and unlimited, so crafted callbacks must not
+		// be able to block or downgrade them.
+		return s.sendAdminUser(ctx, adminID, userID)
 	}
-	if status == StatusApproved || status == StatusBlocked {
-		byRelay := make(map[string][]string)
-		for _, owner := range owned {
-			byRelay[owner.RelayID] = append(byRelay[owner.RelayID], owner.PeerID)
-		}
-		for relayID, peerIDs := range byRelay {
-			if err := s.wg.SetPeerIDsEnabled(ctx, relayID, peerIDs, status == StatusApproved); err != nil {
-				return err
-			}
-		}
+	var user User
+	var err error
+	if status == StatusBlocked {
+		// Access transitions update the bot account, every owned peer and the
+		// affected relay revisions in one database transaction while holding the
+		// same user row lock as AddOwnership. Concurrent creates and opposite
+		// access decisions therefore cannot leave status and peer state divergent.
+		user, err = s.store.BlockUser(ctx, userID, adminID)
+	} else if status == StatusApproved {
+		user, err = s.store.ApproveUser(ctx, userID, adminID)
+	} else if status == StatusRejected {
+		user, err = s.store.RejectUser(ctx, userID, adminID)
+	} else {
+		return errors.New("unsupported VPN bot user status")
 	}
-	user, err := s.store.SetStatus(ctx, userID, adminID, status)
 	if err != nil {
 		return err
 	}
@@ -584,6 +607,9 @@ func (s *Service) adminSetLimit(ctx context.Context, adminID int64, raw string) 
 	if err != nil || userID <= 0 {
 		return nil
 	}
+	if s.admins[userID] {
+		return s.sendAdminUser(ctx, adminID, userID)
+	}
 	if _, err := s.store.SetPeerLimit(ctx, userID, limit); err != nil {
 		return err
 	}
@@ -594,6 +620,29 @@ func (s *Service) adminSetLimit(ctx context.Context, adminID int64, raw string) 
 func (s *Service) notOwned(ctx context.Context, chatID int64) error {
 	_, err := s.bot.SendHTMLMessage(ctx, chatID, "Туннель не найден или принадлежит другому пользователю.", "Мои туннели:vpn:list")
 	return err
+}
+
+func (s *Service) tunnelCountLabel(user User, count int) string {
+	if s.admins[user.TelegramUserID] {
+		return fmt.Sprintf("%d · без лимита", count)
+	}
+	return fmt.Sprintf("%d из %d", count, user.PeerLimit)
+}
+
+func adminTunnelCommand(text string) bool {
+	switch text {
+	case "/tunnels", "/help", "/menu", "vpn:home", "vpn:list", "vpn:create", "vpn:help":
+		return true
+	}
+	for _, prefix := range []string{
+		"vpn:peer:", "vpn:config:", "vpn:qr:", "vpn:stats:",
+		"vpn:reissue-confirm:", "vpn:reissue:", "vpn:delete-confirm:", "vpn:delete:",
+	} {
+		if strings.HasPrefix(text, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Service) recordEvent(ctx context.Context, actorID, targetID int64, action, peerID string, details map[string]any) {

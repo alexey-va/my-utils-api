@@ -6,6 +6,7 @@ import (
 
 	"github.com/alexey-va/my-utils-api/internal/wireguard"
 	"github.com/go-chi/chi/v5"
+	"github.com/google/uuid"
 )
 
 func (a *API) registerWireGuardAdminRoutes(router chi.Router) {
@@ -15,23 +16,37 @@ func (a *API) registerWireGuardAdminRoutes(router chi.Router) {
 	router.Route("/api/admin/wireguard/relays", func(routes chi.Router) {
 		routes.Get("/", a.listWireGuardRelays)
 		routes.Post("/", a.createWireGuardRelay)
-		routes.Post("/{relayId}/rotate-token", a.rotateWireGuardToken)
-		routes.Delete("/{relayId}", a.deleteWireGuardRelay)
-		routes.Put("/{relayId}/exit-preference", a.updateWireGuardExitPreference)
-		routes.Get("/{relayId}/snapshot", a.wireGuardSnapshot)
-		routes.Get("/{relayId}/peers", a.listWireGuardPeers)
-		routes.Post("/{relayId}/peers", a.createWireGuardPeer)
-		routes.Put("/{relayId}/peers/order", a.reorderWireGuardPeers)
-		routes.Get("/{relayId}/categories", a.listWireGuardPeerCategories)
-		routes.Post("/{relayId}/categories", a.createWireGuardPeerCategory)
-		routes.Put("/{relayId}/categories/order", a.reorderWireGuardPeerCategories)
-		routes.Patch("/{relayId}/categories/{categoryId}", a.updateWireGuardPeerCategory)
-		routes.Delete("/{relayId}/categories/{categoryId}", a.deleteWireGuardPeerCategory)
-		routes.Get("/{relayId}/peers/{peerId}/credentials", a.wireGuardCredentials)
-		routes.Get("/{relayId}/peers/{peerId}/metrics", a.wireGuardMetrics)
-		routes.Patch("/{relayId}/peers/{peerId}", a.updateWireGuardPeer)
-		routes.Delete("/{relayId}/peers/{peerId}", a.deleteWireGuardPeer)
+		routes.Post("/{relayId}/rotate-token", validWireGuardUUIDs(a.rotateWireGuardToken, "relayId"))
+		routes.Delete("/{relayId}", validWireGuardUUIDs(a.deleteWireGuardRelay, "relayId"))
+		routes.Put("/{relayId}/exit-preference", validWireGuardUUIDs(a.updateWireGuardExitPreference, "relayId"))
+		routes.Get("/{relayId}/snapshot", validWireGuardUUIDs(a.wireGuardSnapshot, "relayId"))
+		routes.Get("/{relayId}/peers", validWireGuardUUIDs(a.listWireGuardPeers, "relayId"))
+		routes.Post("/{relayId}/peers", validWireGuardUUIDs(a.createWireGuardPeer, "relayId"))
+		routes.Put("/{relayId}/peers/order", validWireGuardUUIDs(a.reorderWireGuardPeers, "relayId"))
+		routes.Get("/{relayId}/categories", validWireGuardUUIDs(a.listWireGuardPeerCategories, "relayId"))
+		routes.Post("/{relayId}/categories", validWireGuardUUIDs(a.createWireGuardPeerCategory, "relayId"))
+		routes.Put("/{relayId}/categories/order", validWireGuardUUIDs(a.reorderWireGuardPeerCategories, "relayId"))
+		routes.Patch("/{relayId}/categories/{categoryId}", validWireGuardUUIDs(a.updateWireGuardPeerCategory, "relayId", "categoryId"))
+		routes.Delete("/{relayId}/categories/{categoryId}", validWireGuardUUIDs(a.deleteWireGuardPeerCategory, "relayId", "categoryId"))
+		routes.Get("/{relayId}/peers/{peerId}/credentials", validWireGuardUUIDs(a.wireGuardCredentials, "relayId", "peerId"))
+		routes.Get("/{relayId}/peers/{peerId}/metrics", validWireGuardUUIDs(a.wireGuardMetrics, "relayId", "peerId"))
+		routes.Patch("/{relayId}/peers/{peerId}", validWireGuardUUIDs(a.updateWireGuardPeer, "relayId", "peerId"))
+		routes.Delete("/{relayId}/peers/{peerId}", validWireGuardUUIDs(a.deleteWireGuardPeer, "relayId", "peerId"))
 	})
+}
+
+func validWireGuardUUIDs(next http.HandlerFunc, params ...string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		for _, param := range params {
+			value := chi.URLParam(request, param)
+			parsed, err := uuid.Parse(value)
+			if err != nil || !strings.EqualFold(value, parsed.String()) {
+				writeError(response, http.StatusBadRequest, "Invalid WireGuard identifier")
+				return
+			}
+		}
+		next(response, request)
+	}
 }
 func (a *API) updateWireGuardExitPreference(w http.ResponseWriter, r *http.Request) {
 	noStore(w)

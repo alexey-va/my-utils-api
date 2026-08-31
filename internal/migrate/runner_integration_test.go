@@ -37,8 +37,8 @@ func TestRunnerAppliesFlywaySchemaAndIsIdempotent(t *testing.T) {
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM flyway_schema_history WHERE success`).Scan(&successful); err != nil {
 		t.Fatalf("count schema history: %v", err)
 	}
-	if successful != 33 {
-		t.Errorf("successful migration rows = %d, want 33", successful)
+	if successful != 34 {
+		t.Errorf("successful migration rows = %d, want 34", successful)
 	}
 	for _, table := range []string{"users", "workout_entries", "app_settings", "agent_test_sandbox_states", "wireguard_peer_metric_samples", "wireguard_exit_health_samples", "wireguard_peer_categories", "wireguard_vpn_bot_users", "wireguard_vpn_bot_peer_owners", "wireguard_vpn_bot_audit_events"} {
 		var exists bool
@@ -96,6 +96,16 @@ func TestRunnerAppliesFlywaySchemaAndIsIdempotent(t *testing.T) {
 		  AND column_name IN ('category', 'sort_order')
 	`).Scan(&peerOrganizationColumns); err != nil || peerOrganizationColumns != 2 {
 		t.Errorf("V31 peer organization columns = %d, error = %v", peerOrganizationColumns, err)
+	}
+	var relayNameIndex bool
+	if err := pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM pg_indexes
+			WHERE schemaname = 'public'
+			  AND tablename = 'wireguard_relays'
+			  AND indexname = 'idx_wireguard_relays_name_ci'
+		)`).Scan(&relayNameIndex); err != nil || !relayNameIndex {
+		t.Errorf("V34 case-insensitive relay name index exists = %v, error = %v", relayNameIndex, err)
 	}
 }
 
