@@ -21,6 +21,7 @@ import (
 
 type Messenger interface {
 	SendHTMLMessage(context.Context, int64, string, string) (int, error)
+	EditHTMLMessageWithButtons(context.Context, int64, int, string, string) error
 	SendProtectedPhoto(context.Context, int64, []byte, string) error
 	SendProtectedDocument(context.Context, int64, []byte, string, string, string) error
 	SetMyCommands(context.Context, []telegram.BotCommand) error
@@ -606,31 +607,31 @@ func (s *Service) dispatchAdmin(ctx context.Context, message telegram.InboundMes
 	case text == "vpn:admin:users":
 		return s.sendAdminUsers(ctx, message.ChatID, false)
 	case strings.HasPrefix(text, "vpn:admin:user:"):
-		return s.sendAdminUser(ctx, message.ChatID, parseID(strings.TrimPrefix(text, "vpn:admin:user:")))
+		return s.sendAdminUser(ctx, message.ChatID, 0, parseID(strings.TrimPrefix(text, "vpn:admin:user:")))
 	case message.Callback && strings.HasPrefix(text, "vpn:admin:approve:"):
 		userID, expected, revision, ok := parseAdminDecision(strings.TrimPrefix(text, "vpn:admin:approve:"))
 		if !ok {
 			return s.sendAdminUsers(ctx, message.ChatID, false)
 		}
-		return s.adminSetStatus(ctx, message.UserID, userID, expected, revision, StatusApproved)
+		return s.adminSetStatus(ctx, message, userID, expected, revision, StatusApproved)
 	case message.Callback && strings.HasPrefix(text, "vpn:admin:reject:"):
 		userID, expected, revision, ok := parseAdminDecision(strings.TrimPrefix(text, "vpn:admin:reject:"))
 		if !ok {
 			return s.sendAdminUsers(ctx, message.ChatID, false)
 		}
-		return s.adminSetStatus(ctx, message.UserID, userID, expected, revision, StatusRejected)
+		return s.adminSetStatus(ctx, message, userID, expected, revision, StatusRejected)
 	case message.Callback && strings.HasPrefix(text, "vpn:admin:block:"):
 		userID, expected, revision, ok := parseAdminDecision(strings.TrimPrefix(text, "vpn:admin:block:"))
 		if !ok {
 			return s.sendAdminUsers(ctx, message.ChatID, false)
 		}
-		return s.adminSetStatus(ctx, message.UserID, userID, expected, revision, StatusBlocked)
+		return s.adminSetStatus(ctx, message, userID, expected, revision, StatusBlocked)
 	case message.Callback && strings.HasPrefix(text, "vpn:admin:limit:"):
 		userID, limit, revision, ok := parseAdminLimit(strings.TrimPrefix(text, "vpn:admin:limit:"))
 		if !ok {
 			return s.sendAdminUsers(ctx, message.ChatID, false)
 		}
-		return s.adminSetLimit(ctx, message.UserID, userID, limit, revision)
+		return s.adminSetLimit(ctx, message, userID, limit, revision)
 	default:
 		_, err := s.bot.SendHTMLMessage(ctx, message.ChatID, "Используй кнопки админ-меню — свободный текст ничего не меняет.", "Админ-меню:vpn:admin:home")
 		return err
@@ -660,7 +661,7 @@ func (s *Service) sendAdminUsers(ctx context.Context, chatID int64, pendingOnly 
 	return err
 }
 
-func (s *Service) sendAdminUser(ctx context.Context, chatID, userID int64) error {
+func (s *Service) sendAdminUser(ctx context.Context, chatID int64, messageID int, userID int64) error {
 	if userID <= 0 {
 		return nil
 	}
@@ -691,26 +692,27 @@ func (s *Service) sendAdminUser(ctx context.Context, chatID, userID int64) error
 			adminLimitCallback(userID, 5, user.AccessRevision)))
 	}
 	rows = append(rows, "Все пользователи:vpn:admin:users")
+	if messageID > 0 {
+		return s.bot.EditHTMLMessageWithButtons(ctx, chatID, messageID, text, strings.Join(rows, ";"))
+	}
 	_, err = s.bot.SendHTMLMessage(ctx, chatID, text, strings.Join(rows, ";"))
 	return err
 }
 
-func (s *Service) adminSetStatus(ctx context.Context, adminID, userID int64, expected Status, expectedRevision int64, status Status) error {
+func (s *Service) adminSetStatus(ctx context.Context, inbound telegram.InboundMessage, userID int64, expected Status, expectedRevision int64, status Status) error {
 	if userID <= 0 {
 		return nil
 	}
+	adminID := inbound.UserID
 	if s.admins[userID] {
 		// Configured administrators are the bot trust boundary: their own VPN
 		// access is always approved and unlimited, so crafted callbacks must not
 		// be able to block or downgrade them.
-		return s.sendAdminUser(ctx, adminID, userID)
+		return s.sendAdminUser(ctx, inbound.ChatID, inbound.MessageID, userID)
 	}
 	user, err := s.store.SetStatusIf(ctx, userID, adminID, expected, expectedRevision, status)
 	if errors.Is(err, ErrStaleDecision) {
-		if _, sendErr := s.bot.SendHTMLMessage(ctx, adminID, "Решение уже изменилось. Показываю актуальное состояние.", ""); sendErr != nil {
-			return sendErr
-		}
-		return s.sendAdminUser(ctx, adminID, userID)
+		return s.sendAdminUser(ctx, inbound.ChatID, inbound.MessageID, userID)
 	}
 	if err != nil {
 		return err
@@ -728,28 +730,26 @@ func (s *Service) adminSetStatus(ctx context.Context, adminID, userID int64, exp
 		slog.ErrorContext(ctx, "VPN bot user status notification failed after commit", "user_id", userID, "status", status, "error", sendErr)
 		_, _ = s.bot.SendHTMLMessage(ctx, adminID, "Статус применён, но уведомить пользователя не удалось.", "")
 	}
-	if err := s.sendAdminUser(ctx, adminID, userID); err != nil {
+	if err := s.sendAdminUser(ctx, inbound.ChatID, inbound.MessageID, userID); err != nil {
 		slog.WarnContext(ctx, "VPN bot admin status refresh failed after commit", "user_id", userID, "error", err)
 	}
 	return nil
 }
 
-func (s *Service) adminSetLimit(ctx context.Context, adminID, userID int64, limit int, expectedRevision int64) error {
+func (s *Service) adminSetLimit(ctx context.Context, inbound telegram.InboundMessage, userID int64, limit int, expectedRevision int64) error {
 	if userID <= 0 {
 		return nil
 	}
+	adminID := inbound.UserID
 	if s.admins[userID] {
-		return s.sendAdminUser(ctx, adminID, userID)
+		return s.sendAdminUser(ctx, inbound.ChatID, inbound.MessageID, userID)
 	}
 	if _, err := s.store.SetPeerLimitIf(ctx, userID, adminID, expectedRevision, limit); errors.Is(err, ErrStaleDecision) {
-		if _, sendErr := s.bot.SendHTMLMessage(ctx, adminID, "Настройки уже изменились. Показываю актуальное состояние.", ""); sendErr != nil {
-			return sendErr
-		}
-		return s.sendAdminUser(ctx, adminID, userID)
+		return s.sendAdminUser(ctx, inbound.ChatID, inbound.MessageID, userID)
 	} else if err != nil {
 		return err
 	}
-	if err := s.sendAdminUser(ctx, adminID, userID); err != nil {
+	if err := s.sendAdminUser(ctx, inbound.ChatID, inbound.MessageID, userID); err != nil {
 		slog.WarnContext(ctx, "VPN bot admin limit refresh failed after commit", "user_id", userID, "limit", limit, "error", err)
 	}
 	return nil

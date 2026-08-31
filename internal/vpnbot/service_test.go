@@ -269,6 +269,7 @@ func (f *fakeWireGuard) SetPeerIDsEnabled(_ context.Context, relayID string, pee
 type fakeMessenger struct {
 	messages     []string
 	buttons      []string
+	edits        []editedMessage
 	photos       int
 	documents    int
 	photoErr     error
@@ -277,10 +278,21 @@ type fakeMessenger struct {
 	chatCommands map[int64][]telegram.BotCommand
 }
 
+type editedMessage struct {
+	chatID    int64
+	messageID int
+	text      string
+	buttons   string
+}
+
 func (f *fakeMessenger) SendHTMLMessage(_ context.Context, _ int64, text, buttons string) (int, error) {
 	f.messages = append(f.messages, text)
 	f.buttons = append(f.buttons, buttons)
 	return len(f.messages), nil
+}
+func (f *fakeMessenger) EditHTMLMessageWithButtons(_ context.Context, chatID int64, messageID int, text, buttons string) error {
+	f.edits = append(f.edits, editedMessage{chatID: chatID, messageID: messageID, text: text, buttons: buttons})
+	return nil
 }
 func (f *fakeMessenger) SendProtectedPhoto(context.Context, int64, []byte, string) error {
 	f.photos++
@@ -757,6 +769,35 @@ func TestAdminFreeTextCannotTriggerMutation(t *testing.T) {
 	}
 }
 
+func TestChangingAdminUserSettingsUpdatesExistingCard(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRepository{users: map[int64]User{42: {
+		Identity: Identity{TelegramUserID: 42, ChatID: 42, DisplayName: "Bob"},
+		Status:   StatusApproved, AccessRevision: 1, PeerLimit: 1,
+	}}}
+	bot := &fakeMessenger{}
+	service := NewService(Config{AdminUserIDs: []int64{7}}, repo, &fakeWireGuard{}, bot)
+
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 7, UserID: 7, ChatType: "private", Text: "vpn:admin:user:42"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(bot.messages) != 1 || !strings.Contains(bot.messages[0], "0 из 1") {
+		t.Fatalf("initial card=%#v", bot.messages)
+	}
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 7, UserID: 7, MessageID: 1, ChatType: "private", Text: adminLimitCallback(42, 5, 1), Callback: true}); err != nil {
+		t.Fatal(err)
+	}
+	if repo.users[42].PeerLimit != 5 {
+		t.Fatalf("peer limit=%d", repo.users[42].PeerLimit)
+	}
+	if len(bot.messages) != 1 {
+		t.Fatalf("settings change sent a duplicate card: %#v", bot.messages)
+	}
+	if len(bot.edits) != 1 || bot.edits[0].chatID != 7 || bot.edits[0].messageID != 1 || !strings.Contains(bot.edits[0].text, "0 из 5") || !strings.Contains(bot.edits[0].buttons, adminLimitCallback(42, 1, 2)) {
+		t.Fatalf("updated card=%#v", bot.edits)
+	}
+}
+
 func TestBlockingAccountUsesAtomicRepositoryTransition(t *testing.T) {
 	t.Parallel()
 	repo := &fakeRepository{
@@ -905,14 +946,14 @@ func TestStalePendingDecisionCannotOverwriteNewerApprovedStatus(t *testing.T) {
 	wg := &fakeWireGuard{}
 	bot := &fakeMessenger{}
 	service := NewService(Config{RelayID: "relay", AdminUserIDs: []int64{7}}, repo, wg, bot)
-	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 7, UserID: 7, ChatType: "private", Text: "vpn:admin:reject:42:P:1", Callback: true}); err != nil {
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 7, UserID: 7, MessageID: 44, ChatType: "private", Text: "vpn:admin:reject:42:P:1", Callback: true}); err != nil {
 		t.Fatal(err)
 	}
 	if repo.users[42].Status != StatusApproved {
 		t.Fatalf("status=%s, stale pending decision overwrote a newer approval", repo.users[42].Status)
 	}
-	if len(bot.messages) < 2 || !strings.Contains(bot.messages[0], "уже изменилось") || !strings.Contains(bot.messages[1], "одобрен") {
-		t.Fatalf("stale decision messages=%#v", bot.messages)
+	if len(bot.messages) != 0 || len(bot.edits) != 1 || bot.edits[0].messageID != 44 || !strings.Contains(bot.edits[0].text, "одобрен") {
+		t.Fatalf("stale decision messages=%#v edits=%#v", bot.messages, bot.edits)
 	}
 }
 
@@ -951,20 +992,20 @@ func TestStaleAdminLimitCallbackCannotOverwriteNewerLimit(t *testing.T) {
 	}}}
 	bot := &fakeMessenger{}
 	service := NewService(Config{RelayID: "relay", AdminUserIDs: []int64{7}}, repo, &fakeWireGuard{}, bot)
-	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 7, UserID: 7, ChatType: "private", Text: adminLimitCallback(42, 5, 1), Callback: true}); err != nil {
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 7, UserID: 7, MessageID: 55, ChatType: "private", Text: adminLimitCallback(42, 5, 1), Callback: true}); err != nil {
 		t.Fatal(err)
 	}
 	if repo.users[42].PeerLimit != 5 || repo.users[42].AccessRevision != 2 {
 		t.Fatalf("fresh limit callback user=%#v", repo.users[42])
 	}
-	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 7, UserID: 7, ChatType: "private", Text: adminLimitCallback(42, 1, 1), Callback: true}); err != nil {
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 7, UserID: 7, MessageID: 55, ChatType: "private", Text: adminLimitCallback(42, 1, 1), Callback: true}); err != nil {
 		t.Fatal(err)
 	}
 	if repo.users[42].PeerLimit != 5 || repo.users[42].AccessRevision != 2 {
 		t.Fatalf("stale limit callback changed user=%#v", repo.users[42])
 	}
-	if len(bot.messages) < 3 || !strings.Contains(bot.messages[len(bot.messages)-2], "уже изменились") {
-		t.Fatalf("messages=%#v", bot.messages)
+	if len(bot.messages) != 0 || len(bot.edits) != 2 || bot.edits[1].messageID != 55 || !strings.Contains(bot.edits[1].text, "0 из 5") {
+		t.Fatalf("messages=%#v edits=%#v", bot.messages, bot.edits)
 	}
 }
 

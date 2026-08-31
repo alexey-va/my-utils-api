@@ -103,6 +103,33 @@ func TestEditHTMLMessageTreatsIdenticalContentAsSuccess(t *testing.T) {
 	}
 }
 
+func TestEditHTMLMessageWithButtonsUsesTelegramContract(t *testing.T) {
+	t.Parallel()
+	var request map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/botsecret/editMessageText" {
+			t.Fatalf("path = %q", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(`{"ok":true,"result":{"message_id":123}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("secret", server.URL, nil)
+	if err := client.EditHTMLMessageWithButtons(context.Background(), 42, 123, "<b>updated</b>", "One:one,Two:two"); err != nil {
+		t.Fatal(err)
+	}
+	if request["message_id"].(float64) != 123 || request["parse_mode"] != "HTML" {
+		t.Fatalf("request=%#v", request)
+	}
+	markup, ok := request["reply_markup"].(map[string]any)
+	if !ok || len(markup["inline_keyboard"].([]any)) != 1 {
+		t.Fatalf("markup=%#v", request["reply_markup"])
+	}
+}
+
 func TestDownloadFileResolvesTelegramPath(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

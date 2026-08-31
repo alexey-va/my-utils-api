@@ -110,7 +110,24 @@ func (c *Client) SendHTMLMessage(ctx context.Context, chatID int64, text, button
 }
 
 func (c *Client) EditHTMLMessage(ctx context.Context, chatID int64, messageID int, text string) error {
-	err := c.callJSON(ctx, "editMessageText", map[string]any{"chat_id": chatID, "message_id": messageID, "text": truncateRunes(text, messageMaxLength), "parse_mode": "HTML"}, nil)
+	return c.editHTMLMessage(ctx, chatID, messageID, text, nil)
+}
+
+func (c *Client) EditHTMLMessageWithButtons(ctx context.Context, chatID int64, messageID int, text, buttons string) error {
+	rows, err := ParseButtons(buttons)
+	if err != nil {
+		return err
+	}
+	markup := inlineMarkup{InlineKeyboard: rows}
+	return c.editHTMLMessage(ctx, chatID, messageID, text, &markup)
+}
+
+func (c *Client) editHTMLMessage(ctx context.Context, chatID int64, messageID int, text string, markup *inlineMarkup) error {
+	payload := map[string]any{"chat_id": chatID, "message_id": messageID, "text": truncateRunes(text, messageMaxLength), "parse_mode": "HTML"}
+	if markup != nil {
+		payload["reply_markup"] = markup
+	}
+	err := c.callJSON(ctx, "editMessageText", payload, nil)
 	var apiError *APIError
 	if errors.As(err, &apiError) && apiError.Code == http.StatusBadRequest && strings.Contains(strings.ToLower(apiError.Description), "message is not modified") {
 		return nil

@@ -29,6 +29,7 @@ func (f DispatchFunc) Dispatch(ctx context.Context, message InboundMessage) erro
 type InboundMessage struct {
 	ChatID    int64
 	UserID    int64
+	MessageID int
 	ChatType  string
 	Callback  bool
 	Username  string
@@ -116,7 +117,7 @@ func (r *Runner) routeUpdate(update Update) {
 			return
 		}
 		_ = r.bot.AnswerCallback(r.ctx, callback.ID)
-		message := inboundMessage(callback.Message.Chat, *callback.From, strings.TrimSpace(callback.Data), nil)
+		message := inboundMessage(callback.Message.Chat, *callback.From, int(callback.Message.MessageID), strings.TrimSpace(callback.Data), nil)
 		message.Callback = true
 		r.enqueue(message)
 		return
@@ -130,20 +131,20 @@ func (r *Runner) routeUpdate(update Update) {
 	}
 	text := strings.TrimSpace(message.Text)
 	if text != "" {
-		r.enqueue(inboundMessage(message.Chat, *message.From, text, nil))
+		r.enqueue(inboundMessage(message.Chat, *message.From, int(message.MessageID), text, nil))
 		return
 	}
 	if message.Voice != nil && strings.TrimSpace(message.Voice.FileID) != "" {
 		voice := *message.Voice
-		r.enqueue(inboundMessage(message.Chat, *message.From, "", &voice))
+		r.enqueue(inboundMessage(message.Chat, *message.From, int(message.MessageID), "", &voice))
 		return
 	}
 	_, _ = r.bot.SendHTMLMessage(r.ctx, message.Chat.ID, "❌ Я понимаю только текстовые и голосовые сообщения.", "")
 }
 
-func inboundMessage(chat Chat, user User, text string, voice *Voice) InboundMessage {
+func inboundMessage(chat Chat, user User, messageID int, text string, voice *Voice) InboundMessage {
 	return InboundMessage{
-		ChatID: chat.ID, UserID: user.ID, ChatType: strings.TrimSpace(chat.Type),
+		ChatID: chat.ID, UserID: user.ID, MessageID: messageID, ChatType: strings.TrimSpace(chat.Type),
 		Username: strings.TrimSpace(user.Username), FirstName: strings.TrimSpace(user.FirstName), LastName: strings.TrimSpace(user.LastName),
 		Text: strings.TrimSpace(text), Voice: voice,
 	}
