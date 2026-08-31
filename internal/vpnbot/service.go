@@ -2,6 +2,8 @@ package vpnbot
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"html"
@@ -9,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/alexey-va/my-utils-api/internal/telegram"
 	"github.com/alexey-va/my-utils-api/internal/wireguard"
@@ -29,8 +32,9 @@ type WireGuard interface {
 	CreatePeer(context.Context, string, wireguard.CreatePeerRequest) (wireguard.PeerCredentials, error)
 	Credentials(context.Context, string, string) (wireguard.PeerCredentials, error)
 	Metrics(context.Context, string, string, string) (wireguard.Metrics, error)
-	ReissuePeerCredentials(context.Context, string, string) (wireguard.PeerCredentials, error)
+	ReissuePeerCredentialsForVPNBot(context.Context, string, string, int64) (wireguard.PeerCredentials, error)
 	DeletePeer(context.Context, string, string) error
+	DeletePeerForVPNBot(context.Context, string, string, int64) error
 }
 
 type Repository interface {
@@ -39,14 +43,13 @@ type Repository interface {
 	RequestAccess(context.Context, Identity) (User, bool, error)
 	TouchIdentity(context.Context, Identity) error
 	ListUsers(context.Context, int) ([]User, error)
-	ApproveUser(context.Context, int64, int64) (User, error)
-	RejectUser(context.Context, int64, int64) (User, error)
-	BlockUser(context.Context, int64, int64) (User, error)
-	SetPeerLimit(context.Context, int64, int) (User, error)
+	SetStatusIf(context.Context, int64, int64, Status, int64, Status) (User, error)
+	SetPeerLimitIf(context.Context, int64, int64, int64, int) (User, error)
 	OwnedPeers(context.Context, int64) ([]PeerOwnership, error)
 	AddOwnership(context.Context, int64, string, string, bool) error
 	Ownership(context.Context, int64, string) (PeerOwnership, error)
-	RecordEvent(context.Context, int64, int64, string, string, map[string]any) error
+	BeginApprovedDelivery(context.Context, int64, string, string) (PeerOwnership, string, error)
+	CompleteEvent(context.Context, string, string, map[string]any) error
 }
 
 type Config struct {
@@ -62,7 +65,10 @@ type Service struct {
 	admins                  map[int64]bool
 	commandMu               sync.Mutex
 	adminCommandsConfigured map[int64]bool
+	newTunnelSuffix         func() (string, error)
 }
+
+var errTelegramDeliveryUnknown = errors.New("Telegram credential delivery result is unknown")
 
 func NewService(config Config, store Repository, wg WireGuard, bot Messenger) *Service {
 	admins := make(map[int64]bool, len(config.AdminUserIDs))
@@ -75,6 +81,7 @@ func NewService(config Config, store Repository, wg WireGuard, bot Messenger) *S
 	return &Service{
 		config: config, store: store, wg: wg, bot: bot, admins: admins,
 		adminCommandsConfigured: make(map[int64]bool, len(admins)),
+		newTunnelSuffix:         randomTunnelSuffix,
 	}
 }
 
@@ -163,7 +170,7 @@ func (s *Service) dispatchUser(ctx context.Context, message telegram.InboundMess
 		_, err := s.bot.SendHTMLMessage(ctx, user.ChatID, "Доступ к VPN-боту заблокирован администратором.", "")
 		return err
 	case StatusApproved:
-		return s.dispatchApproved(ctx, user, text)
+		return s.dispatchApproved(ctx, user, text, message.Callback)
 	default:
 		return fmt.Errorf("unsupported VPN bot status %q", user.Status)
 	}
@@ -175,10 +182,9 @@ func (s *Service) requestAccess(ctx context.Context, identity Identity) error {
 		return err
 	}
 	if notify {
-		s.recordEvent(ctx, user.TelegramUserID, user.TelegramUserID, "ACCESS_REQUESTED", "", nil)
 		for adminID := range s.admins {
 			text := fmt.Sprintf("<b>Новая заявка на VPN</b>\n%s\n<code>%d</code>", userLabel(user), user.TelegramUserID)
-			buttons := fmt.Sprintf("✅ Одобрить:vpn:admin:approve:%d,❌ Отклонить:vpn:admin:reject:%d", user.TelegramUserID, user.TelegramUserID)
+			buttons := fmt.Sprintf("✅ Одобрить:%s,❌ Отклонить:%s", adminDecisionCallback("approve", user.TelegramUserID, StatusPending, user.AccessRevision), adminDecisionCallback("reject", user.TelegramUserID, StatusPending, user.AccessRevision))
 			if _, sendErr := s.bot.SendHTMLMessage(ctx, adminID, text, buttons); sendErr != nil {
 				slog.WarnContext(ctx, "VPN bot admin notification failed", "admin_id", adminID, "error", sendErr)
 			}
@@ -192,7 +198,7 @@ func (s *Service) sendPending(ctx context.Context, chatID int64) error {
 	return err
 }
 
-func (s *Service) dispatchApproved(ctx context.Context, user User, text string) error {
+func (s *Service) dispatchApproved(ctx context.Context, user User, text string, callback bool) error {
 	switch {
 	case text == "/start", text == "/menu", text == "vpn:home", text == "":
 		return s.sendHome(ctx, user)
@@ -213,12 +219,12 @@ func (s *Service) dispatchApproved(ctx context.Context, user User, text string) 
 	case strings.HasPrefix(text, "vpn:reissue-confirm:"):
 		peerID := strings.TrimPrefix(text, "vpn:reissue-confirm:")
 		return s.confirmReissue(ctx, user, peerID)
-	case strings.HasPrefix(text, "vpn:reissue:"):
+	case callback && strings.HasPrefix(text, "vpn:reissue:"):
 		return s.reissue(ctx, user, strings.TrimPrefix(text, "vpn:reissue:"))
 	case strings.HasPrefix(text, "vpn:delete-confirm:"):
 		peerID := strings.TrimPrefix(text, "vpn:delete-confirm:")
 		return s.confirmDelete(ctx, user, peerID)
-	case strings.HasPrefix(text, "vpn:delete:"):
+	case callback && strings.HasPrefix(text, "vpn:delete:"):
 		return s.deleteTunnel(ctx, user, strings.TrimPrefix(text, "vpn:delete:"))
 	default:
 		_, err := s.bot.SendHTMLMessage(ctx, user.ChatID, "Используй кнопки меню — VPN-бот не интерпретирует свободный текст.", "Меню:vpn:home")
@@ -287,26 +293,35 @@ func (s *Service) createTunnel(ctx context.Context, user User) error {
 		_, err := s.bot.SendHTMLMessage(ctx, user.ChatID, "Достигнут лимит туннелей. Администратор может увеличить его.", "Мои туннели:vpn:list")
 		return err
 	}
-	name := clean(fmt.Sprintf("%s · %d-%d", displayName(user.Identity), user.TelegramUserID, len(owned)+1), 120)
-	credentials, err := s.wg.CreatePeer(ctx, s.config.RelayID, wireguard.CreatePeerRequest{Name: name, Category: "VPN bot"})
+	suffix, err := s.newTunnelSuffix()
+	if err != nil {
+		return fmt.Errorf("generate VPN tunnel name: %w", err)
+	}
+	name := tunnelName(user, suffix)
+	disabled := false
+	credentials, err := s.wg.CreatePeer(ctx, s.config.RelayID, wireguard.CreatePeerRequest{Name: name, Category: "VPN bot", Enabled: &disabled})
 	if err != nil {
 		return err
 	}
 	if err := s.store.AddOwnership(ctx, user.TelegramUserID, s.config.RelayID, credentials.Peer.ID, unlimited); err != nil {
-		_ = s.wg.DeletePeer(context.WithoutCancel(ctx), s.config.RelayID, credentials.Peer.ID)
+		cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		cleanupErr := s.wg.DeletePeer(cleanupCtx, s.config.RelayID, credentials.Peer.ID)
+		cancel()
+		if cleanupErr != nil {
+			return errors.Join(err, fmt.Errorf("delete unowned disabled WireGuard peer: %w", cleanupErr))
+		}
 		if errors.Is(err, ErrPeerLimitReached) {
 			_, sendErr := s.bot.SendHTMLMessage(ctx, user.ChatID, "Достигнут лимит туннелей. Администратор может увеличить его.", "Мои туннели:vpn:list")
 			return sendErr
 		}
 		if errors.Is(err, ErrAccessNotApproved) {
-			_, sendErr := s.bot.SendHTMLMessage(ctx, user.ChatID, "Доступ к VPN уже не одобрен. Новый туннель не создан.", "Меню:vpn:home")
+			_, sendErr := s.bot.SendHTMLMessage(ctx, user.ChatID, "Доступ к VPN уже не одобрен. Новый туннель не создан. Обнови меню.", "Обновить:vpn:home")
 			return sendErr
 		}
 		return err
 	}
-	s.recordEvent(ctx, user.TelegramUserID, user.TelegramUserID, "TUNNEL_CREATED", credentials.Peer.ID, nil)
 	if _, err := s.bot.SendHTMLMessage(ctx, user.ChatID, fmt.Sprintf("<b>Туннель создан</b>\n%s · <code>%s</code>", html.EscapeString(credentials.Peer.Name), html.EscapeString(credentials.Peer.AssignedIP)), ""); err != nil {
-		return err
+		slog.WarnContext(ctx, "VPN bot tunnel-created message failed", "peer_id", credentials.Peer.ID, "error", err)
 	}
 	return s.deliverCredentials(ctx, user, credentials)
 }
@@ -337,33 +352,64 @@ func (s *Service) sendPeer(ctx context.Context, user User, peerID string) error 
 }
 
 func (s *Service) sendConfig(ctx context.Context, user User, peerID string) error {
-	owner, err := s.store.Ownership(ctx, user.TelegramUserID, peerID)
-	if err != nil {
+	details := map[string]any{"format": "conf"}
+	owner, eventID, err := s.beginApprovedDelivery(ctx, user.TelegramUserID, peerID, "conf")
+	if errors.Is(err, ErrAccessNotApproved) {
+		_, sendErr := s.bot.SendHTMLMessage(ctx, user.ChatID, "Доступ был отозван до выдачи конфигурации.", "Обновить:vpn:home")
+		return sendErr
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
 		return s.notOwned(ctx, user.ChatID)
 	}
-	credentials, err := s.wg.Credentials(ctx, owner.RelayID, peerID)
 	if err != nil {
 		return err
 	}
-	s.recordEvent(ctx, user.TelegramUserID, user.TelegramUserID, "CONFIG_DELIVERED", peerID, map[string]any{"format": "conf"})
-	return s.bot.SendProtectedDocument(ctx, user.ChatID, []byte(credentials.ClientConfig), credentials.FileName, "text/plain", "WireGuard-конфигурация. Не пересылай её другим людям.")
+	credentials, err := s.wg.Credentials(ctx, owner.RelayID, peerID)
+	if err != nil {
+		s.completeEvent(ctx, eventID, "CONFIG_DELIVERY_FAILED", details)
+		return err
+	}
+	if err := s.deliverDocument(ctx, eventID, user, credentials, "WireGuard-конфигурация. Не пересылай её другим людям."); err != nil {
+		if !errors.Is(err, errTelegramDeliveryUnknown) {
+			return err
+		}
+		slog.WarnContext(ctx, "VPN bot config delivery result is unknown", "peer_id", peerID, "error", err)
+		_, _ = s.bot.SendHTMLMessage(ctx, user.ChatID, "Telegram не подтвердил отправку файла. Проверь сообщения выше; если файла нет, запроси его ещё раз.", fmt.Sprintf("Открыть туннель:vpn:peer:%s", peerID))
+	}
+	return nil
 }
 
 func (s *Service) sendQR(ctx context.Context, user User, peerID string) error {
-	owner, err := s.store.Ownership(ctx, user.TelegramUserID, peerID)
-	if err != nil {
+	details := map[string]any{"format": "qr"}
+	owner, eventID, err := s.beginApprovedDelivery(ctx, user.TelegramUserID, peerID, "qr")
+	if errors.Is(err, ErrAccessNotApproved) {
+		_, sendErr := s.bot.SendHTMLMessage(ctx, user.ChatID, "Доступ был отозван до выдачи QR.", "Обновить:vpn:home")
+		return sendErr
+	}
+	if errors.Is(err, pgx.ErrNoRows) {
 		return s.notOwned(ctx, user.ChatID)
+	}
+	if err != nil {
+		return err
 	}
 	credentials, err := s.wg.Credentials(ctx, owner.RelayID, peerID)
 	if err != nil {
+		s.completeEvent(ctx, eventID, "CONFIG_DELIVERY_FAILED", details)
 		return err
 	}
 	png, err := qrcode.Encode(credentials.ClientConfig, qrcode.Medium, 768)
 	if err != nil {
+		s.completeEvent(ctx, eventID, "CONFIG_DELIVERY_FAILED", details)
 		return err
 	}
-	s.recordEvent(ctx, user.TelegramUserID, user.TelegramUserID, "CONFIG_DELIVERED", peerID, map[string]any{"format": "qr"})
-	return s.bot.SendProtectedPhoto(ctx, user.ChatID, png, "Сканируй в WireGuard. QR содержит приватный ключ — не пересылай его.")
+	if err := s.deliverPhoto(ctx, eventID, user, png, "Сканируй в WireGuard. QR содержит приватный ключ — не пересылай его."); err != nil {
+		if !errors.Is(err, errTelegramDeliveryUnknown) {
+			return err
+		}
+		slog.WarnContext(ctx, "VPN bot QR delivery result is unknown", "peer_id", peerID, "error", err)
+		_, _ = s.bot.SendHTMLMessage(ctx, user.ChatID, "Telegram не подтвердил отправку QR. Проверь сообщения выше; если QR нет, запроси его ещё раз.", fmt.Sprintf("Открыть туннель:vpn:peer:%s", peerID))
+	}
+	return nil
 }
 
 func (s *Service) sendStats(ctx context.Context, user User, peerID string) error {
@@ -396,13 +442,12 @@ func (s *Service) reissue(ctx context.Context, user User, peerID string) error {
 	if err != nil {
 		return s.notOwned(ctx, user.ChatID)
 	}
-	credentials, err := s.wg.ReissuePeerCredentials(ctx, owner.RelayID, peerID)
+	credentials, err := s.wg.ReissuePeerCredentialsForVPNBot(ctx, owner.RelayID, peerID, user.TelegramUserID)
 	if err != nil {
 		return err
 	}
-	s.recordEvent(ctx, user.TelegramUserID, user.TelegramUserID, "TUNNEL_REISSUED", peerID, nil)
 	if _, err := s.bot.SendHTMLMessage(ctx, user.ChatID, "Туннель перевыпущен. Отправляю новый QR и файл.", ""); err != nil {
-		return err
+		slog.WarnContext(ctx, "VPN bot reissue confirmation message failed", "peer_id", peerID, "error", err)
 	}
 	return s.deliverCredentials(ctx, user, credentials)
 }
@@ -422,27 +467,104 @@ func (s *Service) deleteTunnel(ctx context.Context, user User, peerID string) er
 	if err != nil {
 		return s.notOwned(ctx, user.ChatID)
 	}
-	if err := s.wg.DeletePeer(ctx, owner.RelayID, peerID); err != nil {
+	if err := s.wg.DeletePeerForVPNBot(ctx, owner.RelayID, peerID, user.TelegramUserID); err != nil {
 		return err
 	}
-	s.recordEvent(ctx, user.TelegramUserID, user.TelegramUserID, "TUNNEL_DELETED", peerID, nil)
-	_, err = s.bot.SendHTMLMessage(ctx, user.ChatID, "Туннель удалён.", "Мои туннели:vpn:list,Создать новый:vpn:create")
-	return err
+	if _, err := s.bot.SendHTMLMessage(ctx, user.ChatID, "Туннель удалён.", "Мои туннели:vpn:list,Создать новый:vpn:create"); err != nil {
+		slog.WarnContext(ctx, "VPN bot delete confirmation message failed after commit", "peer_id", peerID, "error", err)
+	}
+	return nil
 }
 
 func (s *Service) deliverCredentials(ctx context.Context, user User, credentials wireguard.PeerCredentials) error {
 	png, err := qrcode.Encode(credentials.ClientConfig, qrcode.Medium, 768)
+	qrDelivered := false
+	var deliveryErrors []error
 	if err != nil {
-		return err
+		slog.ErrorContext(ctx, "VPN bot QR encoding failed after tunnel mutation", "peer_id", credentials.Peer.ID, "error", err)
+	} else {
+		_, eventID, beginErr := s.beginApprovedDelivery(ctx, user.TelegramUserID, credentials.Peer.ID, "qr")
+		if beginErr != nil {
+			deliveryErrors = append(deliveryErrors, beginErr)
+			slog.ErrorContext(ctx, "VPN bot QR delivery authorization failed after tunnel mutation", "peer_id", credentials.Peer.ID, "error", beginErr)
+		} else if sendErr := s.deliverPhoto(ctx, eventID, user, png, "QR содержит приватный ключ. Не пересылай его."); sendErr != nil {
+			slog.ErrorContext(ctx, "VPN bot QR delivery failed after tunnel mutation", "peer_id", credentials.Peer.ID, "error", sendErr)
+		} else {
+			qrDelivered = true
+		}
 	}
-	if err := s.bot.SendProtectedPhoto(ctx, user.ChatID, png, "QR содержит приватный ключ. Не пересылай его."); err != nil {
-		return err
+	documentDelivered := false
+	_, eventID, beginErr := s.beginApprovedDelivery(ctx, user.TelegramUserID, credentials.Peer.ID, "conf")
+	if beginErr != nil {
+		deliveryErrors = append(deliveryErrors, beginErr)
+		slog.ErrorContext(ctx, "VPN bot config delivery authorization failed after tunnel mutation", "peer_id", credentials.Peer.ID, "error", beginErr)
+	} else if sendErr := s.deliverDocument(ctx, eventID, user, credentials, "WireGuard-конфигурация"); sendErr != nil {
+		slog.ErrorContext(ctx, "VPN bot config file delivery failed after tunnel mutation", "peer_id", credentials.Peer.ID, "error", sendErr)
+	} else {
+		documentDelivered = true
 	}
-	if err := s.bot.SendProtectedDocument(ctx, user.ChatID, []byte(credentials.ClientConfig), credentials.FileName, "text/plain", "WireGuard-конфигурация"); err != nil {
-		return err
+	if !qrDelivered || !documentDelivered {
+		message := "Файл .conf отправлен, но QR сейчас отправить не удалось."
+		buttons := fmt.Sprintf("Открыть туннель:vpn:peer:%s", credentials.Peer.ID)
+		if qrDelivered {
+			message = "QR уже отправлен, но файл .conf сейчас отправить не удалось."
+		} else if !documentDelivered {
+			message = "Туннель готов, но Telegram сейчас не принял QR и файл. Их можно запросить позже в меню туннеля."
+			if errorsContain(deliveryErrors, ErrAccessNotApproved) {
+				message = "Туннель готов, но доступ был отозван до выдачи конфигурации. Обнови меню."
+				buttons = "Обновить:vpn:home"
+			} else if errorsContain(deliveryErrors, pgx.ErrNoRows) {
+				message = "Туннель готов, но больше не привязан к аккаунту. Обнови список туннелей."
+				buttons = "Мои туннели:vpn:list"
+			} else if hasNonDeliveryError(deliveryErrors) {
+				message = "Туннель готов, но временная ошибка проверки доступа помешала отправить QR и файл. Их можно запросить позже."
+			}
+		}
+		_, _ = s.bot.SendHTMLMessage(ctx, user.ChatID, message, buttons)
+		return nil
 	}
-	s.recordEvent(ctx, user.TelegramUserID, user.TelegramUserID, "CONFIG_DELIVERED", credentials.Peer.ID, map[string]any{"format": "qr+conf"})
-	return s.sendHelp(ctx, user.ChatID)
+	if err := s.sendHelp(ctx, user.ChatID); err != nil {
+		slog.WarnContext(ctx, "VPN bot help delivery failed after credentials were delivered", "peer_id", credentials.Peer.ID, "error", err)
+	}
+	return nil
+}
+
+func errorsContain(values []error, target error) bool {
+	for _, value := range values {
+		if errors.Is(value, target) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasNonDeliveryError(values []error) bool {
+	for _, value := range values {
+		if !errors.Is(value, errTelegramDeliveryUnknown) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) deliverPhoto(ctx context.Context, eventID string, user User, png []byte, caption string) error {
+	details := map[string]any{"format": "qr"}
+	if err := s.bot.SendProtectedPhoto(ctx, user.ChatID, png, caption); err != nil {
+		s.completeEvent(ctx, eventID, "CONFIG_DELIVERY_UNKNOWN", details)
+		return errors.Join(errTelegramDeliveryUnknown, err)
+	}
+	s.completeEvent(ctx, eventID, "CONFIG_DELIVERED", details)
+	return nil
+}
+
+func (s *Service) deliverDocument(ctx context.Context, eventID string, user User, credentials wireguard.PeerCredentials, caption string) error {
+	details := map[string]any{"format": "conf"}
+	if err := s.bot.SendProtectedDocument(ctx, user.ChatID, []byte(credentials.ClientConfig), credentials.FileName, "text/plain", caption); err != nil {
+		s.completeEvent(ctx, eventID, "CONFIG_DELIVERY_UNKNOWN", details)
+		return errors.Join(errTelegramDeliveryUnknown, err)
+	}
+	s.completeEvent(ctx, eventID, "CONFIG_DELIVERED", details)
+	return nil
 }
 
 func (s *Service) ownedPeers(ctx context.Context, telegramUserID int64) ([]PeerOwnership, map[string]wireguard.Peer, error) {
@@ -473,7 +595,7 @@ func (s *Service) dispatchAdmin(ctx context.Context, message telegram.InboundMes
 		if err != nil {
 			return err
 		}
-		return s.dispatchApproved(ctx, user, text)
+		return s.dispatchApproved(ctx, user, text, message.Callback)
 	}
 	switch {
 	case text == "/admin", text == "vpn:admin:home":
@@ -485,14 +607,30 @@ func (s *Service) dispatchAdmin(ctx context.Context, message telegram.InboundMes
 		return s.sendAdminUsers(ctx, message.ChatID, false)
 	case strings.HasPrefix(text, "vpn:admin:user:"):
 		return s.sendAdminUser(ctx, message.ChatID, parseID(strings.TrimPrefix(text, "vpn:admin:user:")))
-	case strings.HasPrefix(text, "vpn:admin:approve:"):
-		return s.adminSetStatus(ctx, message.UserID, parseID(strings.TrimPrefix(text, "vpn:admin:approve:")), StatusApproved)
-	case strings.HasPrefix(text, "vpn:admin:reject:"):
-		return s.adminSetStatus(ctx, message.UserID, parseID(strings.TrimPrefix(text, "vpn:admin:reject:")), StatusRejected)
-	case strings.HasPrefix(text, "vpn:admin:block:"):
-		return s.adminSetStatus(ctx, message.UserID, parseID(strings.TrimPrefix(text, "vpn:admin:block:")), StatusBlocked)
-	case strings.HasPrefix(text, "vpn:admin:limit:"):
-		return s.adminSetLimit(ctx, message.UserID, strings.TrimPrefix(text, "vpn:admin:limit:"))
+	case message.Callback && strings.HasPrefix(text, "vpn:admin:approve:"):
+		userID, expected, revision, ok := parseAdminDecision(strings.TrimPrefix(text, "vpn:admin:approve:"))
+		if !ok {
+			return s.sendAdminUsers(ctx, message.ChatID, false)
+		}
+		return s.adminSetStatus(ctx, message.UserID, userID, expected, revision, StatusApproved)
+	case message.Callback && strings.HasPrefix(text, "vpn:admin:reject:"):
+		userID, expected, revision, ok := parseAdminDecision(strings.TrimPrefix(text, "vpn:admin:reject:"))
+		if !ok {
+			return s.sendAdminUsers(ctx, message.ChatID, false)
+		}
+		return s.adminSetStatus(ctx, message.UserID, userID, expected, revision, StatusRejected)
+	case message.Callback && strings.HasPrefix(text, "vpn:admin:block:"):
+		userID, expected, revision, ok := parseAdminDecision(strings.TrimPrefix(text, "vpn:admin:block:"))
+		if !ok {
+			return s.sendAdminUsers(ctx, message.ChatID, false)
+		}
+		return s.adminSetStatus(ctx, message.UserID, userID, expected, revision, StatusBlocked)
+	case message.Callback && strings.HasPrefix(text, "vpn:admin:limit:"):
+		userID, limit, revision, ok := parseAdminLimit(strings.TrimPrefix(text, "vpn:admin:limit:"))
+		if !ok {
+			return s.sendAdminUsers(ctx, message.ChatID, false)
+		}
+		return s.adminSetLimit(ctx, message.UserID, userID, limit, revision)
 	default:
 		_, err := s.bot.SendHTMLMessage(ctx, message.ChatID, "Используй кнопки админ-меню — свободный текст ничего не меняет.", "Админ-меню:vpn:admin:home")
 		return err
@@ -538,22 +676,26 @@ func (s *Service) sendAdminUser(ctx context.Context, chatID, userID int64) error
 	rows := []string{}
 	if !s.admins[userID] {
 		if user.Status != StatusApproved {
-			rows = append(rows, fmt.Sprintf("✅ Одобрить:vpn:admin:approve:%d", userID))
+			rows = append(rows, fmt.Sprintf("✅ Одобрить:%s", adminDecisionCallback("approve", userID, user.Status, user.AccessRevision)))
 		}
 		if user.Status == StatusPending {
-			rows = append(rows, fmt.Sprintf("❌ Отклонить:vpn:admin:reject:%d", userID))
+			rows = append(rows, fmt.Sprintf("❌ Отклонить:%s", adminDecisionCallback("reject", userID, user.Status, user.AccessRevision)))
 		}
 		if user.Status != StatusBlocked {
-			rows = append(rows, fmt.Sprintf("⛔ Заблокировать:vpn:admin:block:%d", userID))
+			rows = append(rows, fmt.Sprintf("⛔ Заблокировать:%s", adminDecisionCallback("block", userID, user.Status, user.AccessRevision)))
 		}
-		rows = append(rows, fmt.Sprintf("Лимит 1:vpn:admin:limit:%d:1,Лимит 2:vpn:admin:limit:%d:2;Лимит 3:vpn:admin:limit:%d:3,Лимит 5:vpn:admin:limit:%d:5", userID, userID, userID, userID))
+		rows = append(rows, fmt.Sprintf("Лимит 1:%s,Лимит 2:%s;Лимит 3:%s,Лимит 5:%s",
+			adminLimitCallback(userID, 1, user.AccessRevision),
+			adminLimitCallback(userID, 2, user.AccessRevision),
+			adminLimitCallback(userID, 3, user.AccessRevision),
+			adminLimitCallback(userID, 5, user.AccessRevision)))
 	}
 	rows = append(rows, "Все пользователи:vpn:admin:users")
 	_, err = s.bot.SendHTMLMessage(ctx, chatID, text, strings.Join(rows, ";"))
 	return err
 }
 
-func (s *Service) adminSetStatus(ctx context.Context, adminID, userID int64, status Status) error {
+func (s *Service) adminSetStatus(ctx context.Context, adminID, userID int64, expected Status, expectedRevision int64, status Status) error {
 	if userID <= 0 {
 		return nil
 	}
@@ -563,25 +705,16 @@ func (s *Service) adminSetStatus(ctx context.Context, adminID, userID int64, sta
 		// be able to block or downgrade them.
 		return s.sendAdminUser(ctx, adminID, userID)
 	}
-	var user User
-	var err error
-	if status == StatusBlocked {
-		// Access transitions update the bot account, every owned peer and the
-		// affected relay revisions in one database transaction while holding the
-		// same user row lock as AddOwnership. Concurrent creates and opposite
-		// access decisions therefore cannot leave status and peer state divergent.
-		user, err = s.store.BlockUser(ctx, userID, adminID)
-	} else if status == StatusApproved {
-		user, err = s.store.ApproveUser(ctx, userID, adminID)
-	} else if status == StatusRejected {
-		user, err = s.store.RejectUser(ctx, userID, adminID)
-	} else {
-		return errors.New("unsupported VPN bot user status")
+	user, err := s.store.SetStatusIf(ctx, userID, adminID, expected, expectedRevision, status)
+	if errors.Is(err, ErrStaleDecision) {
+		if _, sendErr := s.bot.SendHTMLMessage(ctx, adminID, "Решение уже изменилось. Показываю актуальное состояние.", ""); sendErr != nil {
+			return sendErr
+		}
+		return s.sendAdminUser(ctx, adminID, userID)
 	}
 	if err != nil {
 		return err
 	}
-	s.recordEvent(ctx, adminID, userID, "ACCESS_"+string(status), "", nil)
 	message := "Заявка отклонена."
 	buttons := "Отправить новую заявку:vpn:request"
 	if status == StatusApproved {
@@ -592,29 +725,34 @@ func (s *Service) adminSetStatus(ctx context.Context, adminID, userID int64, sta
 		buttons = ""
 	}
 	if _, sendErr := s.bot.SendHTMLMessage(ctx, user.ChatID, message, buttons); sendErr != nil {
-		return sendErr
+		slog.ErrorContext(ctx, "VPN bot user status notification failed after commit", "user_id", userID, "status", status, "error", sendErr)
+		_, _ = s.bot.SendHTMLMessage(ctx, adminID, "Статус применён, но уведомить пользователя не удалось.", "")
 	}
-	return s.sendAdminUser(ctx, adminID, userID)
+	if err := s.sendAdminUser(ctx, adminID, userID); err != nil {
+		slog.WarnContext(ctx, "VPN bot admin status refresh failed after commit", "user_id", userID, "error", err)
+	}
+	return nil
 }
 
-func (s *Service) adminSetLimit(ctx context.Context, adminID int64, raw string) error {
-	parts := strings.Split(raw, ":")
-	if len(parts) != 2 {
-		return nil
-	}
-	userID := parseID(parts[0])
-	limit, err := strconv.Atoi(parts[1])
-	if err != nil || userID <= 0 {
+func (s *Service) adminSetLimit(ctx context.Context, adminID, userID int64, limit int, expectedRevision int64) error {
+	if userID <= 0 {
 		return nil
 	}
 	if s.admins[userID] {
 		return s.sendAdminUser(ctx, adminID, userID)
 	}
-	if _, err := s.store.SetPeerLimit(ctx, userID, limit); err != nil {
+	if _, err := s.store.SetPeerLimitIf(ctx, userID, adminID, expectedRevision, limit); errors.Is(err, ErrStaleDecision) {
+		if _, sendErr := s.bot.SendHTMLMessage(ctx, adminID, "Настройки уже изменились. Показываю актуальное состояние.", ""); sendErr != nil {
+			return sendErr
+		}
+		return s.sendAdminUser(ctx, adminID, userID)
+	} else if err != nil {
 		return err
 	}
-	s.recordEvent(ctx, adminID, userID, "PEER_LIMIT_CHANGED", "", map[string]any{"limit": limit})
-	return s.sendAdminUser(ctx, adminID, userID)
+	if err := s.sendAdminUser(ctx, adminID, userID); err != nil {
+		slog.WarnContext(ctx, "VPN bot admin limit refresh failed after commit", "user_id", userID, "limit", limit, "error", err)
+	}
+	return nil
 }
 
 func (s *Service) notOwned(ctx context.Context, chatID int64) error {
@@ -645,12 +783,17 @@ func adminTunnelCommand(text string) bool {
 	return false
 }
 
-func (s *Service) recordEvent(ctx context.Context, actorID, targetID int64, action, peerID string, details map[string]any) {
-	if details == nil {
-		details = map[string]any{}
-	}
-	if err := s.store.RecordEvent(context.WithoutCancel(ctx), actorID, targetID, action, peerID, details); err != nil {
-		slog.WarnContext(ctx, "VPN bot audit write failed", "action", action, "error", err)
+func (s *Service) beginApprovedDelivery(ctx context.Context, telegramUserID int64, peerID, format string) (PeerOwnership, string, error) {
+	auditCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	return s.store.BeginApprovedDelivery(auditCtx, telegramUserID, peerID, format)
+}
+
+func (s *Service) completeEvent(ctx context.Context, eventID, action string, details map[string]any) {
+	auditCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := s.store.CompleteEvent(auditCtx, eventID, action, details); err != nil {
+		slog.ErrorContext(ctx, "VPN bot audit completion failed; durable attempted event remains", "event_id", eventID, "action", action, "error", err)
 	}
 }
 
@@ -729,6 +872,94 @@ func normalizeCommand(value string) string {
 func parseID(value string) int64 {
 	id, _ := strconv.ParseInt(strings.TrimSpace(value), 10, 64)
 	return id
+}
+
+func adminDecisionCallback(action string, userID int64, expected Status, revision int64) string {
+	return fmt.Sprintf("vpn:admin:%s:%d:%s:%s", action, userID, statusCode(expected), strconv.FormatInt(revision, 36))
+}
+
+func adminLimitCallback(userID int64, limit int, revision int64) string {
+	return fmt.Sprintf("vpn:admin:limit:%d:%d:%s", userID, limit, strconv.FormatInt(revision, 36))
+}
+
+func parseAdminLimit(value string) (int64, int, int64, bool) {
+	parts := strings.Split(value, ":")
+	if len(parts) != 3 {
+		return 0, 0, 0, false
+	}
+	userID := parseID(parts[0])
+	limit, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+	revision, revisionErr := strconv.ParseInt(strings.TrimSpace(parts[2]), 36, 64)
+	if userID <= 0 || err != nil || revisionErr != nil || revision <= 0 || limit < 1 || limit > 10 {
+		return 0, 0, 0, false
+	}
+	return userID, limit, revision, true
+}
+
+func parseAdminDecision(value string) (int64, Status, int64, bool) {
+	parts := strings.Split(value, ":")
+	if len(parts) != 3 {
+		return 0, "", 0, false
+	}
+	userID := parseID(parts[0])
+	expected, ok := parseStatusCode(parts[1])
+	revision, err := strconv.ParseInt(strings.TrimSpace(parts[2]), 36, 64)
+	if userID <= 0 || !ok || err != nil || revision <= 0 {
+		return 0, "", 0, false
+	}
+	return userID, expected, revision, true
+}
+
+func statusCode(status Status) string {
+	switch status {
+	case StatusPending:
+		return "P"
+	case StatusApproved:
+		return "A"
+	case StatusRejected:
+		return "R"
+	case StatusBlocked:
+		return "B"
+	default:
+		return ""
+	}
+}
+
+func parseStatusCode(value string) (Status, bool) {
+	switch strings.TrimSpace(value) {
+	case "P":
+		return StatusPending, true
+	case "A":
+		return StatusApproved, true
+	case "R":
+		return StatusRejected, true
+	case "B":
+		return StatusBlocked, true
+	default:
+		return "", false
+	}
+}
+
+func randomTunnelSuffix() (string, error) {
+	var value [8]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(value[:]), nil
+}
+
+func tunnelName(user User, suffix string) string {
+	tail := fmt.Sprintf("%d-%s", user.TelegramUserID, suffix)
+	separator := " · "
+	available := 120 - len([]rune(separator)) - len([]rune(tail))
+	label := []rune(strings.TrimSpace(displayName(user.Identity)))
+	if available < 1 {
+		return clean(tail, 120)
+	}
+	if len(label) > available {
+		label = label[:available]
+	}
+	return string(label) + separator + tail
 }
 
 func formatBytes(value int64) string {

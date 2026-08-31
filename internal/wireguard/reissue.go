@@ -11,6 +11,17 @@ import (
 // its address, identity or ownership. The old config stops working as soon as
 // the relay applies the incremented desired revision.
 func (s *Service) ReissuePeerCredentials(ctx context.Context, relayID, peerID string) (PeerCredentials, error) {
+	return s.reissuePeerCredentials(ctx, relayID, peerID, 0)
+}
+
+func (s *Service) ReissuePeerCredentialsForVPNBot(ctx context.Context, relayID, peerID string, telegramUserID int64) (PeerCredentials, error) {
+	if telegramUserID <= 0 {
+		return PeerCredentials{}, badRequest("Telegram user ID is invalid")
+	}
+	return s.reissuePeerCredentials(ctx, relayID, peerID, telegramUserID)
+}
+
+func (s *Service) reissuePeerCredentials(ctx context.Context, relayID, peerID string, telegramUserID int64) (PeerCredentials, error) {
 	if s.cipher == nil || !s.cipher.Configured() {
 		return PeerCredentials{}, unavailable("WireGuard credential encryption is not configured")
 	}
@@ -19,6 +30,11 @@ func (s *Service) ReissuePeerCredentials(ctx context.Context, relayID, peerID st
 		return PeerCredentials{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if telegramUserID > 0 {
+		if err := lockApprovedVPNBotOwnerTx(ctx, tx, telegramUserID, peerID); err != nil {
+			return PeerCredentials{}, err
+		}
+	}
 	relay, err := scanRelay(tx.QueryRow(ctx, `SELECT `+relayColumns+` FROM wireguard_relays WHERE id=$1::uuid FOR UPDATE`, relayID), s.now())
 	if errors.Is(err, pgx.ErrNoRows) {
 		return PeerCredentials{}, notFound("WireGuard relay not found")
@@ -51,6 +67,11 @@ func (s *Service) ReissuePeerCredentials(ctx context.Context, relayID, peerID st
 	}
 	if _, err := tx.Exec(ctx, `UPDATE wireguard_relays SET desired_revision=desired_revision+1,updated_at=$2 WHERE id=$1::uuid`, relayID, now); err != nil {
 		return PeerCredentials{}, err
+	}
+	if telegramUserID > 0 {
+		if err := recordVPNBotAuditTx(ctx, tx, telegramUserID, "TUNNEL_REISSUED", peerID); err != nil {
+			return PeerCredentials{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return PeerCredentials{}, err

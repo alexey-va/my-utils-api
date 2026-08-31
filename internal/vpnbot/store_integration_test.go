@@ -33,6 +33,7 @@ func TestStoreApprovalAndOwnershipIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_vpn_bot_audit_events WHERE actor_telegram_user_id=$1 OR target_telegram_user_id=$1`, userID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_vpn_bot_users WHERE telegram_user_id=$1`, userID)
 	})
 	if !notify || user.Status != StatusPending || user.PeerLimit != 1 {
@@ -45,7 +46,7 @@ func TestStoreApprovalAndOwnershipIsolation(t *testing.T) {
 	if err != nil || user.Status != StatusApproved || user.ApprovedBy == nil || *user.ApprovedBy != 7 {
 		t.Fatalf("approved user=%#v error=%v", user, err)
 	}
-	if _, err := store.SetPeerLimit(ctx, userID, 3); err != nil {
+	if _, err := store.SetPeerLimit(ctx, userID, 7, 3); err != nil {
 		t.Fatal(err)
 	}
 
@@ -64,7 +65,7 @@ func TestStoreApprovalAndOwnershipIsolation(t *testing.T) {
 	if err := store.AddOwnership(ctx, userID, relayID, peerID, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.SetPeerLimit(ctx, userID, 1); err != nil {
+	if _, err := store.SetPeerLimit(ctx, userID, 7, 1); err != nil {
 		t.Fatal(err)
 	}
 	var secondPeerID string
@@ -123,6 +124,13 @@ func TestStoreApprovalAndOwnershipIsolation(t *testing.T) {
 	})
 	if err != nil || admin.Status != StatusApproved || admin.Username != "vpn_admin" {
 		t.Fatalf("ensured admin=%#v error=%v", admin, err)
+	}
+	var requested, approved, limitChanged, tunnelCreated int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FILTER (WHERE action='ACCESS_REQUESTED'),count(*) FILTER (WHERE action='ACCESS_APPROVED'),count(*) FILTER (WHERE action='PEER_LIMIT_CHANGED'),count(*) FILTER (WHERE action='TUNNEL_CREATED') FROM wireguard_vpn_bot_audit_events WHERE target_telegram_user_id=$1`, userID).Scan(&requested, &approved, &limitChanged, &tunnelCreated); err != nil {
+		t.Fatal(err)
+	}
+	if requested != 1 || approved != 3 || limitChanged != 2 || tunnelCreated != 2 {
+		t.Fatalf("audit counts requested=%d approved=%d limits=%d created=%d", requested, approved, limitChanged, tunnelCreated)
 	}
 }
 
@@ -336,6 +344,251 @@ func TestSetStatusAtomicallyDisablesOwnedPeers(t *testing.T) {
 	}
 }
 
+func TestEnsureAdminRecoversBlockedOwnedPeers(t *testing.T) {
+	pool, ctx := vpnBotTestPool(t)
+	store := NewStore(pool)
+	userID := time.Now().UnixNano() & 0x3fffffffffffffff
+	identity := Identity{TelegramUserID: userID, ChatID: userID, Username: "admin", DisplayName: "Admin"}
+	if _, _, err := store.RequestAccess(ctx, identity); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApproveUser(ctx, userID, userID); err != nil {
+		t.Fatal(err)
+	}
+	relayID, peerID := insertVPNBotPeer(t, pool, userID, false)
+	if err := store.AddOwnership(ctx, userID, relayID, peerID, true); err != nil {
+		t.Fatal(err)
+	}
+	blocked, err := store.BlockUser(ctx, userID, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	recovered, err := store.EnsureAdmin(ctx, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var enabled bool
+	var desiredRevision int64
+	if err := pool.QueryRow(ctx, `SELECT enabled FROM wireguard_peers WHERE id=$1::uuid`, peerID).Scan(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT desired_revision FROM wireguard_relays WHERE id=$1::uuid`, relayID).Scan(&desiredRevision); err != nil {
+		t.Fatal(err)
+	}
+	if recovered.Status != StatusApproved || recovered.AccessRevision != blocked.AccessRevision+1 || !enabled || desiredRevision != 3 {
+		t.Fatalf("blocked=%#v recovered=%#v enabled=%v desiredRevision=%d", blocked, recovered, enabled, desiredRevision)
+	}
+}
+
+func TestBeginApprovedDeliveryCommitsBeforeBlock(t *testing.T) {
+	pool, ctx := vpnBotTestPool(t)
+	store := NewStore(pool)
+	userID := time.Now().UnixNano() & 0x3fffffffffffffff
+	if _, _, err := store.RequestAccess(ctx, Identity{TelegramUserID: userID, ChatID: userID, DisplayName: "Protected"}); err != nil {
+		t.Fatal(err)
+	}
+	approved, err := store.SetStatus(ctx, userID, 7, StatusApproved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	relayID, peerID := insertVPNBotPeer(t, pool, userID, false)
+	if err := store.AddOwnership(ctx, userID, relayID, peerID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	owner, eventID, err := store.BeginApprovedDelivery(ctx, userID, peerID, "conf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if owner.PeerID != peerID || owner.RelayID != relayID || eventID == "" {
+		t.Fatalf("delivery start owner=%#v eventID=%q", owner, eventID)
+	}
+	var action, format string
+	if err := pool.QueryRow(ctx, `SELECT action,details->>'format' FROM wireguard_vpn_bot_audit_events WHERE id=$1::uuid`, eventID).Scan(&action, &format); err != nil {
+		t.Fatal(err)
+	}
+	if action != "CONFIG_DELIVERY_ATTEMPTED" || format != "conf" {
+		t.Fatalf("delivery audit action=%q format=%q", action, format)
+	}
+
+	result, err := store.SetStatusIf(ctx, userID, 7, StatusApproved, approved.AccessRevision, StatusBlocked)
+	if err != nil || result.Status != StatusBlocked {
+		t.Fatalf("block result user=%#v error=%v", result, err)
+	}
+	var enabled bool
+	if err := pool.QueryRow(ctx, `SELECT enabled FROM wireguard_peers WHERE id=$1::uuid`, peerID).Scan(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	if enabled {
+		t.Fatal("peer remained enabled after block")
+	}
+}
+
+func TestBeginApprovedDeliveryReleasesSinglePoolConnection(t *testing.T) {
+	pool, ctx := vpnBotSingleConnectionPool(t)
+	store := NewStore(pool)
+	userID := time.Now().UnixNano() & 0x3fffffffffffffff
+	if _, _, err := store.RequestAccess(ctx, Identity{TelegramUserID: userID, ChatID: userID, DisplayName: "Single connection"}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := store.SetStatus(ctx, userID, 7, StatusApproved)
+	if err != nil {
+		t.Fatal(err)
+	}
+	relayID, peerID := insertVPNBotPeer(t, pool, userID, true)
+	if err := store.AddOwnership(ctx, userID, relayID, peerID, false); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := store.BeginApprovedDelivery(ctx, userID, peerID, "qr"); err != nil {
+		t.Fatal(err)
+	}
+	queryCtx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	var status Status
+	if err := pool.QueryRow(queryCtx, `SELECT status FROM wireguard_vpn_bot_users WHERE telegram_user_id=$1`, userID).Scan(&status); err != nil {
+		t.Fatalf("next pool query blocked after BeginApprovedDelivery: %v", err)
+	}
+	if status != StatusApproved {
+		t.Fatalf("status=%s, want APPROVED", status)
+	}
+}
+
+func TestSetStatusRollsBackUserPeerAndRevisionTogether(t *testing.T) {
+	pool, ctx := vpnBotTestPool(t)
+	store := NewStore(pool)
+	userID := time.Now().UnixNano() & 0x3fffffffffffffff
+	if _, _, err := store.RequestAccess(ctx, Identity{TelegramUserID: userID, ChatID: userID, DisplayName: "Rollback"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetStatus(ctx, userID, 7, StatusApproved); err != nil {
+		t.Fatal(err)
+	}
+	relayID, peerID := insertVPNBotPeer(t, pool, userID, true)
+	if _, err := pool.Exec(ctx, `INSERT INTO wireguard_vpn_bot_peer_owners(peer_id,telegram_user_id) VALUES($1::uuid,$2)`, peerID, userID); err != nil {
+		t.Fatal(err)
+	}
+
+	triggerName := fmt.Sprintf("vpnbot_fail_disable_%d", userID)
+	functionName := triggerName + "_fn"
+	functionSQL := fmt.Sprintf(`CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+	IF OLD.id = '%s'::uuid AND NEW.enabled = FALSE THEN
+		RAISE EXCEPTION 'forced peer update failure';
+	END IF;
+	RETURN NEW;
+END
+$function$`, functionName, peerID)
+	if _, err := pool.Exec(ctx, functionSQL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(ctx, fmt.Sprintf(`CREATE TRIGGER %s BEFORE UPDATE ON wireguard_peers FOR EACH ROW EXECUTE FUNCTION %s()`, triggerName, functionName)); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), fmt.Sprintf(`DROP TRIGGER IF EXISTS %s ON wireguard_peers`, triggerName))
+		_, _ = pool.Exec(context.Background(), fmt.Sprintf(`DROP FUNCTION IF EXISTS %s()`, functionName))
+	})
+
+	if _, err := store.SetStatus(ctx, userID, 7, StatusBlocked); err == nil {
+		t.Fatal("SetStatus() error = nil, want forced peer update failure")
+	}
+	var status Status
+	var enabled bool
+	var revision int64
+	if err := pool.QueryRow(ctx, `SELECT status FROM wireguard_vpn_bot_users WHERE telegram_user_id=$1`, userID).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT enabled FROM wireguard_peers WHERE id=$1::uuid`, peerID).Scan(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT desired_revision FROM wireguard_relays WHERE id=$1::uuid`, relayID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if status != StatusApproved || !enabled || revision != 0 {
+		t.Fatalf("status=%s enabled=%v revision=%d, failed transition committed partially", status, enabled, revision)
+	}
+}
+
+func TestSetStatusIfRejectsStaleAdminDecision(t *testing.T) {
+	pool, ctx := vpnBotTestPool(t)
+	store := NewStore(pool)
+	userID := time.Now().UnixNano() & 0x3fffffffffffffff
+	if _, _, err := store.RequestAccess(ctx, Identity{TelegramUserID: userID, ChatID: userID, DisplayName: "Stale"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetStatus(ctx, userID, 7, StatusApproved); err != nil {
+		t.Fatal(err)
+	}
+	relayID, peerID := insertVPNBotPeer(t, pool, userID, true)
+	if _, err := pool.Exec(ctx, `INSERT INTO wireguard_vpn_bot_peer_owners(peer_id,telegram_user_id) VALUES($1::uuid,$2)`, peerID, userID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.SetStatusIf(ctx, userID, 7, StatusPending, 1, StatusRejected); !errors.Is(err, ErrStaleDecision) {
+		t.Fatalf("SetStatusIf() error = %v, want ErrStaleDecision", err)
+	}
+	if _, err := store.SetPeerLimitIf(ctx, userID, 7, 1, 5); !errors.Is(err, ErrStaleDecision) {
+		t.Fatalf("SetPeerLimitIf() error = %v, want ErrStaleDecision", err)
+	}
+	var status Status
+	var peerLimit int
+	var enabled bool
+	var revision int64
+	if err := pool.QueryRow(ctx, `SELECT status,peer_limit FROM wireguard_vpn_bot_users WHERE telegram_user_id=$1`, userID).Scan(&status, &peerLimit); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT enabled FROM wireguard_peers WHERE id=$1::uuid`, peerID).Scan(&enabled); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(ctx, `SELECT desired_revision FROM wireguard_relays WHERE id=$1::uuid`, relayID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if status != StatusApproved || peerLimit != 1 || !enabled || revision != 0 {
+		t.Fatalf("status=%s limit=%d enabled=%v revision=%d, stale decision changed state", status, peerLimit, enabled, revision)
+	}
+}
+
+func TestSetStatusIfRejectsCallbackFromPreviousApplication(t *testing.T) {
+	pool, ctx := vpnBotTestPool(t)
+	store := NewStore(pool)
+	userID := time.Now().UnixNano() & 0x3fffffffffffffff
+	identity := Identity{TelegramUserID: userID, ChatID: userID, DisplayName: "Reopened"}
+	initial, _, err := store.RequestAccess(ctx, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_vpn_bot_audit_events WHERE actor_telegram_user_id=$1 OR target_telegram_user_id=$1`, userID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_vpn_bot_users WHERE telegram_user_id=$1`, userID)
+	})
+	if initial.AccessRevision != 1 {
+		t.Fatalf("initial access revision=%d, want 1", initial.AccessRevision)
+	}
+	rejected, err := store.SetStatusIf(ctx, userID, 7, StatusPending, initial.AccessRevision, StatusRejected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reopened, notify, err := store.RequestAccess(ctx, identity)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !notify || rejected.AccessRevision != 2 || reopened.Status != StatusPending || reopened.AccessRevision != 3 {
+		t.Fatalf("rejected=%#v reopened=%#v notify=%v", rejected, reopened, notify)
+	}
+	if _, err := store.SetStatusIf(ctx, userID, 7, StatusPending, initial.AccessRevision, StatusApproved); !errors.Is(err, ErrStaleDecision) {
+		t.Fatalf("old SetStatusIf() error=%v, want ErrStaleDecision", err)
+	}
+	current, err := store.User(ctx, userID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if current.Status != StatusPending || current.AccessRevision != reopened.AccessRevision {
+		t.Fatalf("old callback changed reopened application=%#v", current)
+	}
+}
+
 func vpnBotTestPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	t.Helper()
 	databaseURL := os.Getenv("TEST_POSTGRES_URL")
@@ -344,6 +597,27 @@ func vpnBotTestPool(t *testing.T) (*pgxpool.Pool, context.Context) {
 	}
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(pool.Close)
+	return pool, ctx
+}
+
+func vpnBotSingleConnectionPool(t *testing.T) (*pgxpool.Pool, context.Context) {
+	t.Helper()
+	databaseURL := os.Getenv("TEST_POSTGRES_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_POSTGRES_URL is not set")
+	}
+	ctx := context.Background()
+	config, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	config.MaxConns = 1
+	config.MinConns = 0
+	pool, err := pgxpool.NewWithConfig(ctx, config)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -16,6 +16,7 @@ type UpdateExitPreferenceRequest struct {
 type CreatePeerRequest struct {
 	Name     string `json:"name"`
 	Category string `json:"category"`
+	Enabled  *bool  `json:"enabled,omitempty"`
 }
 
 type UpdatePeerRequest struct {

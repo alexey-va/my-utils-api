@@ -553,12 +553,18 @@ func (s *Service) CreatePeer(ctx context.Context, relayID string, body CreatePee
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(MAX(sort_order),-1)+1 FROM wireguard_peers WHERE relay_id=$1::uuid`, relayID).Scan(&sortOrder); err != nil {
 		return PeerCredentials{}, err
 	}
-	peer, err := scanPeer(tx.QueryRow(ctx, `INSERT INTO wireguard_peers(id,relay_id,name,category,sort_order,public_key,private_key_ciphertext,private_key_nonce,assigned_ip,created_at,updated_at) VALUES(gen_random_uuid(),$1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$9) RETURNING `+peerColumns, relayID, name, category, sortOrder, pair.PublicKey, encrypted.Ciphertext, encrypted.Nonce, assigned, now))
+	enabled := true
+	if body.Enabled != nil {
+		enabled = *body.Enabled
+	}
+	peer, err := scanPeer(tx.QueryRow(ctx, `INSERT INTO wireguard_peers(id,relay_id,name,category,sort_order,public_key,private_key_ciphertext,private_key_nonce,assigned_ip,enabled,created_at,updated_at) VALUES(gen_random_uuid(),$1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$10) RETURNING `+peerColumns, relayID, name, category, sortOrder, pair.PublicKey, encrypted.Ciphertext, encrypted.Nonce, assigned, enabled, now))
 	if err != nil {
 		return PeerCredentials{}, err
 	}
-	if _, err := tx.Exec(ctx, `UPDATE wireguard_relays SET desired_revision=desired_revision+1,updated_at=$2 WHERE id=$1::uuid`, relayID, now); err != nil {
-		return PeerCredentials{}, err
+	if enabled {
+		if _, err := tx.Exec(ctx, `UPDATE wireguard_relays SET desired_revision=desired_revision+1,updated_at=$2 WHERE id=$1::uuid`, relayID, now); err != nil {
+			return PeerCredentials{}, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return PeerCredentials{}, err
@@ -605,6 +611,21 @@ func (s *Service) UpdatePeer(ctx context.Context, relayID, peerID string, body U
 		return Peer{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if body.Enabled != nil && *body.Enabled {
+		var ownerStatus string
+		err := tx.QueryRow(ctx, `
+			SELECT bot_user.status
+			FROM wireguard_vpn_bot_peer_owners owner
+			JOIN wireguard_vpn_bot_users bot_user ON bot_user.telegram_user_id=owner.telegram_user_id
+			WHERE owner.peer_id=$1::uuid
+			FOR UPDATE OF bot_user`, peerID).Scan(&ownerStatus)
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return Peer{}, err
+		}
+		if err == nil && ownerStatus != "APPROVED" {
+			return Peer{}, conflict("A VPN bot peer cannot be enabled while its owner is not approved")
+		}
+	}
 	if err := lockRelayTx(ctx, tx, relayID); err != nil {
 		return Peer{}, err
 	}
@@ -711,6 +732,17 @@ func (s *Service) ReorderPeers(ctx context.Context, relayID string, body UpdateP
 }
 
 func (s *Service) DeletePeer(ctx context.Context, relayID, peerID string) error {
+	return s.deletePeer(ctx, relayID, peerID, 0)
+}
+
+func (s *Service) DeletePeerForVPNBot(ctx context.Context, relayID, peerID string, telegramUserID int64) error {
+	if telegramUserID <= 0 {
+		return badRequest("Telegram user ID is invalid")
+	}
+	return s.deletePeer(ctx, relayID, peerID, telegramUserID)
+}
+
+func (s *Service) deletePeer(ctx context.Context, relayID, peerID string, telegramUserID int64) error {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return err
@@ -719,9 +751,14 @@ func (s *Service) DeletePeer(ctx context.Context, relayID, peerID string) error 
 	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '5s'`); err != nil {
 		return err
 	}
-	// Lock the relay first, matching Heartbeat's lock order. This avoids a
-	// relay -> peer / peer -> relay deadlock when the agent reports counters
-	// while an administrator removes a peer.
+	if telegramUserID > 0 {
+		if err := lockApprovedVPNBotOwnerTx(ctx, tx, telegramUserID, peerID); err != nil {
+			return err
+		}
+	}
+	// Generic mutations lock the relay first, matching Heartbeat. Audited VPN
+	// bot mutations first lock their owner, then follow the same relay -> peer
+	// order used by the rest of the bot state machine.
 	if _, err := tx.Exec(ctx, `UPDATE wireguard_relays SET desired_revision=desired_revision+1,updated_at=$2 WHERE id=$1::uuid`, relayID, s.now()); err != nil {
 		return peerMutationError(err)
 	}
@@ -731,6 +768,11 @@ func (s *Service) DeletePeer(ctx context.Context, relayID, peerID string) error 
 	}
 	if result.RowsAffected() == 0 {
 		return notFound("WireGuard peer not found")
+	}
+	if telegramUserID > 0 {
+		if err := recordVPNBotAuditTx(ctx, tx, telegramUserID, "TUNNEL_DELETED", peerID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }
@@ -808,8 +850,10 @@ func (s *Service) Desired(ctx context.Context, relayID string) (DesiredState, er
 		result.Peers = append(result.Peers, peer)
 	}
 	if err := rows.Err(); err != nil {
+		rows.Close()
 		return DesiredState{}, err
 	}
+	rows.Close()
 	if err := tx.Commit(ctx); err != nil {
 		return DesiredState{}, err
 	}
@@ -839,6 +883,9 @@ func (s *Service) Heartbeat(ctx context.Context, relayID string, body Heartbeat)
 	}
 	if body.AppliedRevision < 0 || body.AppliedRevision > relay.DesiredRevision {
 		return badRequest("Applied revision is invalid")
+	}
+	if relay.AppliedRevision != nil && body.AppliedRevision < *relay.AppliedRevision {
+		return conflict("Applied revision cannot move backwards")
 	}
 	now := s.now()
 	if body.RoutingStatus != nil {
@@ -1055,11 +1102,19 @@ func (s *Service) Metrics(ctx context.Context, relayID, peerID, rangeName string
 }
 
 func (s *Service) Snapshot(ctx context.Context, relayID, rangeName string) (Snapshot, error) {
-	relay, err := s.relay(ctx, relayID)
+	tx, err := s.pool.BeginTx(ctx, pgx.TxOptions{IsoLevel: pgx.RepeatableRead, AccessMode: pgx.ReadOnly})
 	if err != nil {
 		return Snapshot{}, err
 	}
-	categories, err := listPeerCategories(ctx, s.pool, relayID)
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	relay, err := scanRelay(tx.QueryRow(ctx, `SELECT `+relayColumns+` FROM wireguard_relays WHERE id=$1::uuid`, relayID), s.now())
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Snapshot{}, notFound("WireGuard relay not found")
+	}
+	if err != nil {
+		return Snapshot{}, err
+	}
+	categories, err := listPeerCategories(ctx, tx, relayID)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -1068,7 +1123,7 @@ func (s *Service) Snapshot(ctx context.Context, relayID, rangeName string) (Snap
 		return Snapshot{}, err
 	}
 
-	peerRows, err := s.pool.Query(ctx, `SELECT `+peerColumns+` FROM wireguard_peers WHERE relay_id=$1::uuid ORDER BY sort_order ASC,created_at ASC`, relayID)
+	peerRows, err := tx.Query(ctx, `SELECT `+peerColumns+` FROM wireguard_peers WHERE relay_id=$1::uuid ORDER BY sort_order ASC,created_at ASC`, relayID)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -1094,7 +1149,7 @@ func (s *Service) Snapshot(ctx context.Context, relayID, rangeName string) (Snap
 		pointsByPeer[peer.ID] = map[int64]MetricPoint{}
 	}
 
-	metricRows, err := s.pool.Query(ctx, `SELECT p.id::text,m.recorded_at,m.download_bytes,m.upload_bytes,m.ru_download_bytes,m.ru_upload_bytes,m.non_ru_download_bytes,m.non_ru_upload_bytes FROM wireguard_peer_metric_samples m JOIN wireguard_peers p ON p.id=m.peer_id WHERE p.relay_id=$1::uuid AND m.recorded_at>=$2 AND m.recorded_at<$3 ORDER BY p.id,m.recorded_at`, relayID, from, to)
+	metricRows, err := tx.Query(ctx, `SELECT p.id::text,m.recorded_at,m.download_bytes,m.upload_bytes,m.ru_download_bytes,m.ru_upload_bytes,m.non_ru_download_bytes,m.non_ru_upload_bytes FROM wireguard_peer_metric_samples m JOIN wireguard_peers p ON p.id=m.peer_id WHERE p.relay_id=$1::uuid AND m.recorded_at>=$2 AND m.recorded_at<$3 ORDER BY p.id,m.recorded_at`, relayID, from, to)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -1106,8 +1161,13 @@ func (s *Service) Snapshot(ctx context.Context, relayID, rangeName string) (Snap
 			metricRows.Close()
 			return Snapshot{}, err
 		}
+		peerPoints := pointsByPeer[peerID]
+		if peerPoints == nil {
+			metricRows.Close()
+			return Snapshot{}, fmt.Errorf("WireGuard snapshot metric references peer %s outside the snapshot", peerID)
+		}
 		index := at.Sub(from).Milliseconds() / bucket.Milliseconds()
-		point := pointsByPeer[peerID][index]
+		point := peerPoints[index]
 		point.BucketStart = from.Add(time.Duration(index) * bucket)
 		point.DownloadBytes += download
 		point.UploadBytes += upload
@@ -1115,7 +1175,7 @@ func (s *Service) Snapshot(ctx context.Context, relayID, rangeName string) (Snap
 		point.RUUploadBytes += ruUpload
 		point.NonRUDownloadBytes += nonRUDownload
 		point.NonRUUploadBytes += nonRUUpload
-		pointsByPeer[peerID][index] = point
+		peerPoints[index] = point
 	}
 	if err := metricRows.Err(); err != nil {
 		metricRows.Close()
@@ -1145,11 +1205,13 @@ func (s *Service) Snapshot(ctx context.Context, relayID, rangeName string) (Snap
 		peers[peerIndex].Traffic = PeriodTraffic{TrafficTotals: metrics.Summary, Range: rangeName, From: from, To: to}
 	}
 
-	exitHistory, err := s.exitHealthHistory(ctx, relayID, rangeName, from, to, bucket)
+	exitHistory, err := exitHealthHistory(ctx, tx, relayID, rangeName, from, to, bucket)
 	if err != nil {
 		return Snapshot{}, err
 	}
-
+	if err := tx.Commit(ctx); err != nil {
+		return Snapshot{}, err
+	}
 	return Snapshot{Relay: relay.Relay, Categories: categories, Peers: peers, PeerMetrics: metricsByPeer, ExitHealthHistory: exitHistory}, nil
 }
 
@@ -1163,8 +1225,8 @@ type exitHealthBucket struct {
 	secondaryLatencySamples int
 }
 
-func (s *Service) exitHealthHistory(ctx context.Context, relayID, rangeName string, from, to time.Time, bucket time.Duration) (ExitHealthHistory, error) {
-	rows, err := s.pool.Query(ctx, `SELECT recorded_at,overall_status,active_exit,primary_healthy,primary_latency_ms,primary_failure_reason,secondary_healthy,secondary_latency_ms,secondary_failure_reason FROM wireguard_exit_health_samples WHERE relay_id=$1::uuid AND recorded_at>=$2 AND recorded_at<=$3 ORDER BY recorded_at`, relayID, from, to)
+func exitHealthHistory(ctx context.Context, source rowsQuerier, relayID, rangeName string, from, to time.Time, bucket time.Duration) (ExitHealthHistory, error) {
+	rows, err := source.Query(ctx, `SELECT recorded_at,overall_status,active_exit,primary_healthy,primary_latency_ms,primary_failure_reason,secondary_healthy,secondary_latency_ms,secondary_failure_reason FROM wireguard_exit_health_samples WHERE relay_id=$1::uuid AND recorded_at>=$2 AND recorded_at<=$3 ORDER BY recorded_at`, relayID, from, to)
 	if err != nil {
 		return ExitHealthHistory{}, err
 	}

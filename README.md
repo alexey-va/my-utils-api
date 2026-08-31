@@ -139,9 +139,11 @@ OpenRouter, the workout agent, or free-text tool selection.
   the database contract permits up to 10.
 - Configured bot admins also have a personal “My tunnels” area. Their own
   tunnel count is unlimited; user limits and approval checks remain unchanged.
-- Blocking a user disables every owned WireGuard peer. Re-approval enables the
-  same peers again. All access, credential-delivery and mutation actions are
-  recorded in the VPN-bot audit table without private key material.
+- Blocking a user disables every owned WireGuard peer in the same transaction
+  as the access decision. Re-approval enables the same peers again. Access and
+  peer mutations commit with their audit event; credential delivery records a
+  durable attempt before Telegram and marks its result afterward. Audit data
+  never contains private key material.
 - Group chats are rejected. Ownership is checked in PostgreSQL for every peer
   operation, even when callback data contains a valid peer UUID.
 

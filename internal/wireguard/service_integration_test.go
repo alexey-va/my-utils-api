@@ -71,7 +71,16 @@ func TestControlPlaneProvisionHeartbeatAndCounters(t *testing.T) {
 	if err != nil || len(relays) == 0 {
 		t.Fatalf("ListRelays() after health heartbeat = %#v, %v", relays, err)
 	}
-	persisted := relays[len(relays)-1]
+	var persisted Relay
+	for _, candidate := range relays {
+		if candidate.ID == relay.ID {
+			persisted = candidate
+			break
+		}
+	}
+	if persisted.ID == "" {
+		t.Fatalf("created relay %s is missing from ListRelays(): %#v", relay.ID, relays)
+	}
 	if persisted.Status != "READY" || persisted.RoutingHealthy == nil || !*persisted.RoutingHealthy || persisted.ExitHealth == nil || persisted.ExitHealth.ActiveExit == nil || *persisted.ExitHealth.ActiveExit != "primary" {
 		t.Fatalf("persisted relay health = %#v", persisted)
 	}
@@ -353,6 +362,164 @@ func TestSnapshotDoesNotMixPeersAndMetricsAcrossQueries(t *testing.T) {
 	}
 	if len(got.snapshot.Peers) != 1 || len(got.snapshot.PeerMetrics) != 1 || got.snapshot.PeerMetrics[first.Peer.ID].Summary.DownloadBytes != 0 {
 		t.Fatalf("Snapshot() mixed snapshots: peers=%d metrics=%#v", len(got.snapshot.Peers), got.snapshot.PeerMetrics)
+	}
+}
+
+func TestCreatePeerCanStageDisabledPeerWithoutPublishingRevision(t *testing.T) {
+	_, service, relay, _ := tracedWireGuardFixture(t, nil)
+	disabled := false
+	created, err := service.CreatePeer(context.Background(), relay.ID, CreatePeerRequest{Name: "Pending ownership", Enabled: &disabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Peer.Enabled {
+		t.Fatalf("created peer enabled=%v, want staged disabled peer", created.Peer.Enabled)
+	}
+	desired, err := service.Desired(context.Background(), relay.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if desired.Revision != 0 || len(desired.Peers) != 0 {
+		t.Fatalf("Desired() = revision %d peers %#v, disabled peer was published", desired.Revision, desired.Peers)
+	}
+}
+
+func TestBlockedVPNBotPeerCannotBeReenabledThroughWireGuardService(t *testing.T) {
+	pool, service, relay, _ := tracedWireGuardFixture(t, nil)
+	created, err := service.CreatePeer(context.Background(), relay.ID, CreatePeerRequest{Name: "Blocked owner"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	disabled := false
+	if _, err := service.UpdatePeer(context.Background(), relay.ID, created.Peer.ID, UpdatePeerRequest{Enabled: &disabled}); err != nil {
+		t.Fatal(err)
+	}
+	userID := time.Now().UnixNano() & 0x3fffffffffffffff
+	if _, err := pool.Exec(context.Background(), `INSERT INTO wireguard_vpn_bot_users(telegram_user_id,chat_id,display_name,status) VALUES($1,$1,'Blocked owner','BLOCKED')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_vpn_bot_users WHERE telegram_user_id=$1`, userID)
+	})
+	if _, err := pool.Exec(context.Background(), `INSERT INTO wireguard_vpn_bot_peer_owners(peer_id,telegram_user_id) VALUES($1::uuid,$2)`, created.Peer.ID, userID); err != nil {
+		t.Fatal(err)
+	}
+
+	enabled := true
+	if _, err := service.UpdatePeer(context.Background(), relay.ID, created.Peer.ID, UpdatePeerRequest{Enabled: &enabled}); err == nil {
+		t.Fatal("UpdatePeer() enabled a blocked VPN bot peer")
+	}
+	if err := service.SetPeerIDsEnabled(context.Background(), relay.ID, []string{created.Peer.ID}, true); err == nil {
+		t.Fatal("SetPeerIDsEnabled() enabled a blocked VPN bot peer")
+	}
+	if _, err := service.ReissuePeerCredentialsForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err == nil {
+		t.Fatal("ReissuePeerCredentialsForVPNBot() mutated a blocked user's peer")
+	}
+	if err := service.DeletePeerForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err == nil {
+		t.Fatal("DeletePeerForVPNBot() deleted a blocked user's peer")
+	}
+	var persistedEnabled bool
+	var revision int64
+	var publicKey string
+	if err := pool.QueryRow(context.Background(), `SELECT enabled FROM wireguard_peers WHERE id=$1::uuid`, created.Peer.ID).Scan(&persistedEnabled); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT public_key FROM wireguard_peers WHERE id=$1::uuid`, created.Peer.ID).Scan(&publicKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT desired_revision FROM wireguard_relays WHERE id=$1::uuid`, relay.ID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if persistedEnabled || revision != 2 || publicKey != created.Peer.PublicKey {
+		t.Fatalf("enabled=%v revision=%d keyChanged=%v, rejected mutation changed state", persistedEnabled, revision, publicKey != created.Peer.PublicKey)
+	}
+
+	if _, err := pool.Exec(context.Background(), `UPDATE wireguard_vpn_bot_users SET status='APPROVED',access_revision=access_revision+1 WHERE telegram_user_id=$1`, userID); err != nil {
+		t.Fatal(err)
+	}
+	updated, err := service.UpdatePeer(context.Background(), relay.ID, created.Peer.ID, UpdatePeerRequest{Enabled: &enabled})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.Enabled {
+		t.Fatalf("approved owner's peer enabled=%v, want true", updated.Enabled)
+	}
+}
+
+func TestVPNBotPeerMutationAndAuditCommitAtomically(t *testing.T) {
+	pool, service, relay, _ := tracedWireGuardFixture(t, nil)
+	created, err := service.CreatePeer(context.Background(), relay.ID, CreatePeerRequest{Name: "Audited peer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	userID := time.Now().UnixNano() & 0x3fffffffffffffff
+	if _, err := pool.Exec(context.Background(), `INSERT INTO wireguard_vpn_bot_users(telegram_user_id,chat_id,display_name,status) VALUES($1,$1,'Audited owner','APPROVED')`, userID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), `INSERT INTO wireguard_vpn_bot_peer_owners(peer_id,telegram_user_id) VALUES($1::uuid,$2)`, created.Peer.ID, userID); err != nil {
+		t.Fatal(err)
+	}
+	triggerName := fmt.Sprintf("wireguard_fail_bot_audit_%d", userID)
+	functionName := triggerName + "_fn"
+	functionSQL := fmt.Sprintf(`CREATE FUNCTION %s() RETURNS trigger LANGUAGE plpgsql AS $function$
+BEGIN
+	IF NEW.target_telegram_user_id = %d AND NEW.action IN ('TUNNEL_REISSUED','TUNNEL_DELETED') THEN
+		RAISE EXCEPTION 'forced VPN bot audit failure';
+	END IF;
+	RETURN NEW;
+END
+$function$`, functionName, userID)
+	if _, err := pool.Exec(context.Background(), functionSQL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pool.Exec(context.Background(), fmt.Sprintf(`CREATE TRIGGER %s BEFORE INSERT ON wireguard_vpn_bot_audit_events FOR EACH ROW EXECUTE FUNCTION %s()`, triggerName, functionName)); err != nil {
+		t.Fatal(err)
+	}
+	dropFailureTrigger := func() {
+		_, _ = pool.Exec(context.Background(), fmt.Sprintf(`DROP TRIGGER IF EXISTS %s ON wireguard_vpn_bot_audit_events`, triggerName))
+		_, _ = pool.Exec(context.Background(), fmt.Sprintf(`DROP FUNCTION IF EXISTS %s()`, functionName))
+	}
+	t.Cleanup(func() {
+		dropFailureTrigger()
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_vpn_bot_audit_events WHERE actor_telegram_user_id=$1 OR target_telegram_user_id=$1`, userID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_vpn_bot_users WHERE telegram_user_id=$1`, userID)
+	})
+
+	if _, err := service.ReissuePeerCredentialsForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err == nil {
+		t.Fatal("ReissuePeerCredentialsForVPNBot() error=nil after forced audit failure")
+	}
+	if err := service.DeletePeerForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err == nil {
+		t.Fatal("DeletePeerForVPNBot() error=nil after forced audit failure")
+	}
+	var publicKey string
+	var revision int64
+	var peerCount int
+	if err := pool.QueryRow(context.Background(), `SELECT public_key FROM wireguard_peers WHERE id=$1::uuid`, created.Peer.ID).Scan(&publicKey); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT desired_revision FROM wireguard_relays WHERE id=$1::uuid`, relay.ID).Scan(&revision); err != nil {
+		t.Fatal(err)
+	}
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FROM wireguard_peers WHERE id=$1::uuid`, created.Peer.ID).Scan(&peerCount); err != nil {
+		t.Fatal(err)
+	}
+	if publicKey != created.Peer.PublicKey || revision != 1 || peerCount != 1 {
+		t.Fatalf("failed audit committed mutation: keyChanged=%v revision=%d peers=%d", publicKey != created.Peer.PublicKey, revision, peerCount)
+	}
+
+	dropFailureTrigger()
+	if _, err := service.ReissuePeerCredentialsForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DeletePeerForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err != nil {
+		t.Fatal(err)
+	}
+	var reissued, deleted int
+	if err := pool.QueryRow(context.Background(), `SELECT count(*) FILTER (WHERE action='TUNNEL_REISSUED'),count(*) FILTER (WHERE action='TUNNEL_DELETED') FROM wireguard_vpn_bot_audit_events WHERE target_telegram_user_id=$1`, userID).Scan(&reissued, &deleted); err != nil {
+		t.Fatal(err)
+	}
+	if reissued != 1 || deleted != 1 {
+		t.Fatalf("audit counts reissued=%d deleted=%d", reissued, deleted)
 	}
 }
 

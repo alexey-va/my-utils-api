@@ -30,6 +30,7 @@ type InboundMessage struct {
 	ChatID    int64
 	UserID    int64
 	ChatType  string
+	Callback  bool
 	Username  string
 	FirstName string
 	LastName  string
@@ -115,7 +116,9 @@ func (r *Runner) routeUpdate(update Update) {
 			return
 		}
 		_ = r.bot.AnswerCallback(r.ctx, callback.ID)
-		r.enqueue(inboundMessage(callback.Message.Chat, *callback.From, strings.TrimSpace(callback.Data), nil))
+		message := inboundMessage(callback.Message.Chat, *callback.From, strings.TrimSpace(callback.Data), nil)
+		message.Callback = true
+		r.enqueue(message)
 		return
 	}
 	message := update.Message

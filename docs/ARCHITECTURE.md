@@ -73,9 +73,11 @@ runner and dispatcher in the same process. Its private-chat callback flow is
 fully deterministic and never reaches the agent or OpenRouter. PostgreSQL owns
 the `PENDING`/`APPROVED`/`REJECTED`/`BLOCKED` access state, tunnel limit,
 peer-to-Telegram-user ownership and audit events. Every credential or peer
-mutation resolves ownership server-side; blocking an account disables its
-owned peers in one WireGuard service transaction per relay. QR codes and
-`.conf` files are generated locally and sent with Telegram content protection.
+mutation resolves ownership server-side; blocking an account changes its state
+and every owned peer in one PostgreSQL transaction. Database mutations commit
+with their audit event, while Telegram credential delivery persists an attempt
+before sending and records the outcome afterward. QR codes and `.conf` files
+are generated locally and sent with Telegram content protection.
 
 ## Temporal
 
