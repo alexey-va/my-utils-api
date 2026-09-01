@@ -82,6 +82,8 @@ git diff --check
 
 Pushes and pull requests run the heavy verification gate in GitHub Actions.
 For a push to `main`, Woodpecker waits for that exact commit's successful
-GitHub Actions run and then performs only the production Docker deployment.
+GitHub Actions run, performs only the production Docker deployment, and then
+requires the API container to be healthy on that exact revision with
+`restart: unless-stopped`.
 A push is not a test; do not push when the local gate is red. Secret changes,
 manual restarts and external infrastructure changes need separate authorization.

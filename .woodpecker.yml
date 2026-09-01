@@ -54,3 +54,20 @@ steps:
       - git config --global --add safe.directory "$${CI_WORKSPACE}"
       - export WORKSPACE=$${CI_WORKSPACE}
       - bash /opt/ci/deploy-my-utils-api.sh
+      - |
+        set -eu
+        container=my-utils-api-api-1
+        deadline=$$(($$(date +%s) + 180))
+        while [ "$$(date +%s)" -lt "$$deadline" ]; do
+          state=$$(docker inspect -f '{{.State.Status}}' "$$container" 2>/dev/null || true)
+          health=$$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$$container" 2>/dev/null || true)
+          restart=$$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$$container" 2>/dev/null || true)
+          revision=$$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$$container" 2>/dev/null || true)
+          if [ "$$state" = running ] && [ "$$health" = healthy ] && [ "$$restart" = unless-stopped ] && [ "$$revision" = "$${CI_COMMIT_SHA}" ]; then
+            echo "Backend deployed healthy at revision $$revision with restart=$$restart"
+            exit 0
+          fi
+          sleep 2
+        done
+        docker inspect "$$container" --format 'state={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} restart={{.HostConfig.RestartPolicy.Name}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}' >&2 || true
+        exit 1

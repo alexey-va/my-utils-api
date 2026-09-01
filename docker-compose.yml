@@ -51,6 +51,7 @@ services:
     labels:
       - "logging=promtail"
       - "app=my-utils-api"
+      - "org.opencontainers.image.revision=${GIT_COMMIT:-local}"
     env_file:
       - path: .env
         required: false
