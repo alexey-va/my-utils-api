@@ -296,6 +296,8 @@ func TestVeespExitComposeKeepsTinyproxyPrivate(t *testing.T) {
 		"ipv4_address: 172.29.172.2",
 		"ipv4_address: 172.29.172.3",
 		`"42697:42697/udp"`,
+		"mem_limit: 192m",
+		"memswap_limit: 384m",
 	} {
 		if !strings.Contains(compose, want) {
 			t.Errorf("veesp exit compose does not contain %q", want)
