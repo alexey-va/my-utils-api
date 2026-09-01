@@ -91,7 +91,7 @@ client -- standard WG/UDP 51820 --> utils: wg-users 10.89.0.1/24
 Отдельный путь Velocity:
 
 ```text
-ProxyARC -> legacy proxy address 185.242.106.81:8888
+ProxyARC -> proxy selector 91.197.0.191:8888
     -> local DNAT on Velocity to 172.29.172.3:8888
     -> wg-utils 10.89.0.7/32
     -> utils wg-users
@@ -111,9 +111,8 @@ ProxyARC -> legacy proxy address 185.242.106.81:8888
 | Velocity | `31.44.9.177`, Ubuntu 24.04 | `wg-utils`, address `10.89.0.7/32` |
 | Tinyproxy | не публикуется на host | `172.29.172.3:8888` внутри каждого exit |
 
-Локальный SSH alias `veesp` на момент снимка указывает на старый хост
-`185.242.106.81`, а не на активный primary `91.197.0.191`. Не использовать имя
-алиаса как доказательство роли хоста: проверять expected egress в
+Локальный SSH alias `veesp` не является доказательством роли хоста: проверять
+expected egress в
 `/etc/my-utils/awg-failover.env` и реальный `curl https://api.ipify.org`.
 
 ## 4. Адреса, метки и порты
@@ -270,16 +269,16 @@ External обязан fail closed.
 
 ### 6.5 API outbound proxy
 
-Production API пока настроен на legacy proxy address
-`185.242.106.81:8888`. Host chains на `utils`:
+Production API настроен на proxy selector `91.197.0.191:8888`.
+Host chains на `utils`:
 
-1. маркируют только TCP/8888 из Docker CIDR `172.16.0.0/12` к legacy IP mark
+1. маркируют только TCP/8888 из Docker CIDR `172.16.0.0/12` к selector mark
    `0x51891`;
 2. DNAT destination в `172.29.172.3:8888`;
 3. rule `1087` отправляет packet в table `51889`;
 4. SNAT делает source `10.89.0.1`, понятный exit stack.
 
-Legacy IP здесь является селектором, а не реальным network destination. Нельзя
+Public IP здесь является селектором, а не реальным network destination. Нельзя
 поменять `OPENROUTER_PROXY_HOST` отдельно от `api-proxy-routing.sh`: трафик
 перестанет матчиться и уйдёт не туда.
 
@@ -293,7 +292,7 @@ Legacy IP здесь является селектором, а не реальн
 - keepalive 25 seconds;
 - persistent PostUp/PostDown DNAT и SNAT rules.
 
-ProxyARC всё ещё обращается к `185.242.106.81:8888`; local OUTPUT DNAT меняет
+Селектор ProxyARC `91.197.0.191:8888`; local OUTPUT DNAT меняет
 назначение на `172.29.172.3:8888`, а SNAT задаёт source `10.89.0.7`.
 
 Оба exit-хоста намеренно имеют один и тот же Docker subnet и proxy IP. Это
@@ -593,12 +592,9 @@ Gercena. UFW/fail2ban не защищают канал от volumetric SYN/UDP f
   использовал default `10.8.1.250/32`. Это допустимый legacy drift, но fresh
   rebuild должен создать mode-600 `.env`. Не пересоздавать healthy primary
   только ради косметического выравнивания.
-- Local SSH alias `veesp` указывал на старый `185.242.106.81`, не на active
-  primary. Inventory roles важнее alias names.
-- ProxyARC и API всё ещё используют legacy destination
-  `185.242.106.81:8888` как input для managed DNAT. Это намеренная связка,
-  которую надо менять одновременно во всех трёх местах: application config,
-  relay proxy routing и Velocity PostUp/PostDown rules.
+- ProxyARC и API используют `91.197.0.191:8888` как input для managed
+  DNAT. Application config, relay proxy routing и Velocity PostUp/PostDown
+  rules должны меняться атомарно.
 
 ## 16. Definition of done for another agent
 

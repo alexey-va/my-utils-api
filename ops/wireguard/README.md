@@ -246,9 +246,9 @@ of attempting to reconstruct the key.
 
 ## API outbound proxy routing
 
-`api-proxy-routing.sh` keeps the API container's configured legacy HTTP proxy
-address reachable without exposing tinyproxy publicly. It marks only TCP
-traffic from Docker private IPv4 networks to `185.242.106.81:8888`, DNATs that
+`api-proxy-routing.sh` keeps the API container's configured HTTP proxy selector
+reachable without exposing tinyproxy publicly. It marks only TCP traffic from
+Docker private IPv4 networks to `91.197.0.191:8888`, DNATs that
 destination to the tunnel-only `172.29.172.3:8888`, sends the mark through the
 existing fail-closed table `51889`, and SNATs it to the owned `wg-users`
 address `10.89.0.1`. Telegram and OpenRouter therefore share the existing AWG

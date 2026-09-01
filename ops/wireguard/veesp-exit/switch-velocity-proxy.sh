@@ -5,7 +5,7 @@ umask 077
 
 config_file=/etc/wireguard/wg-utils.conf
 interface=wg-utils
-legacy_proxy_ip=185.242.106.81
+proxy_selector_ip=91.197.0.191
 old_tunnel_proxy_ip=172.29.172.1
 new_tunnel_proxy_ip=172.29.172.3
 proxy_port=8888
@@ -36,7 +36,7 @@ ip link show "$interface" >/dev/null
 verify_proxy() {
   local egress
   egress=$(curl --fail --silent --show-error --max-time 20 \
-    --proxy "http://$legacy_proxy_ip:$proxy_port" http://api.ipify.org)
+    --proxy "http://$proxy_selector_ip:$proxy_port" http://api.ipify.org)
   [[ "$egress" == "$expected_egress" ]]
 }
 
@@ -77,9 +77,9 @@ rollback() {
   trap - ERR
   if [[ "$switched" == true && -f "$backup" ]]; then
     wg syncconf wg-utils <(wg-quick strip "$backup") || true
-    add_rule nat OUTPUT -p tcp -d "$legacy_proxy_ip" --dport "$proxy_port" -j DNAT --to-destination "$old_tunnel_proxy_ip:$proxy_port" || true
+    add_rule nat OUTPUT -p tcp -d "$proxy_selector_ip" --dport "$proxy_port" -j DNAT --to-destination "$old_tunnel_proxy_ip:$proxy_port" || true
     add_rule nat POSTROUTING -o "$interface" -p tcp -d "$old_tunnel_proxy_ip" --dport "$proxy_port" -j SNAT --to-source "$source_address" || true
-    delete_rule nat OUTPUT -p tcp -d "$legacy_proxy_ip" --dport "$proxy_port" -j DNAT --to-destination "$new_tunnel_proxy_ip:$proxy_port"
+    delete_rule nat OUTPUT -p tcp -d "$proxy_selector_ip" --dport "$proxy_port" -j DNAT --to-destination "$new_tunnel_proxy_ip:$proxy_port"
     delete_rule nat POSTROUTING -o "$interface" -p tcp -d "$new_tunnel_proxy_ip" --dport "$proxy_port" -j SNAT --to-source "$source_address"
     ip route replace "$old_tunnel_proxy_ip/32" dev "$interface" || true
     ip route del "$new_tunnel_proxy_ip/32" dev "$interface" 2>/dev/null || true
@@ -99,10 +99,10 @@ cp -a "$config_file" "$backup"
 switched=true
 
 ip route replace "$new_tunnel_proxy_ip/32" dev "$interface"
-add_rule nat OUTPUT -p tcp -d "$legacy_proxy_ip" --dport "$proxy_port" -j DNAT --to-destination "$new_tunnel_proxy_ip:$proxy_port"
+add_rule nat OUTPUT -p tcp -d "$proxy_selector_ip" --dport "$proxy_port" -j DNAT --to-destination "$new_tunnel_proxy_ip:$proxy_port"
 add_rule nat POSTROUTING -o "$interface" -p tcp -d "$new_tunnel_proxy_ip" --dport "$proxy_port" -j SNAT --to-source "$source_address"
 wg syncconf wg-utils <(wg-quick strip "$staging")
-delete_rule nat OUTPUT -p tcp -d "$legacy_proxy_ip" --dport "$proxy_port" -j DNAT --to-destination "$old_tunnel_proxy_ip:$proxy_port"
+delete_rule nat OUTPUT -p tcp -d "$proxy_selector_ip" --dport "$proxy_port" -j DNAT --to-destination "$old_tunnel_proxy_ip:$proxy_port"
 delete_rule nat POSTROUTING -o "$interface" -p tcp -d "$old_tunnel_proxy_ip" --dport "$proxy_port" -j SNAT --to-source "$source_address"
 ip route del "$old_tunnel_proxy_ip/32" dev "$interface" 2>/dev/null || true
 install -m 600 "$staging" "$config_file"

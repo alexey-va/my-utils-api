@@ -2,7 +2,7 @@
 set -euo pipefail
 
 docker_cidr=172.16.0.0/12
-proxy_destination=185.242.106.81/32
+proxy_destination=91.197.0.191/32
 tunnel_proxy_destination=172.29.172.3
 proxy_port=8888
 egress_interface_pattern=awg-exit+

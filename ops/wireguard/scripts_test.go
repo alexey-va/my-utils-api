@@ -227,7 +227,7 @@ func TestAPIProxyRoutingIsLimitedToTheConfiguredProxy(t *testing.T) {
 	script := readFile(t, "api-proxy-routing.sh")
 	for _, want := range []string{
 		"docker_cidr=172.16.0.0/12",
-		"proxy_destination=185.242.106.81/32",
+		"proxy_destination=91.197.0.191/32",
 		"tunnel_proxy_destination=172.29.172.3",
 		"proxy_port=8888",
 		"egress_interface_pattern=awg-exit+",
@@ -480,6 +480,23 @@ func TestVeespExitClientSwitchIsAtomicAndRollsBack(t *testing.T) {
 	} {
 		if !strings.Contains(switcher, want) {
 			t.Errorf("Veesp client switcher does not contain %q", want)
+		}
+	}
+}
+
+func TestVelocityProxySelectorMigrationKeepsRollbackAndOverlap(t *testing.T) {
+	script := readFile(t, "veesp-exit/migrate-proxy-selector.sh")
+	for _, want := range []string{
+		"old_proxy_selector_ip=185.242.106.81",
+		"new_proxy_selector_ip=91.197.0.191",
+		"tunnel_proxy_ip=172.29.172.3",
+		`verify_proxy "$new_proxy_selector_ip"`,
+		`cp -a "$config_file" "$backup"`,
+		`mv -f "$staging" "$config_file"`,
+		`delete_rule nat OUTPUT -p tcp -d "$old_proxy_selector_ip"`,
+	} {
+		if !strings.Contains(script, want) {
+			t.Errorf("proxy selector migration does not contain %q", want)
 		}
 	}
 }
