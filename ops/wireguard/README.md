@@ -1,5 +1,9 @@
 # my-utils WireGuard relay
 
+Полная архитектура, packet flow, модель секретов, развёртывание, recovery
+matrix и production-подводные камни описаны в [`DESIGN.md`](DESIGN.md). Этот
+README остаётся кратким справочником по installer scripts и порядку операций.
+
 This directory packages a standard WireGuard ingress (`wg-users`) whose client
 traffic is routed through two simultaneously connected AmneziaWG exits from
 independent providers (`awg-exit` and `awg-exit-b`). A five-second end-to-end
@@ -38,10 +42,13 @@ parameters stay in Ansible memory rather than controller-side files.
 4. Keep the existing primary as `awg-exit`; install the second client as
    `awg-exit-b` through `install-utils-client.sh`. This installer verifies its
    public egress without touching policy table `51889`.
-5. Run `install-awg-failover.sh` in plan mode and then with `--apply --replace`.
-   It installs the HA policy route, end-to-end timer, managed exit wildcard for
-   the API proxy, and an unreachable fallback.
-6. Run `install-relay.sh` in plan mode and then with `--apply`.
+5. Run `install-relay.sh` in plan mode and then with `--apply`. It installs the
+   standard ingress and a temporary single-primary routing unit.
+6. Run `install-awg-failover.sh` in plan mode and then with `--apply`. It must
+   run after `install-relay.sh` because it replaces that temporary routing unit
+   with the HA policy route, end-to-end timer, managed exit wildcard for the API
+   proxy, and an unreachable fallback. Use `--replace` only when deliberately
+   replacing already managed failover state.
 7. Run `install-geo-routing.sh --client-cidr 10.89.0.0/24
    --ingress-interface wg-users --direct-egress-interface eth0` first in plan
    mode and then with `--apply`.

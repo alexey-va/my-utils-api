@@ -8,6 +8,7 @@
 | [`../README.md`](../README.md) | setup, commands, configuration and deployment | project overview |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | runtime architecture and access model | architecture reference |
 | [`UTILS-WORKSPACE.md`](UTILS-WORKSPACE.md) | frontend/backend contract | integration reference |
+| [`../ops/wireguard/DESIGN.md`](../ops/wireguard/DESIGN.md) | VPN architecture, rebuild and recovery | VPN operations reference |
 
 Historical implementation plans and specifications live under `superpowers/`.
 They provide decision history but do not override current code, CI
