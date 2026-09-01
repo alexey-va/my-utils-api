@@ -2,30 +2,38 @@ when:
   - event: [push, manual]
     branch: main
 
-services:
-  - name: postgres
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: myutils
-      POSTGRES_USER: myutils
-      POSTGRES_PASSWORD: myutils
-
-  - name: redis
-    image: redis:7-alpine
-
 steps:
-  - name: verify
-    image: golang:1.26.5-alpine
-    environment:
-      TEST_POSTGRES_URL: postgres://myutils:myutils@postgres:5432/myutils?sslmode=disable
+  - name: wait-github-ci
+    image: alpine:3.23.3
     commands:
-      - apk add --no-cache bash postgresql-client python3
-      - until pg_isready -h postgres -U myutils -d myutils; do sleep 1; done
-      # Establish the shared integration schema before Go runs packages in parallel.
-      - go test ./internal/migrate -run TestRunnerAppliesFlywaySchemaAndIsIdempotent -count=1
-      - go test ./... -count=1
-      - go vet ./...
-      - CGO_ENABLED=0 go build -trimpath -buildvcs=false ./cmd/my-utils-api
+      - apk add --no-cache curl jq
+      - |
+        set -eu
+        api="https://api.github.com/repos/alexey-va/my-utils-api/actions/workflows/ci.yml/runs?head_sha=$${CI_COMMIT_SHA}&event=push&per_page=1"
+        deadline=$$(($$(date +%s) + 1800))
+        while [ "$$(date +%s)" -lt "$$deadline" ]; do
+          response=$$(curl --fail --silent --show-error -H 'Accept: application/vnd.github+json' "$$api")
+          status=$$(printf '%s' "$$response" | jq -r '.workflow_runs[0].status // "missing"')
+          conclusion=$$(printf '%s' "$$response" | jq -r '.workflow_runs[0].conclusion // ""')
+          case "$$status" in
+            completed)
+              [ "$$conclusion" = success ] && exit 0
+              echo "GitHub Actions CI completed with conclusion=$$conclusion" >&2
+              exit 1
+              ;;
+            missing|queued|in_progress|pending|requested|waiting)
+              sleep 20
+              ;;
+            *)
+              echo "Unexpected GitHub Actions status=$$status" >&2
+              exit 1
+              ;;
+          esac
+        done
+        echo "Timed out waiting for GitHub Actions CI" >&2
+        exit 1
+    when:
+      - event: push
 
   - name: deploy
     image: docker:27-cli

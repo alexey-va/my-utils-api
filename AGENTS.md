@@ -80,6 +80,8 @@ CGO_ENABLED=0 go build -trimpath -buildvcs=false ./cmd/my-utils-api
 git diff --check
 ```
 
-Push to `main` triggers Woodpecker production deployment. A push is not a test;
-do not push when the local gate is red. Secret changes, manual restarts and
-external infrastructure changes need separate authorization.
+Pushes and pull requests run the heavy verification gate in GitHub Actions.
+For a push to `main`, Woodpecker waits for that exact commit's successful
+GitHub Actions run and then performs only the production Docker deployment.
+A push is not a test; do not push when the local gate is red. Secret changes,
+manual restarts and external infrastructure changes need separate authorization.
