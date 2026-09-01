@@ -269,8 +269,13 @@ func (f *fakeWireGuard) DeletePeer(context.Context, string, string) error {
 	f.deleted++
 	return f.deleteErr
 }
-func (f *fakeWireGuard) DeletePeerForVPNBot(ctx context.Context, relayID, peerID string, _ int64) error {
-	return f.DeletePeer(ctx, relayID, peerID)
+func (f *fakeWireGuard) DeletePeerForVPNBot(ctx context.Context, relayID, peerID string, _ int64) (wireguard.Peer, error) {
+	for _, peer := range f.peers {
+		if peer.ID == peerID {
+			return peer, f.DeletePeer(ctx, relayID, peerID)
+		}
+	}
+	return wireguard.Peer{}, f.DeletePeer(ctx, relayID, peerID)
 }
 func (f *fakeWireGuard) SetPeerIDsEnabled(_ context.Context, relayID string, peerIDs []string, enabled bool) error {
 	f.enabledCalls = append(f.enabledCalls, enabled)
@@ -281,6 +286,7 @@ func (f *fakeWireGuard) SetPeerIDsEnabled(_ context.Context, relayID string, pee
 
 type fakeMessenger struct {
 	messages     []string
+	chatIDs      []int64
 	buttons      []string
 	edits        []editedMessage
 	photos       int
@@ -298,8 +304,9 @@ type editedMessage struct {
 	buttons   string
 }
 
-func (f *fakeMessenger) SendHTMLMessage(_ context.Context, _ int64, text, buttons string) (int, error) {
+func (f *fakeMessenger) SendHTMLMessage(_ context.Context, chatID int64, text, buttons string) (int, error) {
 	f.messages = append(f.messages, text)
+	f.chatIDs = append(f.chatIDs, chatID)
 	f.buttons = append(f.buttons, buttons)
 	return len(f.messages), nil
 }
@@ -451,6 +458,64 @@ func TestApprovedUserCreatesAtMostConfiguredLimitAndReceivesProtectedCredentials
 	}
 	if !strings.Contains(bot.messages[len(bot.messages)-1], "Достигнут лимит") {
 		t.Fatalf("last message=%q", bot.messages[len(bot.messages)-1])
+	}
+}
+
+func TestUserHomeOmitsImplementationDisclaimer(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRepository{users: map[int64]User{42: {Identity: Identity{TelegramUserID: 42, ChatID: 42}, Status: StatusApproved, PeerLimit: 1}}}
+	bot := &fakeMessenger{}
+	service := NewService(Config{RelayID: "relay"}, repo, &fakeWireGuard{}, bot)
+
+	if err := service.Dispatch(context.Background(), telegram.InboundMessage{ChatID: 42, UserID: 42, ChatType: "private", Text: "vpn:home"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(bot.messages) != 1 || strings.Contains(bot.messages[0], "нет ИИ") || strings.Contains(bot.messages[0], "операции выполняются") {
+		t.Fatalf("home message=%#v", bot.messages)
+	}
+}
+
+func TestUserTunnelCreateAndDeleteNotifyEveryOtherAdmin(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRepository{
+		users:  map[int64]User{42: {Identity: Identity{TelegramUserID: 42, ChatID: 42, DisplayName: "Bob"}, Status: StatusApproved, PeerLimit: 1}},
+		owners: map[int64][]PeerOwnership{},
+	}
+	wg := &fakeWireGuard{}
+	bot := &fakeMessenger{}
+	service := NewService(Config{RelayID: "relay", AdminUserIDs: []int64{7, 8}}, repo, wg, bot)
+	service.newTunnelSuffix = func() (string, error) { return "test", nil }
+
+	message := telegram.InboundMessage{ChatID: 42, UserID: 42, ChatType: "private", FirstName: "Bob", Username: "bob", Text: "vpn:create"}
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	peerID := wg.peers[0].ID
+	message.MessageID = 10
+	message.Callback = true
+	message.Text = "vpn:delete:" + peerID
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+
+	var adminMessages []string
+	for index, chatID := range bot.chatIDs {
+		if chatID == 7 || chatID == 8 {
+			adminMessages = append(adminMessages, bot.messages[index])
+		}
+	}
+	if len(adminMessages) != 4 {
+		t.Fatalf("admin messages=%#v chatIDs=%#v", adminMessages, bot.chatIDs)
+	}
+	for _, index := range []int{0, 1} {
+		if !strings.Contains(adminMessages[index], "Туннель создан") || !strings.Contains(adminMessages[index], "Bob (@bob)") || !strings.Contains(adminMessages[index], peerID) {
+			t.Fatalf("create notification=%q", adminMessages[index])
+		}
+	}
+	for _, index := range []int{2, 3} {
+		if !strings.Contains(adminMessages[index], "Туннель удалён") || !strings.Contains(adminMessages[index], "Bob (@bob)") || !strings.Contains(adminMessages[index], peerID) {
+			t.Fatalf("delete notification=%q", adminMessages[index])
+		}
 	}
 }
 

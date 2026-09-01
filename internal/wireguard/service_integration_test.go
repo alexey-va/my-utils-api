@@ -418,7 +418,7 @@ func TestBlockedVPNBotPeerCannotBeReenabledThroughWireGuardService(t *testing.T)
 	if _, err := service.RenamePeerForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID, "Blocked rename"); err == nil {
 		t.Fatal("RenamePeerForVPNBot() renamed a blocked user's peer")
 	}
-	if err := service.DeletePeerForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err == nil {
+	if _, err := service.DeletePeerForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err == nil {
 		t.Fatal("DeletePeerForVPNBot() deleted a blocked user's peer")
 	}
 	var persistedEnabled bool
@@ -498,7 +498,7 @@ $function$`, functionName, userID)
 	if _, err := service.RenamePeerForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID, "Renamed peer"); err == nil {
 		t.Fatal("RenamePeerForVPNBot() error=nil after forced audit failure")
 	}
-	if err := service.DeletePeerForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err == nil {
+	if _, err := service.DeletePeerForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err == nil {
 		t.Fatal("DeletePeerForVPNBot() error=nil after forced audit failure")
 	}
 	var publicKey string
@@ -528,8 +528,12 @@ $function$`, functionName, userID)
 	if _, err := service.ReissuePeerCredentialsForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err != nil {
 		t.Fatal(err)
 	}
-	if err := service.DeletePeerForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID); err != nil {
+	deletedPeer, err := service.DeletePeerForVPNBot(context.Background(), relay.ID, created.Peer.ID, userID)
+	if err != nil {
 		t.Fatal(err)
+	}
+	if deletedPeer.Name != "Renamed peer" || deletedPeer.ID != created.Peer.ID {
+		t.Fatalf("DeletePeerForVPNBot() peer=%#v", deletedPeer)
 	}
 	var renamed, reissued, deleted int
 	if err := pool.QueryRow(context.Background(), `SELECT count(*) FILTER (WHERE action='TUNNEL_RENAMED'),count(*) FILTER (WHERE action='TUNNEL_REISSUED'),count(*) FILTER (WHERE action='TUNNEL_DELETED') FROM wireguard_vpn_bot_audit_events WHERE target_telegram_user_id=$1`, userID).Scan(&renamed, &reissued, &deleted); err != nil {

@@ -135,6 +135,7 @@ OpenRouter, the workout agent, or free-text tool selection.
   notified and must approve or reject it explicitly.
 - Approved users can create, list, rename, reissue and delete only their own tunnels,
   download protected `.conf` files and QR codes, and view 30-day traffic totals.
+- Configured admins are notified after another user creates or deletes a tunnel.
 - The default limit is one tunnel. An admin can set 1, 2, 3 or 5 from the bot;
   the database contract permits up to 10.
 - Configured bot admins also have a personal “My tunnels” area. Their own

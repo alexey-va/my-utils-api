@@ -38,7 +38,7 @@ type WireGuard interface {
 	RenamePeerForVPNBot(context.Context, string, string, int64, string) (wireguard.Peer, error)
 	ReissuePeerCredentialsForVPNBot(context.Context, string, string, int64) (wireguard.PeerCredentials, error)
 	DeletePeer(context.Context, string, string) error
-	DeletePeerForVPNBot(context.Context, string, string, int64) error
+	DeletePeerForVPNBot(context.Context, string, string, int64) (wireguard.Peer, error)
 }
 
 type Repository interface {
@@ -272,7 +272,7 @@ func (s *Service) sendHome(ctx context.Context, user User) error {
 	if err != nil {
 		return err
 	}
-	text := fmt.Sprintf("<b>VPN</b>\nТуннелей: <code>%s</code>\n\nЗдесь нет ИИ: все операции выполняются только по кнопкам.", s.tunnelCountLabel(user, len(owned)))
+	text := fmt.Sprintf("<b>VPN</b>\nТуннелей: <code>%s</code>", s.tunnelCountLabel(user, len(owned)))
 	buttons := "Мои туннели:vpn:list,➕ Новый туннель:vpn:create;📖 Установка:vpn:help"
 	_, err = s.bot.SendHTMLMessage(ctx, user.ChatID, text, buttons)
 	return err
@@ -358,6 +358,7 @@ func (s *Service) createTunnel(ctx context.Context, user User) error {
 	if _, err := s.bot.SendHTMLMessage(ctx, user.ChatID, fmt.Sprintf("<b>Туннель создан</b>\n%s · <code>%s</code>", html.EscapeString(credentials.Peer.Name), html.EscapeString(credentials.Peer.AssignedIP)), ""); err != nil {
 		slog.WarnContext(ctx, "VPN bot tunnel-created message failed", "peer_id", credentials.Peer.ID, "error", err)
 	}
+	s.notifyAdminsOfTunnelMutation(ctx, user, credentials.Peer, "создан")
 	return s.deliverCredentials(ctx, user, credentials)
 }
 
@@ -601,13 +602,32 @@ func (s *Service) deleteTunnel(ctx context.Context, user User, peerID string) er
 	if err != nil {
 		return s.notOwned(ctx, user.ChatID)
 	}
-	if err := s.wg.DeletePeerForVPNBot(ctx, owner.RelayID, peerID, user.TelegramUserID); err != nil {
+	peer, err := s.wg.DeletePeerForVPNBot(ctx, owner.RelayID, peerID, user.TelegramUserID)
+	if err != nil {
 		return err
 	}
 	if _, err := s.bot.SendHTMLMessage(ctx, user.ChatID, "Туннель удалён.", "Мои туннели:vpn:list,Создать новый:vpn:create"); err != nil {
 		slog.WarnContext(ctx, "VPN bot delete confirmation message failed after commit", "peer_id", peerID, "error", err)
 	}
+	s.notifyAdminsOfTunnelMutation(ctx, user, peer, "удалён")
 	return nil
+}
+
+func (s *Service) notifyAdminsOfTunnelMutation(ctx context.Context, user User, peer wireguard.Peer, action string) {
+	name := strings.TrimSpace(peer.Name)
+	if name == "" {
+		name = "Без названия"
+	}
+	text := fmt.Sprintf("<b>Туннель %s</b>\nПользователь: %s\nTelegram ID: <code>%d</code>\nТуннель: %s\nID: <code>%s</code>", action, userLabel(user), user.TelegramUserID, html.EscapeString(name), html.EscapeString(peer.ID))
+	buttons := fmt.Sprintf("Открыть пользователя:vpn:admin:user:%d", user.TelegramUserID)
+	for adminID := range s.admins {
+		if adminID == user.TelegramUserID {
+			continue
+		}
+		if _, err := s.bot.SendHTMLMessage(ctx, adminID, text, buttons); err != nil {
+			slog.WarnContext(ctx, "VPN bot tunnel mutation notification failed", "admin_id", adminID, "peer_id", peer.ID, "action", action, "error", err)
+		}
+	}
 }
 
 func (s *Service) deliverCredentials(ctx context.Context, user User, credentials wireguard.PeerCredentials) error {

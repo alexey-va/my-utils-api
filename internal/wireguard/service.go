@@ -732,49 +732,53 @@ func (s *Service) ReorderPeers(ctx context.Context, relayID string, body UpdateP
 }
 
 func (s *Service) DeletePeer(ctx context.Context, relayID, peerID string) error {
-	return s.deletePeer(ctx, relayID, peerID, 0)
+	_, err := s.deletePeer(ctx, relayID, peerID, 0)
+	return err
 }
 
-func (s *Service) DeletePeerForVPNBot(ctx context.Context, relayID, peerID string, telegramUserID int64) error {
+func (s *Service) DeletePeerForVPNBot(ctx context.Context, relayID, peerID string, telegramUserID int64) (Peer, error) {
 	if telegramUserID <= 0 {
-		return badRequest("Telegram user ID is invalid")
+		return Peer{}, badRequest("Telegram user ID is invalid")
 	}
 	return s.deletePeer(ctx, relayID, peerID, telegramUserID)
 }
 
-func (s *Service) deletePeer(ctx context.Context, relayID, peerID string, telegramUserID int64) error {
+func (s *Service) deletePeer(ctx context.Context, relayID, peerID string, telegramUserID int64) (Peer, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
-		return err
+		return Peer{}, err
 	}
 	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
 	if _, err := tx.Exec(ctx, `SET LOCAL lock_timeout = '5s'`); err != nil {
-		return err
+		return Peer{}, err
 	}
 	if telegramUserID > 0 {
 		if err := lockApprovedVPNBotOwnerTx(ctx, tx, telegramUserID, peerID); err != nil {
-			return err
+			return Peer{}, err
 		}
 	}
 	// Generic mutations lock the relay first, matching Heartbeat. Audited VPN
 	// bot mutations first lock their owner, then follow the same relay -> peer
 	// order used by the rest of the bot state machine.
 	if _, err := tx.Exec(ctx, `UPDATE wireguard_relays SET desired_revision=desired_revision+1,updated_at=$2 WHERE id=$1::uuid`, relayID, s.now()); err != nil {
-		return peerMutationError(err)
+		return Peer{}, peerMutationError(err)
 	}
-	result, err := tx.Exec(ctx, `DELETE FROM wireguard_peers WHERE id=$1::uuid AND relay_id=$2::uuid`, peerID, relayID)
+	peer, err := scanPeer(tx.QueryRow(ctx, `DELETE FROM wireguard_peers WHERE id=$1::uuid AND relay_id=$2::uuid RETURNING `+peerColumns, peerID, relayID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Peer{}, notFound("WireGuard peer not found")
+	}
 	if err != nil {
-		return peerMutationError(err)
-	}
-	if result.RowsAffected() == 0 {
-		return notFound("WireGuard peer not found")
+		return Peer{}, peerMutationError(err)
 	}
 	if telegramUserID > 0 {
 		if err := recordVPNBotAuditTx(ctx, tx, telegramUserID, "TUNNEL_DELETED", peerID); err != nil {
-			return err
+			return Peer{}, err
 		}
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return Peer{}, err
+	}
+	return peer.Peer, nil
 }
 
 func (s *Service) UpdateExitPreference(ctx context.Context, relayID string, body UpdateExitPreferenceRequest) (Relay, error) {
