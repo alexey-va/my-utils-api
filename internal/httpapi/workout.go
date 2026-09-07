@@ -19,6 +19,7 @@ func (a *API) registerWorkoutRoutes(router chi.Router) {
 		routes.Delete("/exercises/{id}", a.deleteExercise)
 		routes.Get("/exercises/{id}/progress", a.exerciseProgress)
 		routes.Get("/grid", a.workoutGrid)
+		routes.Get("/snapshot", a.workoutSnapshot)
 		routes.Post("/entries", a.upsertWorkoutEntry)
 		routes.Post("/entries/move", a.moveWorkoutEntry)
 		routes.Delete("/exercises/{exerciseId}/entries/{performedOn}", a.deleteWorkoutEntry)
@@ -113,4 +114,9 @@ func writeDomainError(response http.ResponseWriter, err error) {
 		return
 	}
 	writeError(response, http.StatusInternalServerError, "Internal server error")
+}
+
+func (a *API) workoutSnapshot(response http.ResponseWriter, request *http.Request) {
+	result, err := a.workout.Snapshot(request.Context())
+	writeDomainResult(response, result, err)
 }

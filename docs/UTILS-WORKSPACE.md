@@ -73,3 +73,13 @@ repository:
 
 If a feature changes both sides, verify both locally before either production
 push. A successful push is not proof that the sibling repository was deployed.
+
+## Workout snapshot
+
+`GET /api/workouts/snapshot` is public for this personal instance, like the
+existing Workout routes. It returns `{ exercises: Exercise[], grid: { dates, rows } }`.
+One SQL statement reads owned exercise metadata and entries from the same MVCC
+snapshot, including exercises without entries. Grid dates remain newest-first;
+the frontend normalizes their display order. Empty lists are JSON arrays, and
+empty cells are objects. Existing `/exercises`, `/grid` and per-exercise progress
+paths remain compatible. Deploy this additive API before a frontend that consumes it.

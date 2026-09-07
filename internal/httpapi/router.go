@@ -40,6 +40,7 @@ type SettingsService interface {
 }
 
 type WorkoutService interface {
+	Snapshot(context.Context) (workout.Snapshot, error)
 	ListExercises(context.Context) ([]workout.Exercise, error)
 	CreateExercise(context.Context, workout.CreateExerciseRequest) (workout.Exercise, error)
 	UpdateExercise(context.Context, string, workout.CreateExerciseRequest) (workout.Exercise, error)

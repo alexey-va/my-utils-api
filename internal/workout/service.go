@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -192,14 +193,11 @@ type entry struct {
 func (e entry) reps() []int { return EffectiveReps(e.SetCount, e.RepsPerSet, e.MaxReps, e.SetReps) }
 
 func (s *Service) Grid(ctx context.Context) (Grid, error) {
-	exercises, err := s.ListExercises(ctx)
-	if err != nil {
-		return Grid{}, err
-	}
-	entries, err := s.entries(ctx, "", false)
-	if err != nil {
-		return Grid{}, err
-	}
+	snapshot, err := s.Snapshot(ctx)
+	return snapshot.Grid, err
+}
+
+func buildGrid(exercises []Exercise, entries []entry) Grid {
 	dates := make([]string, 0)
 	seen := make(map[string]struct{})
 	cells := make(map[string]map[string]Cell)
@@ -230,7 +228,8 @@ func (s *Service) Grid(ctx context.Context) (Grid, error) {
 		}
 		rows = append(rows, GridRow{ExerciseID: exercise.ID, ExerciseName: exercise.Name, Cells: rowCells})
 	}
-	return Grid{Dates: dates, Rows: rows}, nil
+	sort.Sort(sort.Reverse(sort.StringSlice(dates)))
+	return Grid{Dates: dates, Rows: rows}
 }
 
 func (s *Service) Progress(ctx context.Context, exerciseID string) (Progress, error) {
