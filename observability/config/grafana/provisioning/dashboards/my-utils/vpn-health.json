@@ -1,0 +1,106 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "id": 1,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "myutils_wireguard_collection_success", "refId": "A" }],
+      "title": "Collector success",
+      "description": "PostgreSQL relay state collection: 1 means the current scrape completed successfully.",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "id": 2,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "myutils_wireguard_relay_ready{relay=~\"$relay\"}", "legendFormat": "{{relay}}", "refId": "A" }],
+      "title": "Relay ready",
+      "description": "Relay data plane readiness after routing, DNS, desired-state, and exit checks.",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 45 }, { "color": "red", "value": 120 }] }, "unit": "s" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "id": 3,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "time() - myutils_wireguard_agent_last_seen_timestamp_seconds{relay=~\"$relay\"}", "legendFormat": "{{relay}}", "refId": "A" }],
+      "title": "Agent heartbeat age",
+      "description": "Age of the most recent relay agent heartbeat. Values over 45 seconds are stale.",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "id": 4,
+      "options": { "colorMode": "value", "graphMode": "none", "justifyMode": "auto", "orientation": "auto", "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "textMode": "auto" },
+      "targets": [{ "expr": "myutils_wireguard_routing_healthy{relay=~\"$relay\"}", "legendFormat": "{{relay}}", "refId": "A" }],
+      "title": "Routing and private DNS",
+      "description": "Policy routing and private client DNS readiness reported by the relay agent.",
+      "type": "stat"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "red", "value": null }, { "color": "green", "value": 1 }] }, "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 4 },
+      "id": 5,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "myutils_wireguard_exit_healthy{relay=~\"$relay\"}", "legendFormat": "{{relay}} / {{exit}}", "refId": "A" }],
+      "title": "AWG exit health",
+      "description": "Per-exit handshake and expected-egress probe result; 1 is healthy.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "gray", "value": null }, { "color": "blue", "value": 1 }] }, "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 4 },
+      "id": 6,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "myutils_wireguard_exit_selected{relay=~\"$relay\"}", "legendFormat": "{{relay}} / {{exit}}", "refId": "A" }],
+      "title": "Selected AWG exit",
+      "description": "One is the currently selected external exit for each relay.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "mappings": [], "unit": "none" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 0, "y": 11 },
+      "id": 7,
+      "options": { "legend": { "calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "myutils_wireguard_exit_preference{relay=~\"$relay\"}", "legendFormat": "{{relay}} / {{preference}}", "refId": "A" }],
+      "title": "Configured exit preference",
+      "description": "One-hot configured preference: AUTO, PRIMARY, or SECONDARY.",
+      "type": "timeseries"
+    },
+    {
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "mappings": [], "thresholds": { "mode": "absolute", "steps": [{ "color": "green", "value": null }, { "color": "orange", "value": 5 }, { "color": "red", "value": 20 }] }, "unit": "percent" }, "overrides": [] },
+      "gridPos": { "h": 7, "w": 12, "x": 12, "y": 11 },
+      "id": 8,
+      "options": { "legend": { "calcs": ["lastNotNull", "max"], "displayMode": "table", "placement": "bottom", "showLegend": true }, "tooltip": { "mode": "multi", "sort": "desc" } },
+      "targets": [{ "expr": "myutils_wireguard_route_packet_loss_percent{relay=~\"$relay\"}", "legendFormat": "{{relay}} / {{path}}", "refId": "A" }],
+      "title": "Route packet loss",
+      "description": "Internal and External path probe packet loss. Sustained values above 20% are alertable.",
+      "type": "timeseries"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "tags": ["my-utils", "vpn", "wireguard", "prometheus"],
+  "templating": { "list": [{ "current": { "selected": true, "text": "All", "value": ["$__all"] }, "datasource": { "type": "prometheus", "uid": "prometheus" }, "definition": "label_values(myutils_wireguard_relay_ready, relay)", "hide": 0, "includeAll": true, "label": "Relay", "multi": true, "name": "relay", "options": [], "query": { "query": "label_values(myutils_wireguard_relay_ready, relay)", "refId": "StandardVariableQuery" }, "refresh": 1, "regex": "", "sort": 1, "type": "query" }] },
+  "time": { "from": "now-6h", "to": "now" },
+  "timezone": "browser",
+  "title": "VPN Health",
+  "uid": "myutils-vpn-health",
+  "version": 1
+}

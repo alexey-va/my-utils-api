@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Apply compact Metal Discord template and retire legacy RusCrafting alerts."""
+"""Apply the Metal Discord template to its explicitly owned contact point."""
 from __future__ import annotations
 
 import base64
@@ -24,12 +24,9 @@ PROVISIONED_TEMPLATE_FILE = (
     / "metal-templates.yaml"
 )
 TEMPLATE_NAME = "metal-discord"
-LEGACY_PREFIXES = ("RusCrafting ",)
-CONTACT_NAMES = ("Metal Discord", "Discord")
+METAL_CONTACT_POINT_UID = "bfmetal6vcguq68c"
 DASHBOARD_URLS = (
     "https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status",
-    "https://utils.alexeyav.ru/grafana/d/metal-alerts/metal-alerts",
-    "https://utils.alexeyav.ru/wireguard",
 )
 FORBIDDEN_LINK_MARKERS = (".GeneratorURL", ".ExternalURL", ".SilenceURL", "/alerting/")
 
@@ -90,6 +87,8 @@ def validate_template_files() -> str:
         raise ValueError(f"missing dashboard link(s): {', '.join(missing)}")
     if ".DashboardURL" not in template:
         raise ValueError("per-alert DashboardURL link is required")
+    if ".PanelURL" not in template:
+        raise ValueError("per-alert PanelURL link is required")
     return template
 
 
@@ -101,35 +100,29 @@ def apply_template(template: str) -> None:
     print(f"template: HTTP {status}")
 
     _, contact_points = request("GET", "/api/v1/provisioning/contact-points")
-    for contact_point in contact_points:
-        if contact_point.get("name") not in CONTACT_NAMES and contact_point.get("type") != "discord":
-            continue
-        settings = dict(contact_point["settings"])
-        settings["title"] = '{{ template "metal.discord.title" . }}'
-        settings["message"] = '{{ template "metal.discord.message" . }}'
-        settings["use_discord_username"] = True
-        uid = contact_point["uid"]
-        status, _ = request("PUT", f"/api/v1/provisioning/contact-points/{uid}", {
-            "uid": uid,
-            "name": contact_point["name"],
-            "type": contact_point["type"],
-            "settings": settings,
-            "disableResolveMessage": contact_point.get("disableResolveMessage", False),
-        })
-        print(f"contact point ({contact_point['name']}): HTTP {status}")
+    contact_point = next(
+        (item for item in contact_points if item.get("uid") == METAL_CONTACT_POINT_UID),
+        None,
+    )
+    if contact_point is None:
+        raise ValueError(f"owned Metal contact point {METAL_CONTACT_POINT_UID!r} was not found")
 
-
-def retire_legacy_rules() -> int:
-    _, rules = request("GET", "/api/v1/provisioning/alert-rules")
-    deleted = 0
-    for rule in rules:
-        title = rule.get("title", "")
-        if not title.startswith(LEGACY_PREFIXES):
-            continue
-        status, _ = request("DELETE", f"/api/v1/provisioning/alert-rules/{rule['uid']}")
-        print(f"deleted: {title} HTTP {status}")
-        deleted += 1
-    return deleted
+    settings = dict(contact_point.get("settings", {}))
+    if not settings.get("url"):
+        raise ValueError(f"owned Metal contact point {METAL_CONTACT_POINT_UID!r} has no webhook URL")
+    settings.update({
+        "httpMethod": "POST",
+        "maxAlerts": 5,
+        "payload": {"template": '{{ tmpl.Exec "metal.discord.payload" . }}'},
+    })
+    status, _ = request("PUT", f"/api/v1/provisioning/contact-points/{METAL_CONTACT_POINT_UID}", {
+        "uid": METAL_CONTACT_POINT_UID,
+        "name": contact_point["name"],
+        "type": "webhook",
+        "settings": settings,
+        "disableResolveMessage": contact_point.get("disableResolveMessage", False),
+    })
+    print(f"contact point ({contact_point['name']} / {METAL_CONTACT_POINT_UID}): HTTP {status}")
 
 
 def main() -> int:
@@ -150,10 +143,12 @@ def main() -> int:
         return 1
     try:
         apply_template(template)
-        deleted = retire_legacy_rules()
-        print(f"done: removed {deleted} legacy rule(s)")
+        print("done: template and owned contact point updated")
     except urllib.error.HTTPError as error:
-        print(error.read().decode(), file=sys.stderr)
+        print(f"Grafana request failed: HTTP {error.code} {error.reason}", file=sys.stderr)
+        return 1
+    except ValueError as error:
+        print(f"apply failed: {error}", file=sys.stderr)
         return 1
     return 0
 

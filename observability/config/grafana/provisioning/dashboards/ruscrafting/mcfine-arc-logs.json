@@ -18,6 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
+  "id": null,
   "links": [],
   "panels": [
     {
@@ -449,12 +450,12 @@
       "options": {
         "dedupStrategy": "none",
         "enableInfiniteScrolling": false,
-        "enableLogDetails": true,
+        "enableLogDetails": false,
         "prettifyLogMessage": false,
         "showCommonLabels": false,
         "showControls": false,
         "showLabels": false,
-        "showTime": true,
+        "showTime": false,
         "sortOrder": "Descending",
         "unwrappedColumns": false,
         "wrapLogMessage": true
@@ -466,7 +467,7 @@
             "type": "loki",
             "uid": "bedlw839mzuo0d"
           },
-          "expr": "{service_name=\"spawn\"} |~ \"^\\\\{\" | json level=\"level\", logger=\"logger\", message=\"message\" | line_format \"{{.level}} | {{.logger}} | {{.message}}\"",
+          "expr": "{service_name=\"spawn\"} |~ \"^\\\\{\" | json level=\"level\", message=\"message\" | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.message}}\"",
           "refId": "A"
         }
       ],
@@ -488,12 +489,12 @@
       "options": {
         "dedupStrategy": "none",
         "enableInfiniteScrolling": false,
-        "enableLogDetails": true,
+        "enableLogDetails": false,
         "prettifyLogMessage": false,
         "showCommonLabels": false,
         "showControls": false,
         "showLabels": false,
-        "showTime": true,
+        "showTime": false,
         "sortOrder": "Descending",
         "unwrappedColumns": false,
         "wrapLogMessage": true
@@ -505,7 +506,7 @@
             "type": "loki",
             "uid": "bedlw839mzuo0d"
           },
-          "expr": "{service_name=\"survival\"} |~ \"^\\\\{\" | json level=\"level\", logger=\"logger\", message=\"message\" | line_format \"{{.level}} | {{.logger}} | {{.message}}\"",
+          "expr": "{service_name=\"survival\"} |~ \"^\\\\{\" | json level=\"level\", message=\"message\" | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.message}}\"",
           "refId": "A"
         }
       ],
@@ -527,12 +528,12 @@
       "options": {
         "dedupStrategy": "none",
         "enableInfiniteScrolling": false,
-        "enableLogDetails": true,
+        "enableLogDetails": false,
         "prettifyLogMessage": false,
         "showCommonLabels": false,
         "showControls": false,
         "showLabels": false,
-        "showTime": true,
+        "showTime": false,
         "sortOrder": "Descending",
         "unwrappedColumns": false,
         "wrapLogMessage": true
@@ -544,7 +545,7 @@
             "type": "loki",
             "uid": "bedlw839mzuo0d"
           },
-          "expr": "{service_name=\"velocity\"} |~ \"^\\\\{\" | json level=\"level\", logger=\"logger\", message=\"message\" | line_format \"{{.level}} | {{.logger}} | {{.message}}\"",
+          "expr": "{service_name=\"velocity\"} |~ \"^\\\\{\" | json level=\"level\", message=\"message\" | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.message}}\"",
           "refId": "A"
         }
       ],
@@ -566,12 +567,12 @@
       "options": {
         "dedupStrategy": "none",
         "enableInfiniteScrolling": false,
-        "enableLogDetails": true,
+        "enableLogDetails": false,
         "prettifyLogMessage": false,
         "showCommonLabels": false,
         "showControls": false,
         "showLabels": false,
-        "showTime": true,
+        "showTime": false,
         "sortOrder": "Descending",
         "unwrappedColumns": false,
         "wrapLogMessage": true
@@ -583,7 +584,7 @@
             "type": "loki",
             "uid": "bedlw839mzuo0d"
           },
-          "expr": "{service_name=~\"$service\"} |~ \"^\\\\{\" | json level=\"level\", logger=\"logger\", message=\"message\" | level=~\"WARN|ERROR\" | line_format \"{{.level}} | {{.logger}} | {{.message}}\"",
+          "expr": "{service_name=~\"$service\"} |~ \"^\\\\{\" | json level=\"level\", message=\"message\" | level=~\"WARN|ERROR\" | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.message}}\"",
           "refId": "A"
         }
       ],
@@ -605,12 +606,12 @@
       "options": {
         "dedupStrategy": "none",
         "enableInfiniteScrolling": false,
-        "enableLogDetails": true,
+        "enableLogDetails": false,
         "prettifyLogMessage": false,
         "showCommonLabels": false,
         "showControls": false,
         "showLabels": false,
-        "showTime": true,
+        "showTime": false,
         "sortOrder": "Descending",
         "unwrappedColumns": false,
         "wrapLogMessage": true
@@ -622,7 +623,7 @@
             "type": "loki",
             "uid": "bedlw839mzuo0d"
           },
-          "expr": "{service_name=~\"$service\"} |~ \"^\\\\{\" | json | contextMap_module=\"xaction\" | line_format \"{{.level}} | {{.logger}} | {{.message}}\"",
+          "expr": "{service_name=~\"$service\"} |~ \"^\\\\{\" | json | contextMap_module=\"xaction\" | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.message}}\"",
           "refId": "A"
         }
       ],
@@ -661,7 +662,7 @@
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "RusCrafting Server Logs",
+  "title": "Server Logs",
   "uid": "mcfine-arc-logs",
   "weekStart": ""
 }

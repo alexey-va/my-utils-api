@@ -1,36 +1,64 @@
 {
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
+  "id": null,
   "links": [],
   "panels": [
     {
-      "datasource": { "type": "loki", "uid": "bedlw839mzuo0d" },
+      "datasource": {
+        "type": "loki",
+        "uid": "bedlw839mzuo0d"
+      },
       "fieldConfig": {
         "defaults": {
-          "color": { "mode": "thresholds" },
+          "color": {
+            "mode": "thresholds"
+          },
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "red", "value": 1 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
             ]
           }
         },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false },
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
         "textMode": "auto"
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "bedlw839mzuo0d" },
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
           "expr": "sum(count_over_time({app=\"my-utils-api\"} |= \"ERROR\" [1h]))",
           "refId": "A"
         }
@@ -39,21 +67,38 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "loki", "uid": "bedlw839mzuo0d" },
+      "datasource": {
+        "type": "loki",
+        "uid": "bedlw839mzuo0d"
+      },
       "fieldConfig": {
         "defaults": {},
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "id": 2,
       "options": {
         "colorMode": "value",
         "graphMode": "area",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "bedlw839mzuo0d" },
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
           "expr": "sum(count_over_time({app=\"my-utils-api\"}[5m]))",
           "refId": "A"
         }
@@ -62,24 +107,35 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "loki", "uid": "bedlw839mzuo0d" },
-      "gridPos": { "h": 20, "w": 24, "x": 0, "y": 4 },
+      "datasource": {
+        "type": "loki",
+        "uid": "bedlw839mzuo0d"
+      },
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 4
+      },
       "id": 3,
       "options": {
         "dedupStrategy": "none",
-        "enableLogDetails": true,
-        "prettifyLogMessage": true,
+        "enableLogDetails": false,
+        "logLevelField": "level",
+        "prettifyLogMessage": false,
         "showCommonLabels": false,
         "showLabels": false,
-        "showTime": true,
+        "showTime": false,
         "sortOrder": "Descending",
-        "wrapLogMessage": true,
-        "logLevelField": "level"
+        "wrapLogMessage": true
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "bedlw839mzuo0d" },
-          "expr": "{app=\"my-utils-api\"}",
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
+          "expr": "{app=\"my-utils-api\"} | json message=\"message\" | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.message}}\"",
           "refId": "A"
         }
       ],
@@ -87,22 +143,35 @@
       "type": "logs"
     },
     {
-      "datasource": { "type": "loki", "uid": "bedlw839mzuo0d" },
-      "gridPos": { "h": 12, "w": 24, "x": 0, "y": 24 },
+      "datasource": {
+        "type": "loki",
+        "uid": "bedlw839mzuo0d"
+      },
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
       "id": 4,
       "options": {
         "dedupStrategy": "none",
-        "enableLogDetails": true,
+        "enableLogDetails": false,
+        "logLevelField": "level",
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
         "showLabels": false,
-        "showTime": true,
+        "showTime": false,
         "sortOrder": "Descending",
-        "wrapLogMessage": true,
-        "logLevelField": "level"
+        "wrapLogMessage": true
       },
       "targets": [
         {
-          "datasource": { "type": "loki", "uid": "bedlw839mzuo0d" },
-          "expr": "{app=\"my-utils-api\", level=\"ERROR\"}",
+          "datasource": {
+            "type": "loki",
+            "uid": "bedlw839mzuo0d"
+          },
+          "expr": "{app=\"my-utils-api\", level=\"ERROR\"} | json message=\"message\" | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.message}}\"",
           "refId": "A"
         }
       ],
@@ -112,12 +181,20 @@
   ],
   "refresh": "",
   "schemaVersion": 39,
-  "tags": ["my-utils", "loki", "api"],
-  "templating": { "list": [] },
-  "time": { "from": "now-7d", "to": "now" },
+  "tags": [
+    "my-utils",
+    "loki",
+    "api"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
-  "title": "My Utils API Logs",
-  "uid": "myutils-api-logs",
-  "version": 4
+  "title": "API Logs",
+  "uid": "myutils-api-logs"
 }

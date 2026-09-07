@@ -40,13 +40,19 @@ groups:
               expression: B
               refId: C
               type: threshold
-        dashboardUid: myutils-api-metrics
+        dashboardUid: myutils-vpn-health
+        panelId: 1
         noDataState: Alerting
-        execErrState: Alerting
+        execErrState: KeepLast
         for: 2m
         annotations:
-          summary: VPN state cannot be read from PostgreSQL
-          description: The API metrics endpoint is up, but its WireGuard collector cannot read persisted relay state.
+          __dashboardUid__: myutils-vpn-health
+          __panelId__: '1'
+          summary: API metrics или состояние WireGuard collector недоступны
+          description: Проверь scrape API и чтение состояния WireGuard из PostgreSQL.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1
+          panel_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&viewPanel=1
+          runbook_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&viewPanel=1
         labels: {severity: critical, team: vpn}
         isPaused: false
         notification_settings: &vpn_critical_notifications
@@ -91,13 +97,19 @@ groups:
               expression: B
               refId: C
               type: threshold
-        dashboardUid: myutils-api-metrics
-        noDataState: Alerting
-        execErrState: Alerting
+        dashboardUid: myutils-vpn-health
+        panelId: 2
+        noDataState: KeepLast
+        execErrState: KeepLast
         for: 1m
         annotations:
+          __dashboardUid__: myutils-vpn-health
+          __panelId__: '2'
           summary: Relay data plane is not READY
-          description: Routing, DNS, desired state, or exit health keeps the relay outside READY.
+          description: Routing, DNS, desired state или health выхода удерживают relay вне READY.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}
+          panel_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=2
+          runbook_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=2
         labels: {severity: critical, team: vpn}
         isPaused: false
         notification_settings: *vpn_critical_notifications
@@ -137,13 +149,19 @@ groups:
               expression: B
               refId: C
               type: threshold
-        dashboardUid: myutils-api-metrics
+        dashboardUid: myutils-vpn-health
+        panelId: 3
         noDataState: OK
-        execErrState: Alerting
+        execErrState: KeepLast
         for: 1m
         annotations:
+          __dashboardUid__: myutils-vpn-health
+          __panelId__: '3'
           summary: Relay agent heartbeat is older than 45 seconds
-          description: Host state is no longer converging into the API; inspect the agent timer before trusting the dashboard.
+          description: Состояние хоста давно не поступало в API; проверь timer агента.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}
+          panel_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=3
+          runbook_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=3
         labels: {severity: critical, team: vpn}
         isPaused: false
         notification_settings: *vpn_critical_notifications
@@ -183,13 +201,19 @@ groups:
               expression: B
               refId: C
               type: threshold
-        dashboardUid: myutils-api-metrics
+        dashboardUid: myutils-vpn-health
+        panelId: 4
         noDataState: OK
-        execErrState: Alerting
+        execErrState: KeepLast
         for: 1m
         annotations:
+          __dashboardUid__: myutils-vpn-health
+          __panelId__: '4'
           summary: Policy routing or private client DNS is unhealthy
-          description: The relay agent failed its current routing and DNS readiness checks.
+          description: Агент relay не прошёл текущие проверки policy routing и DNS.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}
+          panel_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=4
+          runbook_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=4
         labels: {severity: critical, team: vpn}
         isPaused: false
         notification_settings: *vpn_critical_notifications
@@ -229,13 +253,19 @@ groups:
               expression: B
               refId: C
               type: threshold
-        dashboardUid: myutils-api-metrics
+        dashboardUid: myutils-vpn-health
+        panelId: 5
         noDataState: OK
-        execErrState: Alerting
+        execErrState: KeepLast
         for: 30s
         annotations:
+          __dashboardUid__: myutils-vpn-health
+          __panelId__: '5'
           summary: Neither AWG exit passes the real egress probe
-          description: External traffic is fail-closed until at least one exit recovers.
+          description: Внешний трафик закрыт, пока хотя бы один exit не восстановится.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}
+          panel_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=5
+          runbook_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=5
         labels: {severity: critical, team: vpn}
         isPaused: false
         notification_settings: *vpn_critical_notifications
@@ -275,13 +305,19 @@ groups:
               expression: B
               refId: C
               type: threshold
-        dashboardUid: myutils-api-metrics
+        dashboardUid: myutils-vpn-health
+        panelId: 6
         noDataState: OK
-        execErrState: Alerting
+        execErrState: KeepLast
         for: 2m
         annotations:
+          __dashboardUid__: myutils-vpn-health
+          __panelId__: '6'
           summary: Primary AWG exit failed its handshake or expected-egress probe
-          description: The reserve can carry traffic, but provider redundancy is degraded.
+          description: Резерв может нести трафик, но отказоустойчивость провайдера снижена.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}
+          panel_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=6
+          runbook_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=6
         labels: {severity: warning, team: vpn}
         isPaused: false
         notification_settings: &vpn_warning_notifications
@@ -326,13 +362,19 @@ groups:
               expression: B
               refId: C
               type: threshold
-        dashboardUid: myutils-api-metrics
+        dashboardUid: myutils-vpn-health
+        panelId: 7
         noDataState: OK
-        execErrState: Alerting
+        execErrState: KeepLast
         for: 2m
         annotations:
+          __dashboardUid__: myutils-vpn-health
+          __panelId__: '7'
           summary: Automatic failover is using the secondary exit
-          description: AUTO mode selected the reserve; inspect the primary provider if this persists. An explicit manual selection does not trigger this alert.
+          description: Режим AUTO выбрал резерв; проверь primary, если это состояние длится.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}
+          panel_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=7
+          runbook_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=7
         labels: {severity: warning, team: vpn}
         isPaused: false
         notification_settings: *vpn_warning_notifications
@@ -372,13 +414,19 @@ groups:
               expression: B
               refId: C
               type: threshold
-        dashboardUid: myutils-api-metrics
+        dashboardUid: myutils-vpn-health
+        panelId: 8
         noDataState: OK
-        execErrState: Alerting
+        execErrState: KeepLast
         for: 5m
         annotations:
+          __dashboardUid__: myutils-vpn-health
+          __panelId__: '8'
           summary: Route probe packet loss stayed above 20 percent
-          description: Use the path label to distinguish Internal from External transport degradation.
+          description: По label path отличай деградацию Internal от External транспорта.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}
+          panel_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=8
+          runbook_url: https://utils.alexeyav.ru/grafana/d/myutils-vpn-health/vpn-health?orgId=1&var-relay={{ $labels.relay | urlquery }}&viewPanel=8
         labels: {severity: warning, team: vpn}
         isPaused: false
         notification_settings: *vpn_warning_notifications

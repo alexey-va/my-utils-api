@@ -1,4 +1,7 @@
 apiVersion: 1
+deleteRules:
+  - orgId: 1
+    uid: bfqg6service01
 groups:
   - orgId: 1
     name: metal-hardware
@@ -58,11 +61,18 @@ groups:
               refId: C
               type: threshold
         dashboardUid: rYdddlPWk
-        noDataState: Alerting
-        execErrState: Alerting
-        for: 2m
+        panelId: 157
+        noDataState: OK
+        execErrState: OK
+        for: 3m
         annotations:
-          summary: node-exporter not responding
+          __dashboardUid__: rYdddlPWk
+          __panelId__: '157'
+          summary: node-exporter не отвечает
+          description: Метрики узла недоступны; проверь node-exporter и сам хост.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}
+          panel_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}&viewPanel=157
+          runbook_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}&viewPanel=157
         labels:
           severity: critical
           team: metal
@@ -128,11 +138,18 @@ groups:
               refId: C
               type: threshold
         dashboardUid: rYdddlPWk
+        panelId: 77
         noDataState: OK
-        execErrState: Alerting
+        execErrState: KeepLast
         for: 5m
         annotations:
-          summary: CPU above 90% for 5 minutes
+          __dashboardUid__: rYdddlPWk
+          __panelId__: '77'
+          summary: CPU выше 90% пять минут
+          description: Загрузка CPU держится выше порога; проверь процессы на узле.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}
+          panel_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}&viewPanel=77
+          runbook_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}&viewPanel=77
         labels:
           severity: critical
           team: metal
@@ -198,11 +215,18 @@ groups:
               refId: C
               type: threshold
         dashboardUid: rYdddlPWk
+        panelId: 78
         noDataState: OK
-        execErrState: Alerting
+        execErrState: KeepLast
         for: 5m
         annotations:
-          summary: RAM above 90% for 5 minutes
+          __dashboardUid__: rYdddlPWk
+          __panelId__: '78'
+          summary: Память выше 90% пять минут
+          description: Доступная память держится ниже порога; проверь потребителей RAM.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}
+          panel_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}&viewPanel=78
+          runbook_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}&viewPanel=78
         labels:
           severity: critical
           team: metal
@@ -268,11 +292,18 @@ groups:
               refId: C
               type: threshold
         dashboardUid: rYdddlPWk
+        panelId: 152
         noDataState: OK
-        execErrState: Alerting
+        execErrState: KeepLast
         for: 10m
         annotations:
-          summary: root disk above 85% for 10 minutes
+          __dashboardUid__: rYdddlPWk
+          __panelId__: '152'
+          summary: Корневой диск заполнен выше 85%
+          description: Использование корневой файловой системы держится выше порога.
+          dashboard_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}
+          panel_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}&viewPanel=152
+          runbook_url: https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1&var-host={{ $labels.service_name }}&var-node={{ $labels.instance }}&viewPanel=152
         labels:
           severity: warning
           team: metal
@@ -285,73 +316,3 @@ groups:
           group_wait: 30s
           group_interval: 5m
           repeat_interval: 6h
-      - uid: bfqg6service01
-        title: Metal service unreachable
-        condition: C
-        data:
-          - refId: A
-            relativeTimeRange:
-              from: 600
-              to: 0
-            datasourceUid: prometheus
-            model:
-              datasource:
-                type: prometheus
-                uid: prometheus
-              editorMode: code
-              expr: max by (alias) (probe_success{alias=~"velocity|spawn|survival|route"})
-              instant: true
-              intervalMs: 1000
-              maxDataPoints: 43200
-              range: false
-              refId: A
-          - refId: B
-            datasourceUid: __expr__
-            model:
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: A
-              intervalMs: 1000
-              maxDataPoints: 43200
-              reducer: last
-              refId: B
-              type: reduce
-          - refId: C
-            datasourceUid: __expr__
-            model:
-              conditions:
-                - evaluator:
-                    params:
-                      - 1
-                    type: lt
-                  operator:
-                    type: and
-                  reducer:
-                    type: last
-              datasource:
-                type: __expr__
-                uid: __expr__
-              expression: B
-              intervalMs: 1000
-              maxDataPoints: 43200
-              refId: C
-              type: threshold
-        dashboardUid: rYdddlPWk
-        noDataState: Alerting
-        execErrState: Alerting
-        for: 2m
-        annotations:
-          summary: blackbox probe failed for 2+ minutes
-        labels:
-          severity: critical
-          team: metal
-        isPaused: false
-        notification_settings:
-          receiver: Metal Discord
-          group_by:
-            - alertname
-            - alias
-          group_wait: 30s
-          group_interval: 5m
-          repeat_interval: 4h

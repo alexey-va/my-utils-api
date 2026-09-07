@@ -64,10 +64,14 @@ def validate(path: Path) -> None:
             raise ValueError(f"{title} uses the wrong receiver")
         if duration_seconds(str(notifications.get("repeat_interval", ""))) < 4 * 3600:
             raise ValueError(f"{title} repeat_interval is too short")
-        no_data_alerts = {"VPN metrics unavailable", "VPN relay unavailable"}
+        # The collector sentinel owns telemetry loss. A relay no-data result is
+        # kept stable so it does not duplicate the outage notification.
+        no_data_alerts = {"VPN metrics unavailable"}
         if title in no_data_alerts and rule.get("noDataState") != "Alerting":
             raise ValueError(f"{title} must alert on no data")
-        if title not in no_data_alerts and rule.get("noDataState") != "OK":
+        if title == "VPN relay unavailable" and rule.get("noDataState") != "KeepLast":
+            raise ValueError(f"{title} must keep its last state on no data")
+        if title not in no_data_alerts and title != "VPN relay unavailable" and rule.get("noDataState") != "OK":
             raise ValueError(f"{title} must defer missing-series handling to the collector or relay alert")
 
 

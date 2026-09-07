@@ -18,6 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
+  "id": null,
   "links": [],
   "panels": [
     {
@@ -25,6 +26,7 @@
         "type": "prometheus",
         "uid": "prometheus"
       },
+      "description": "Minecraft TCP and public HTTP probes by alias; TCP covers Paper backends and HTTP covers the proxy/public route.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -86,12 +88,12 @@
       },
       "targets": [
         {
-          "expr": "max(probe_success{job=\"blackbox_minecraft\"}) by (alias)",
+          "expr": "max(probe_success{job=~\"blackbox_minecraft|blackbox_http\"}) by (alias)",
           "legendFormat": "{{alias}}",
           "refId": "A"
         }
       ],
-      "title": "Minecraft TCP probe",
+      "title": "Service availability",
       "type": "stat"
     },
     {
@@ -123,12 +125,12 @@
       },
       "targets": [
         {
-          "expr": "sum(mc_players_online_total) by (server_name)",
+          "expr": "max by (server_name) (arc_players_online{platform=\"paper\",server_name=~\"${server:regex}\"})",
           "legendFormat": "{{server_name}}",
           "refId": "A"
         }
       ],
-      "title": "Players online (Paper)",
+      "title": "Players online",
       "type": "timeseries"
     },
     {
@@ -192,7 +194,7 @@
           "refId": "A"
         }
       ],
-      "title": "RAM used",
+      "title": "Host RAM used",
       "type": "timeseries"
     },
     {
@@ -263,6 +265,217 @@
       "type": "timeseries"
     },
     {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 60,
+      "title": "Minecraft servers",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 20,
+          "min": 0,
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 0,
+        "y": 25
+      },
+      "description": "5m ARC TPS, matching the alert window; filter by server.",
+      "id": 61,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "max by (server_name) (arc_tps{server_name=~\"${server:regex}\",window=\"5m\"})",
+          "legendFormat": "{{server_name}} · 5m",
+          "refId": "A"
+        }
+      ],
+      "title": "TPS (5m)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 100,
+          "min": 0,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 8,
+        "y": 25
+      },
+      "id": 62,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "100 * max by (server_name) (arc_jvm_heap_used_bytes{server_name=~\"${server:regex}\"}) / clamp_min(max by (server_name) (arc_jvm_heap_max_bytes{server_name=~\"${server:regex}\"}), 1)",
+          "legendFormat": "{{server_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "RAM used (% of Xmx)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "OK"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red"
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 16,
+        "y": 25
+      },
+      "id": 63,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "max by (server_name) (arc_redis_connected{server_name=~\"${server:regex}\"})",
+          "instant": true,
+          "legendFormat": "{{server_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Redis (ARC)",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 20,
+        "y": 25
+      },
+      "id": 64,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server_name) (arc_paper_world_loaded_chunks{server_name=~\"${server:regex}\"})",
+          "instant": true,
+          "legendFormat": "{{server_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Loaded chunks (total)",
+      "type": "stat"
+    },
+    {
       "datasource": {
         "type": "loki",
         "uid": "bedlw839mzuo0d"
@@ -271,16 +484,22 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 32
       },
       "id": 7,
       "options": {
-        "showTime": true,
-        "sortOrder": "Descending"
+        "dedupStrategy": "none",
+        "enableLogDetails": false,
+        "prettifyLogMessage": false,
+        "showCommonLabels": false,
+        "showLabels": false,
+        "showTime": false,
+        "sortOrder": "Descending",
+        "wrapLogMessage": true
       },
       "targets": [
         {
-          "expr": "{service_name=\"velocity\", job=\"velocity_proxy\"} |~ \"connected player|LimboFilter|disconnect|ERROR\"",
+          "expr": "{service_name=\"velocity\", job=\"velocity_proxy\"} |~ \"connected player|LimboFilter|disconnect|ERROR\" | json level=\"level\", message=\"message\" | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.message}}\"",
           "refId": "A"
         }
       ],
@@ -293,48 +512,67 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 34
+        "y": 42
       },
-      "id": 100,
-      "title": "Backend join / transfer",
+      "id": 110,
+      "title": "Application health — ARC / ProxyARC",
       "type": "row"
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "bedlw839mzuo0d"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
-      "description": "Velocity \u043e\u0442\u043a\u0440\u044b\u043b \u043a\u0430\u043d\u0430\u043b \u043d\u0430 spawn/survival ([server connection] \u2026 has connected). \u0415\u0449\u0451 \u043d\u0435 \u0437\u043d\u0430\u0447\u0438\u0442, \u0447\u0442\u043e \u0438\u0433\u0440\u043e\u043a \u0432 \u043c\u0438\u0440\u0435.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
-          "mappings": [],
-          "noValue": "0",
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
+          ],
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
-                "value": null
+                "color": "red"
+              },
+              {
+                "color": "green",
+                "value": 1
               }
             ]
           }
-        }
+        },
+        "overrides": []
       },
       "gridPos": {
-        "h": 5,
-        "w": 6,
+        "h": 7,
+        "w": 4,
         "x": 0,
-        "y": 35
+        "y": 43
       },
-      "id": 8,
+      "description": "ARC and ProxyARC targets follow the selected server; node-exporter coverage is shown independently by service_name.",
+      "id": 111,
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
+        "colorMode": "background",
+        "graphMode": "none",
         "justifyMode": "auto",
-        "orientation": "auto",
+        "orientation": "horizontal",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
@@ -342,239 +580,46 @@
           "fields": "",
           "values": false
         },
-        "textMode": "value"
+        "textMode": "value_and_name"
       },
       "targets": [
         {
-          "datasource": {
-            "type": "loki",
-            "uid": "bedlw839mzuo0d"
-          },
-          "expr": "sum(count_over_time({service_name=\"velocity\", job=\"velocity_proxy\"} |= \"[server connection]\" |= \"has connected\" [$__range]))",
+          "expr": "up{job=~\"mc-arc|mc-proxyarc\",server_name=~\"${server:regex}\"}",
+          "legendFormat": "{{server_name}}",
           "refId": "A"
-        }
-      ],
-      "title": "Velocity \u2192 backend connect",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "loki",
-        "uid": "bedlw839mzuo0d"
-      },
-      "description": "Paper \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0434\u0438\u043b \u0432\u0445\u043e\u0434 \u0432 \u043c\u0438\u0440 (logged in with entity id).",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "noValue": "0",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          }
-        }
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 6,
-        "y": 35
-      },
-      "id": 9,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
         },
-        "textMode": "value"
-      },
-      "targets": [
         {
-          "datasource": {
-            "type": "loki",
-            "uid": "bedlw839mzuo0d"
-          },
-          "expr": "sum(count_over_time({service_name=~\"spawn|survival\"} |= \"logged in with entity id\" [$__range]))",
-          "refId": "A"
+          "expr": "up{job=\"node-exporter\",service_name=~\"velocity|gercena|utils\"}",
+          "legendFormat": "node-exporter · {{service_name}}",
+          "refId": "B"
         }
       ],
-      "title": "Paper login OK",
+      "title": "Metrics scrape",
       "type": "stat"
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "bedlw839mzuo0d"
-      },
-      "description": "Login/configuration timeout \u0438\u043b\u0438 disconnect \u043d\u0430 Paper \u0434\u043e \u0432\u0445\u043e\u0434\u0430 \u0432 \u043c\u0438\u0440.",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "noValue": "0",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 5
-              }
-            ]
-          }
-        }
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 12,
-        "y": 35
-      },
-      "id": 10,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "bedlw839mzuo0d"
-          },
-          "expr": "sum(count_over_time({service_name=~\"spawn|survival\"} |~ \"lost connection: Timed out|ServerConfigurationPacketListenerImpl|ServerLoginPacketListenerImpl.*lost connection\" [$__range]))",
-          "refId": "A"
-        }
-      ],
-      "title": "Paper join failed",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "loki",
-        "uid": "bedlw839mzuo0d"
-      },
-      "description": "\u041a\u0430\u043d\u0430\u043b Velocity\u2194backend \u0437\u0430\u043a\u0440\u044b\u0442 \u0434\u043e \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u0438\u044f login (resource pack, transfer, disconnect).",
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "noValue": "0",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "orange",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 3
-              }
-            ]
-          }
-        }
-      },
-      "gridPos": {
-        "h": 5,
-        "w": 6,
-        "x": 18,
-        "y": 35
-      },
-      "id": 11,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "value"
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "bedlw839mzuo0d"
-          },
-          "expr": "sum(count_over_time({service_name=\"velocity\", job=\"velocity_proxy\"} |= \"[server connection]\" |= \"has disconnected\" [$__range]))",
-          "refId": "A"
-        }
-      ],
-      "title": "Backend channel drop",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "loki",
-        "uid": "bedlw839mzuo0d"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "palette-classic"
           },
-          "custom": {
-            "drawStyle": "bars",
-            "fillOpacity": 80,
-            "stacking": {
-              "group": "A",
-              "mode": "normal"
-            }
-          },
-          "unit": "short"
-        }
+          "max": 100,
+          "min": 0,
+          "unit": "percent"
+        },
+        "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 40
+        "h": 7,
+        "w": 6,
+        "x": 4,
+        "y": 43
       },
-      "id": 12,
+      "id": 112,
       "options": {
         "legend": {
           "displayMode": "list",
@@ -583,96 +628,1039 @@
       },
       "targets": [
         {
-          "datasource": {
-            "type": "loki",
-            "uid": "bedlw839mzuo0d"
-          },
-          "expr": "sum(count_over_time({service_name=\"velocity\", job=\"velocity_proxy\"} |= \"[server connection]\" |= \"has connected\" [$__interval]))",
-          "legendFormat": "velocity connect",
+          "expr": "100 * arc_process_cpu_load_ratio{server_name=~\"${server:regex}\"}",
+          "legendFormat": "{{server_name}}",
           "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "bedlw839mzuo0d"
-          },
-          "expr": "sum(count_over_time({service_name=~\"spawn|survival\"} |= \"logged in with entity id\" [$__interval]))",
-          "legendFormat": "paper login",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "bedlw839mzuo0d"
-          },
-          "expr": "sum(count_over_time({service_name=~\"spawn|survival\"} |= \"lost connection: Timed out\" [$__interval]))",
-          "legendFormat": "paper timeout",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "bedlw839mzuo0d"
-          },
-          "expr": "sum(count_over_time({service_name=\"velocity\", job=\"velocity_proxy\"} |= \"[server connection]\" |= \"has disconnected\" [$__interval]))",
-          "legendFormat": "backend drop",
-          "refId": "D"
         }
       ],
-      "title": "Backend join events / min",
+      "title": "JVM process CPU",
       "type": "timeseries"
     },
     {
       "datasource": {
-        "type": "loki",
-        "uid": "bedlw839mzuo0d"
+        "type": "prometheus",
+        "uid": "prometheus"
       },
-      "description": "\u0421\u043e\u0431\u044b\u0442\u0438\u044f transfer/login: connect/disconnect \u043a\u0430\u043d\u0430\u043b\u0430, Paper timeout, resource pack. \u0415\u0441\u043b\u0438 connect \u0435\u0441\u0442\u044c, \u0430 login \u043d\u0435\u0442 \u2014 \u0438\u0433\u0440\u043e\u043a \u0437\u0430\u0441\u0442\u0440\u044f\u043b \u043c\u0435\u0436\u0434\u0443 Velocity \u0438 Paper.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "unit": "bytes"
+        },
+        "overrides": []
+      },
       "gridPos": {
-        "h": 12,
-        "w": 24,
-        "x": 0,
-        "y": 48
+        "h": 7,
+        "w": 8,
+        "x": 10,
+        "y": 43
       },
-      "id": 13,
+      "id": 113,
       "options": {
-        "dedupStrategy": "none",
-        "enableLogDetails": true,
-        "showTime": true,
-        "sortOrder": "Descending",
-        "wrapLogMessage": true
+        "legend": {
+          "displayMode": "table",
+          "placement": "bottom"
+        }
       },
       "targets": [
         {
-          "datasource": {
-            "type": "loki",
-            "uid": "bedlw839mzuo0d"
-          },
-          "expr": "{service_name=~\"velocity|spawn|survival\"} |~ \"\\\\[server connection\\\\].*has (connected|disconnected)|logged in with entity id|lost connection: Timed out|ServerConfigurationPacketListenerImpl|connecting to server|velocityresourcepacks|connected player.*has disconnected\"",
+          "expr": "arc_jvm_memory_bytes{server_name=~\"${server:regex}\",kind=\"used\"}",
+          "legendFormat": "{{server_name}} {{area}}",
           "refId": "A"
         }
       ],
-      "title": "Backend join issues (log)",
-      "type": "logs"
+      "title": "JVM memory used",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "max": 100,
+          "min": 0,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 43
+      },
+      "id": 114,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "expr": "100 * arc_disk_space_bytes{server_name=~\"${server:regex}\",kind=\"usable\"} / ignoring(kind) arc_disk_space_bytes{server_name=~\"${server:regex}\",kind=\"total\"}",
+          "legendFormat": "{{server_name}} free",
+          "refId": "A"
+        }
+      ],
+      "title": "Plugin disk usable",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Минимальное состояние модулей на каждом процессе. DOWN означает, что хотя бы один модуль не инициализировался или сломался при reload.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "READY"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "noValue": "NO DATA",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red"
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 0,
+        "y": 50
+      },
+      "id": 115,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {
+          "titleSize": 18,
+          "valueSize": 26
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "min by (server_name) (arc_module_ready{server_name=~\"${server:regex}\"})",
+          "legendFormat": "{{server_name}}",
+          "refId": "A"
+        }
+      ],
+      "title": "All modules ready",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Самые медленные модули на последнем запуске. Помогает сразу увидеть, кто растягивает startup.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Server"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Server"
+              },
+              {
+                "id": "custom.width",
+                "value": 150
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Module"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Module"
+              },
+              {
+                "id": "custom.width",
+                "value": 260
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Startup"
+            },
+            "properties": [
+              {
+                "id": "displayName",
+                "value": "Startup"
+              },
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.width",
+                "value": 140
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 8,
+        "y": 50
+      },
+      "id": 116,
+      "options": {
+        "cellHeight": "md",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Startup"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "topk(8, max by (server_name, module) (arc_module_lifecycle_duration_seconds{server_name=~\"${server:regex}\",operation=\"init\"}))",
+          "format": "table",
+          "instant": true,
+          "legendFormat": "__auto",
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Slowest module startup",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "server_name": 0,
+              "module": 1,
+              "Value": 2
+            },
+            "renameByName": {
+              "server_name": "Server",
+              "module": "Module",
+              "Value": "Startup"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Средняя latency реальных Redis операций за 5 минут. Нет данных означает, что операция в окне не выполнялась.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 16,
+        "x": 0,
+        "y": 60
+      },
+      "id": 117,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "width": 280
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum by (server_name, operation) (rate(arc_redis_operation_duration_seconds_sum{server_name=~\"${server:regex}\",result=\"success\"}[5m])) / clamp_min(sum by (server_name, operation) (rate(arc_redis_operation_duration_seconds_count{server_name=~\"${server:regex}\",result=\"success\"}[5m])), 0.001)",
+          "legendFormat": "{{server_name}} / {{operation}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Redis operation latency",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Ошибки Redis и sampling за выбранный диапазон плюс накопленные lifecycle failures модулей.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "noValue": "0",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 8,
+        "x": 16,
+        "y": 60
+      },
+      "id": 118,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "text": {
+          "titleSize": 16,
+          "valueSize": 22
+        },
+        "textMode": "value_and_name"
+      },
+      "targets": [
+        {
+          "expr": "sum by (server_name) (increase(arc_redis_operations_total{server_name=~\"${server:regex}\",result=~\"failure|unavailable\"}[$__range]))",
+          "legendFormat": "{{server_name}} redis",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (server_name) (increase(arc_metrics_sample_failures_total{server_name=~\"${server:regex}\"}[$__range]))",
+          "legendFormat": "{{server_name}} sampling",
+          "refId": "B"
+        },
+        {
+          "expr": "max by (server_name) (arc_module_failures{server_name=~\"${server:regex}\"})",
+          "legendFormat": "{{server_name}} modules",
+          "refId": "C"
+        },
+        {
+          "expr": "max by (server_name) (arc_metrics_cached_series{server_name=~\"${server:regex}\",state=\"stale\"})",
+          "legendFormat": "{{server_name}} stale series",
+          "refId": "D"
+        }
+      ],
+      "title": "Operational failures",
+      "type": "stat"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 70
+      },
+      "id": 120,
+      "title": "Paper worlds and Velocity backends",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 71
+      },
+      "id": 121,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "width": 260
+        }
+      },
+      "targets": [
+        {
+          "expr": "arc_paper_world_entities{server_name=~\"${server:regex}\",world=~\"${world:regex}\"}",
+          "legendFormat": "{{server_name}} / {{world}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Entities by world",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "min": 0,
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 71
+      },
+      "id": 122,
+      "options": {
+        "legend": {
+          "displayMode": "table",
+          "placement": "right",
+          "width": 260
+        }
+      },
+      "targets": [
+        {
+          "expr": "arc_paper_world_loaded_chunks{server_name=~\"${server:regex}\",world=~\"${world:regex}\"}",
+          "legendFormat": "{{server_name}} / {{world}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Loaded chunks by world",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 81
+      },
+      "id": 130,
+      "title": "Backups",
+      "type": "row"
+    },
+    {
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 0,
+        "y": 82
+      },
+      "id": 131,
+      "options": {
+        "content": "## Restic backups\n\nRuns every 3 hours on **Gercena** and **Velocity**.\n\nHealthy means: the last Gercena run succeeded, all **7 groups** are newer than 6 hours, and no Gercena run is stuck over 4 hours.\n\nIf red: check group age, then `~/McFine/backup/backup.log` on Gercena or `~/McFine/backup/velocity-backup.log` on Velocity.",
+        "mode": "markdown"
+      },
+      "title": "",
+      "transparent": true,
+      "type": "text"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Combined state used by the alert: last Gercena run result, full-backup age, seven required snapshot groups and stuck-run detection.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "red",
+                  "index": 0,
+                  "text": "UNHEALTHY"
+                },
+                "1": {
+                  "color": "green",
+                  "index": 1,
+                  "text": "HEALTHY"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red"
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 82
+      },
+      "id": 132,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "1 - clamp_max(max(ruscrafting_restic_last_run_success{job=\"node-exporter\",service_name=\"gercena\"} == bool 0) + max((time() - ruscrafting_restic_last_success_timestamp_seconds{job=\"node-exporter\",service_name=\"gercena\"}) > bool 32400) + max((ruscrafting_restic_run_in_progress{job=\"node-exporter\",service_name=\"gercena\"} == bool 1) * ((time() - ruscrafting_restic_run_start_timestamp_seconds{job=\"node-exporter\",service_name=\"gercena\"}) > bool 21600)) + (count(ruscrafting_restic_snapshot_timestamp_seconds{job=\"node-exporter\",service_name=\"gercena\"}) < bool 7) + max((time() - ruscrafting_restic_snapshot_timestamp_seconds{job=\"node-exporter\",service_name=\"gercena\"}) > bool 32400), 1)",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Backup health",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Time since the latest complete successful run. Warning after 6h; critical after 9h.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 21600
+              },
+              {
+                "color": "red",
+                "value": 32400
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 12,
+        "y": 82
+      },
+      "id": 133,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "time() - ruscrafting_restic_last_success_timestamp_seconds{job=\"node-exporter\",service_name=\"gercena\"}",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Last successful backup",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "IDLE is normal between cron runs. RUNNING is normal during a backup; the alert fires only after 6h.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "green",
+                  "index": 0,
+                  "text": "IDLE"
+                },
+                "1": {
+                  "color": "blue",
+                  "index": 1,
+                  "text": "RUNNING"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "blue",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "none"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 18,
+        "y": 82
+      },
+      "id": 134,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "ruscrafting_restic_run_in_progress{job=\"node-exporter\",service_name=\"gercena\"}",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Backup process",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Age of the newest snapshot in every required backup group. All seven must stay below 9 hours.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "filterable": false,
+            "inspect": false
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 21600
+              },
+              {
+                "color": "red",
+                "value": 32400
+              }
+            ]
+          }
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Backup group"
+            },
+            "properties": [
+              {
+                "id": "custom.width",
+                "value": 300
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Snapshot age"
+            },
+            "properties": [
+              {
+                "id": "unit",
+                "value": "s"
+              },
+              {
+                "id": "decimals",
+                "value": 0
+              },
+              {
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-text"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 89
+      },
+      "id": 135,
+      "options": {
+        "cellHeight": "md",
+        "footer": {
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
+        },
+        "showHeader": true,
+        "sortBy": [
+          {
+            "desc": true,
+            "displayName": "Snapshot age"
+          }
+        ]
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "label_replace(time() - ruscrafting_restic_snapshot_timestamp_seconds{job=\"node-exporter\",service_name=\"gercena\"}, \"group\", \"$1\", \"tag\", \"mcfine-(.*)\")",
+          "format": "table",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Latest snapshot by backup group",
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true,
+              "instance": true,
+              "job": true,
+              "role": true,
+              "service_name": true,
+              "tag": true
+            },
+            "indexByName": {
+              "group": 0,
+              "Value": 1
+            },
+            "renameByName": {
+              "group": "Backup group",
+              "Value": "Snapshot age"
+            }
+          }
+        }
+      ],
+      "type": "table"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "description": "Duration of the latest completed backup run. Colors use the 6h warning and 9h critical boundaries for consistency with backup health.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "decimals": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green"
+              },
+              {
+                "color": "yellow",
+                "value": 21600
+              },
+              {
+                "color": "red",
+                "value": 32400
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 89
+      },
+      "id": 136,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value"
+      },
+      "targets": [
+        {
+          "editorMode": "code",
+          "expr": "ruscrafting_restic_last_duration_seconds{job=\"node-exporter\",service_name=\"gercena\"}",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Last backup duration",
+      "type": "stat"
     }
   ],
   "refresh": "30s",
   "schemaVersion": 42,
   "tags": [
     "ruscrafting",
-    "velocity",
-    "ddos"
+    "minecraft",
+    "observability"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(arc_players_online, server_name)",
+        "includeAll": true,
+        "label": "Server",
+        "multi": true,
+        "name": "server",
+        "options": [],
+        "query": {
+          "query": "label_values(arc_players_online, server_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(arc_paper_world_info{server_name=~\"${server:regex}\"}, world)",
+        "includeAll": true,
+        "label": "World",
+        "multi": true,
+        "name": "world",
+        "options": [],
+        "query": {
+          "query": "label_values(arc_paper_world_info{server_name=~\"${server:regex}\"}, world)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
   },
   "time": {
-    "from": "now-6h",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "browser",
-  "title": "Velocity",
+  "title": "Network health",
   "uid": "mcfine-infra",
   "weekStart": ""
 }

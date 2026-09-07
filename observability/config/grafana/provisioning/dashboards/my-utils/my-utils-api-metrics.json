@@ -1,26 +1,49 @@
 {
-  "annotations": { "list": [] },
+  "annotations": {
+    "list": []
+  },
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
+  "id": null,
   "links": [],
   "panels": [
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "decimals": 0, "unit": "none" },
+        "defaults": {
+          "decimals": 0,
+          "unit": "none"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "id": 1,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum(increase(agent_requests_total{application=\"my-utils-api\",outcome=\"received\"}[$__range])) or vector(0)",
           "legendFormat": "in range",
           "refId": "A"
@@ -30,21 +53,41 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "decimals": 0, "unit": "none" },
+        "defaults": {
+          "decimals": 0,
+          "unit": "none"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 6,
+        "y": 0
+      },
       "id": 2,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum(increase(agent_turns_total{application=\"my-utils-api\"}[$__range])) or vector(0)",
           "legendFormat": "in range",
           "refId": "A"
@@ -54,21 +97,41 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "decimals": 1, "unit": "s" },
+        "defaults": {
+          "decimals": 1,
+          "unit": "s"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 0
+      },
       "id": 3,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum(agent_turn_duration_seconds_sum{application=\"my-utils-api\"}) / sum(agent_turn_duration_seconds_count{application=\"my-utils-api\"})",
           "legendFormat": "avg",
           "refId": "A"
@@ -78,21 +141,41 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "decimals": 0, "unit": "none" },
+        "defaults": {
+          "decimals": 0,
+          "unit": "none"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 0 },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 0
+      },
       "id": 4,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
       },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum(increase(agent_llm_steps_total{application=\"my-utils-api\"}[$__range]))",
           "legendFormat": "in range",
           "refId": "A"
@@ -102,31 +185,50 @@
       "type": "stat"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "decimals": 0,
-          "min": 0,
-          "unit": "none",
           "custom": {
-            "drawStyle": "bars",
             "barAlignment": 0,
             "barWidthFactor": 0.75,
+            "drawStyle": "bars",
             "fillOpacity": 90,
             "lineWidth": 0,
-            "stacking": { "mode": "none", "group": "A" },
-            "showPoints": "never"
-          }
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "decimals": 0,
+          "min": 0,
+          "unit": "none"
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 4 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 4
+      },
       "id": 5,
       "interval": "30s",
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum by (path) (increase(agent_requests_total{application=\"my-utils-api\",outcome=\"received\"}[5m]))",
           "interval": "1m",
           "legendFormat": "{{path}}",
@@ -137,31 +239,50 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "decimals": 0,
-          "min": 0,
-          "unit": "none",
           "custom": {
-            "drawStyle": "bars",
             "barAlignment": 0,
             "barWidthFactor": 0.75,
+            "drawStyle": "bars",
             "fillOpacity": 90,
             "lineWidth": 0,
-            "stacking": { "mode": "none", "group": "A" },
-            "showPoints": "never"
-          }
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "decimals": 0,
+          "min": 0,
+          "unit": "none"
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 4 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 4
+      },
       "id": 11,
       "interval": "30s",
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum by (path) (increase(agent_turns_total{application=\"my-utils-api\"}[5m]))",
           "interval": "1m",
           "legendFormat": "{{path}}",
@@ -172,23 +293,48 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "lineWidth": 2 } },
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2
+          },
+          "unit": "s"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 12 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 12
+      },
       "id": 6,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum by (path) (increase(agent_turn_duration_seconds_sum{application=\"my-utils-api\"}[$__rate_interval])) / sum by (path) (increase(agent_turn_duration_seconds_count{application=\"my-utils-api\"}[$__rate_interval]))",
           "legendFormat": "avg {{path}}",
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "max by (path) (agent_turn_duration_seconds_max{application=\"my-utils-api\"})",
           "legendFormat": "max {{path}}",
           "refId": "B"
@@ -198,31 +344,50 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 12 },
-      "id": 12,
-      "interval": "30s",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "decimals": 0,
-          "min": 0,
-          "unit": "none",
           "custom": {
-            "drawStyle": "bars",
             "barAlignment": 0,
             "barWidthFactor": 0.75,
+            "drawStyle": "bars",
             "fillOpacity": 90,
             "lineWidth": 0,
-            "stacking": { "mode": "none", "group": "A" },
-            "showPoints": "never"
-          }
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "decimals": 0,
+          "min": 0,
+          "unit": "none"
         },
         "overrides": []
       },
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 12
+      },
+      "id": 12,
+      "interval": "30s",
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum by (path) (increase(agent_llm_steps_total{application=\"my-utils-api\"}[1m]))",
           "interval": "30s",
           "legendFormat": "{{path}}",
@@ -233,23 +398,48 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "lineWidth": 2 } },
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2
+          },
+          "unit": "s"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 20 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 20
+      },
       "id": 7,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum by (path) (increase(agent_llm_step_duration_seconds_sum{application=\"my-utils-api\"}[$__rate_interval])) / sum by (path) (increase(agent_llm_step_duration_seconds_count{application=\"my-utils-api\"}[$__rate_interval]))",
           "legendFormat": "avg {{path}}",
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "max by (path) (agent_llm_step_duration_seconds_max{application=\"my-utils-api\"})",
           "legendFormat": "max {{path}}",
           "refId": "B"
@@ -259,31 +449,50 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "decimals": 0,
-          "min": 0,
-          "unit": "none",
           "custom": {
-            "drawStyle": "bars",
             "barAlignment": 0,
             "barWidthFactor": 0.75,
+            "drawStyle": "bars",
             "fillOpacity": 90,
             "lineWidth": 0,
-            "stacking": { "mode": "none", "group": "A" },
-            "showPoints": "never"
-          }
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            }
+          },
+          "decimals": 0,
+          "min": 0,
+          "unit": "none"
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 20 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 20
+      },
       "id": 8,
       "interval": "30s",
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum by (tool, status) (increase(agent_tool_calls_total{application=\"my-utils-api\"}[1m]))",
           "interval": "30s",
           "legendFormat": "{{tool}} {{status}}",
@@ -294,23 +503,48 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
-        "defaults": { "unit": "s", "custom": { "drawStyle": "line", "lineWidth": 2 } },
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2
+          },
+          "unit": "s"
+        },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 28 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 28
+      },
       "id": 9,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum by (tool) (increase(agent_tool_duration_seconds_sum{application=\"my-utils-api\"}[$__rate_interval])) / sum by (tool) (increase(agent_tool_duration_seconds_count{application=\"my-utils-api\"}[$__rate_interval]))",
           "legendFormat": "avg {{tool}}",
           "refId": "A"
         },
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "max by (tool) (agent_tool_duration_seconds_max{application=\"my-utils-api\"})",
           "legendFormat": "max {{tool}}",
           "refId": "B"
@@ -320,26 +554,42 @@
       "type": "timeseries"
     },
     {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
-          "decimals": 0,
-          "unit": "none",
           "custom": {
             "drawStyle": "bars",
             "fillOpacity": 60,
             "lineWidth": 0,
             "showPoints": "never"
-          }
+          },
+          "decimals": 0,
+          "unit": "none"
         },
         "overrides": []
       },
-      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 36 },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 36
+      },
       "id": 10,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
       "targets": [
         {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "sum by (uri, status) (increase(http_server_requests_seconds_count{application=\"my-utils-api\"}[$__rate_interval]))",
           "legendFormat": "{{uri}} {{status}}",
           "refId": "A"
@@ -347,193 +597,25 @@
       ],
       "title": "HTTP requests",
       "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "decimals": 1,
-          "max": 100,
-          "min": 0,
-          "unit": "percent",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 75 },
-              { "color": "red", "value": 90 }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 4, "w": 6, "x": 0, "y": 44 },
-      "id": 13,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "(1 - node_memory_MemAvailable_bytes{job=\"node-exporter\", service_name=\"utils\"} / node_memory_MemTotal_bytes{job=\"node-exporter\", service_name=\"utils\"}) * 100",
-          "legendFormat": "utils host",
-          "refId": "A"
-        }
-      ],
-      "title": "Host RAM used",
-      "type": "stat"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": {
-        "defaults": { "decimals": 0, "unit": "bytes" },
-        "overrides": []
-      },
-      "gridPos": { "h": 4, "w": 6, "x": 6, "y": 44 },
-      "id": 14,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "go_memstats_heap_alloc_bytes{application=\"my-utils-api\"}",
-          "legendFormat": "heap used",
-          "refId": "A"
-        }
-      ],
-      "title": "Go heap allocated",
-      "type": "stat"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "decimals": 1,
-          "max": 100,
-          "min": 0,
-          "unit": "percent",
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 75 },
-              { "color": "red", "value": 90 }
-            ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 4, "w": 6, "x": 12, "y": 44 },
-      "id": 15,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "go_memstats_heap_alloc_bytes{application=\"my-utils-api\"} / go_memstats_heap_sys_bytes{application=\"my-utils-api\"} * 100",
-          "legendFormat": "heap %",
-          "refId": "A"
-        }
-      ],
-      "title": "Go heap allocated %",
-      "type": "stat"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": {
-        "defaults": { "decimals": 0, "unit": "bytes" },
-        "overrides": []
-      },
-      "gridPos": { "h": 4, "w": 6, "x": 18, "y": 44 },
-      "id": 16,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }
-      },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "process_resident_memory_bytes{application=\"my-utils-api\"}",
-          "legendFormat": "RSS",
-          "refId": "A"
-        }
-      ],
-      "title": "Process RSS",
-      "type": "stat"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "decimals": 1,
-          "max": 100,
-          "min": 0,
-          "unit": "percent",
-          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "showPoints": "never" }
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 48 },
-      "id": 17,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "(1 - node_memory_MemAvailable_bytes{job=\"node-exporter\", service_name=\"utils\"} / node_memory_MemTotal_bytes{job=\"node-exporter\", service_name=\"utils\"}) * 100",
-          "legendFormat": "utils host RAM used",
-          "refId": "A"
-        }
-      ],
-      "title": "Host memory usage",
-      "type": "timeseries"
-    },
-    {
-      "datasource": { "type": "prometheus", "uid": "prometheus" },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes",
-          "custom": { "drawStyle": "line", "fillOpacity": 20, "lineWidth": 2, "showPoints": "never", "stacking": { "mode": "none", "group": "A" } }
-        },
-        "overrides": []
-      },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 48 },
-      "id": 18,
-      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
-      "targets": [
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "go_memstats_heap_alloc_bytes{application=\"my-utils-api\"}",
-          "legendFormat": "heap allocated",
-          "refId": "A"
-        },
-        {
-          "datasource": { "type": "prometheus", "uid": "prometheus" },
-          "expr": "go_memstats_heap_sys_bytes{application=\"my-utils-api\"}",
-          "legendFormat": "heap reserved",
-          "refId": "B"
-        }
-      ],
-      "title": "Go memory",
-      "type": "timeseries"
     }
   ],
   "refresh": "10s",
   "schemaVersion": 39,
-  "tags": ["my-utils", "prometheus", "api", "agent", "memory"],
-  "templating": { "list": [] },
-  "time": { "from": "now-1h", "to": "now" },
+  "tags": [
+    "my-utils",
+    "prometheus",
+    "api",
+    "agent"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
   "timepicker": {},
   "timezone": "browser",
-  "title": "My Utils API Metrics",
-  "uid": "myutils-api-metrics",
-  "version": 7
+  "title": "API Metrics",
+  "uid": "myutils-api-metrics"
 }
