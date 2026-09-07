@@ -655,7 +655,7 @@ func TestVPNAlertProvisioningCoversRelayAndBothExits(t *testing.T) {
 			t.Errorf("VPN alert provisioning does not contain %q", want)
 		}
 	}
-	for _, want := range []string{`eq .Labels.team "vpn"`, "VPN alert", "Open VPN"} {
+	for _, want := range []string{"VPN relay unavailable", "VPN all exits down", ".Annotations.dashboard_url", ".PanelURL"} {
 		if !strings.Contains(template, want) {
 			t.Errorf("shared alert template does not contain %q", want)
 		}

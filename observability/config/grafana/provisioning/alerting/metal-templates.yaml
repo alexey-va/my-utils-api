@@ -91,7 +91,8 @@ templates:
       {{- range $a := .Alerts -}}
       {{- $url := or $a.Annotations.dashboard_url $a.PanelURL $a.DashboardURL "https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1" -}}
       {{- $body := tmpl.Exec "metal.alertBody" $a -}}
-      {{- $title := printf "%.180s" (printf "%s · %s" (tmpl.Exec "metal.hostName" $a) (tmpl.Exec "metal.issueTitle" $a)) -}}
+      {{- $state := "🔴" -}}{{- if eq $a.Status "resolved" }}{{ $state = "✅ Восстановлено" }}{{ else if eq $a.Labels.severity "warning" }}{{ $state = "⚠️" }}{{ end -}}
+      {{- $title := printf "%.180s" (printf "%s %s · %s" $state (tmpl.Exec "metal.hostName" $a) (tmpl.Exec "metal.issueTitle" $a)) -}}
       {{- $dashboard := or $a.Annotations.dashboard_url $a.DashboardURL "https://utils.alexeyav.ru/grafana/d/rYdddlPWk/metal-status?orgId=1" -}}
       {{- $panel := or $a.Annotations.panel_url $a.PanelURL $dashboard -}}
       {{- $body = printf "%.500s\n**Дашборд:** [открыть](%s)\n**Панель:** [открыть](%s)" $body $dashboard $panel -}}
