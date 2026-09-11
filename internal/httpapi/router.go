@@ -176,6 +176,7 @@ func NewRouter(dependencies Dependencies) http.Handler {
 		admin.Get("/api/admin/settings/{key:.+}", api.getSetting)
 		admin.Put("/api/admin/settings/{key:.+}", api.updateSetting)
 		api.registerNetworkAdminRoutes(admin)
+		api.registerNetworkAuditRoute(admin)
 		api.registerWireGuardAdminRoutes(admin)
 		api.registerAgentAdminRoutes(admin)
 	})
@@ -202,7 +203,7 @@ func (a *API) optionalAuthentication(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 		// RCNet public routes use gateway-scoped Bearer credentials. They must
 		// not be parsed as this application's JWT or touch its Redis session.
-		if request.URL.Path == "/api/network/v1" || strings.HasPrefix(request.URL.Path, "/api/network/v1/") {
+		if (request.URL.Path == "/api/network/v1" || strings.HasPrefix(request.URL.Path, "/api/network/v1/")) && request.URL.Path != "/api/network/v1/audit" {
 			next.ServeHTTP(response, request)
 			return
 		}

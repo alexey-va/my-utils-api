@@ -255,9 +255,14 @@ recovery playbook and its encrypted-key workflow live in
 
 The admin-only `/api/admin/network/v1` endpoints proxy RCNet through a fixed
 internal URL after the existing JWT, Redis session and administrator checks.
-The public `/api/network/v1` surface accepts RCNet's own scoped Bearer tokens for
-agent jobs and node polling. It never injects the administrator credential and
-does not expose enrollment issuance, credential management or node disabling.
+The admin-only `/api/network/v1/audit` endpoint exposes the gateway audit feed
+through the same proxy and attaches the authenticated My Utils user as the
+trusted web actor. The rest of the public `/api/network/v1` surface accepts
+RCNet's own scoped Bearer tokens for agent jobs and node polling. It never
+injects the administrator credential and does not expose enrollment issuance,
+credential management or node disabling. Public clients may send
+`X-RCNet-Source: cli` or `X-RCNet-Source: mcp`; other or missing hints are
+recorded as `api`, and actor identity headers are never forwarded from callers.
 
 `RCNET_URL` configures the fixed upstream (production `http://rcnet:18770`).
 `RCNET_TOKEN_FILE` points to the private service credential and takes precedence

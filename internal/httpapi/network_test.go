@@ -15,13 +15,16 @@ import (
 
 type networkRequestCapture struct {
 	sync.Mutex
-	method string
-	path   string
-	query  string
-	auth   string
-	cookie string
-	body   []byte
-	calls  int
+	method    string
+	path      string
+	query     string
+	auth      string
+	actorID   string
+	actorName string
+	source    string
+	cookie    string
+	body      []byte
+	calls     int
 }
 
 type networkAuthProbe struct {
@@ -44,6 +47,9 @@ func (c *networkRequestCapture) handler(response http.ResponseWriter, request *h
 	c.path = request.URL.Path
 	c.query = request.URL.RawQuery
 	c.auth = request.Header.Get("Authorization")
+	c.actorID = request.Header.Get("X-RCNet-Actor-ID")
+	c.actorName = request.Header.Get("X-RCNet-Actor-Name")
+	c.source = request.Header.Get("X-RCNet-Source")
 	c.cookie = request.Header.Get("Cookie")
 	c.body = body
 	c.calls++
@@ -82,6 +88,7 @@ func TestNetworkProxyAllowlistedRoutes(t *testing.T) {
 		{"admin credential delete", http.MethodDelete, "/api/admin/network/v1/credentials/cred-1", "/v1/credentials/cred-1", true},
 		{"admin enrollment", http.MethodPost, "/api/admin/network/v1/enrollments", "/v1/enrollments", true},
 		{"admin disable", http.MethodPost, "/api/admin/network/v1/nodes/node-1/disable", "/v1/nodes/node-1/disable", true},
+		{"admin audit", http.MethodGet, "/api/network/v1/audit", "/v1/audit", true},
 		{"public nodes", http.MethodGet, "/api/network/v1/nodes", "/v1/nodes", false},
 		{"public actions", http.MethodGet, "/api/network/v1/actions", "/v1/actions", false},
 		{"public jobs list", http.MethodGet, "/api/network/v1/jobs", "/v1/jobs", false},
@@ -113,6 +120,86 @@ func TestNetworkProxyAllowlistedRoutes(t *testing.T) {
 				t.Fatalf("upstream path = %q, want %q", gotPath, test.upstream)
 			}
 		})
+	}
+}
+
+type networkActorAuth struct{ fakeAuth }
+
+func (networkActorAuth) Authenticate(_ context.Context, token string) (auth.Principal, error) {
+	if token == "ready-admin" {
+		return auth.Principal{User: auth.UserDTO{ID: "user-17", Username: "Alexey", Role: "ADMIN"}}, nil
+	}
+	return fakeAuth{}.Authenticate(context.Background(), token)
+}
+
+func TestNetworkAuditRouteRequiresMyUtilsAdmin(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+		response.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+	proxy, err := NewNetworkProxy(NetworkProxyConfig{BaseURL: server.URL, Token: "private-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(Dependencies{Auth: fakeAuth{}, Settings: fakeSettings{}, Network: proxy})
+	for _, test := range []struct {
+		name  string
+		token string
+		want  int
+	}{
+		{name: "anonymous", want: http.StatusUnauthorized},
+		{name: "user", token: "user", want: http.StatusForbidden},
+		{name: "bootstrap admin", token: "bootstrap-admin", want: http.StatusForbidden},
+		{name: "ready admin", token: "ready-admin", want: http.StatusNoContent},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/network/v1/audit?limit=3", nil)
+			if test.token != "" {
+				request.Header.Set("Authorization", "Bearer "+test.token)
+			}
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			if response.Code != test.want {
+				t.Fatalf("status = %d, want %d, body=%s", response.Code, test.want, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestNetworkAuditForwardsTrustedWebActorAndQuery(t *testing.T) {
+	t.Parallel()
+
+	capture := &networkRequestCapture{}
+	server := httptest.NewServer(http.HandlerFunc(capture.handler))
+	defer server.Close()
+	proxy, err := NewNetworkProxy(NetworkProxyConfig{BaseURL: server.URL, Token: "private-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(Dependencies{Auth: networkActorAuth{}, Settings: fakeSettings{}, Network: proxy})
+	request := httptest.NewRequest(http.MethodGet, "/api/network/v1/audit?action=exec.run&before=opaque-cursor&limit=25", nil)
+	request.Header.Set("Authorization", "Bearer ready-admin")
+	request.Header.Set("X-RCNet-Actor-ID", "spoofed-id")
+	request.Header.Set("X-RCNet-Actor-Name", "spoofed-name")
+	request.Header.Set("X-RCNet-Source", "spoofed-source")
+	request.Header.Set("Cookie", "myutils_refresh=browser-secret")
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, body=%s", response.Code, response.Body.String())
+	}
+	capture.Lock()
+	got := struct {
+		path, query, auth, actorID, actorName, source, cookie string
+	}{capture.path, capture.query, capture.auth, capture.actorID, capture.actorName, capture.source, capture.cookie}
+	capture.Unlock()
+	if got.path != "/v1/audit" || got.query != "action=exec.run&before=opaque-cursor&limit=25" {
+		t.Fatalf("upstream target = %q?%s", got.path, got.query)
+	}
+	if got.auth != "Bearer private-token" || got.actorID != "user-17" || got.actorName != "Alexey" || got.source != "web" || got.cookie != "" {
+		t.Fatalf("upstream identity auth=%q actor=%q/%q source=%q cookie=%q", got.auth, got.actorID, got.actorName, got.source, got.cookie)
 	}
 }
 
@@ -153,6 +240,50 @@ func TestNetworkProxyAuthHeaderIsolation(t *testing.T) {
 			capture.Unlock()
 			if gotAuth != test.wantBearer || gotCookie != "" {
 				t.Fatalf("upstream headers auth=%q cookie=%q, want auth=%q cookie empty", gotAuth, gotCookie, test.wantBearer)
+			}
+		})
+	}
+}
+
+func TestNetworkPublicSourceAttribution(t *testing.T) {
+	t.Parallel()
+
+	capture := &networkRequestCapture{}
+	server := httptest.NewServer(http.HandlerFunc(capture.handler))
+	defer server.Close()
+	proxy, err := NewNetworkProxy(NetworkProxyConfig{BaseURL: server.URL, Token: "private-token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	router := NewRouter(Dependencies{Auth: fakeAuth{}, Settings: fakeSettings{}, Network: proxy})
+	for _, test := range []struct {
+		name   string
+		source string
+		want   string
+	}{
+		{name: "cli", source: "cli", want: "cli"},
+		{name: "mcp", source: "mcp", want: "mcp"},
+		{name: "spoofed web", source: "web", want: "api"},
+		{name: "unknown", source: "desktop", want: "api"},
+		{name: "default", want: "api"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodGet, "/api/network/v1/jobs", nil)
+			request.Header.Set("Authorization", "Bearer scoped-token")
+			request.Header.Set("X-RCNet-Source", test.source)
+			request.Header.Set("X-RCNet-Actor-ID", "spoofed-id")
+			request.Header.Set("X-RCNet-Actor-Name", "spoofed-name")
+			request.Header.Set("Cookie", "myutils_refresh=browser-secret")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			if response.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, body=%s", response.Code, response.Body.String())
+			}
+			capture.Lock()
+			got := struct{ auth, source, actorID, actorName, cookie string }{capture.auth, capture.source, capture.actorID, capture.actorName, capture.cookie}
+			capture.Unlock()
+			if got.auth != "Bearer scoped-token" || got.source != test.want || got.actorID != "" || got.actorName != "" || got.cookie != "" {
+				t.Fatalf("upstream headers auth=%q source=%q actor=%q/%q cookie=%q, want auth/scoped source=%q and no actor/cookie", got.auth, got.source, got.actorID, got.actorName, got.cookie, test.want)
 			}
 		})
 	}

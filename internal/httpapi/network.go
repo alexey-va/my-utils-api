@@ -31,6 +31,14 @@ type NetworkProxyConfig struct {
 	Timeout time.Duration
 }
 
+// NetworkActor identifies the authenticated My Utils user for audit events.
+// It is supplied by the admin HTTP middleware and never read from request
+// headers.
+type NetworkActor struct {
+	ID   string
+	Name string
+}
+
 // NetworkProxy forwards the allowlisted RCNet API surface. It builds every
 // upstream request from a pinned URL and never copies browser cookies.
 type NetworkProxy struct {
@@ -94,6 +102,13 @@ func (a *API) registerNetworkAdminRoutes(router chi.Router) {
 	})
 }
 
+// registerNetworkAuditRoute deliberately uses the /api/network prefix from
+// the RCNet contract, while being mounted in the My Utils admin group. The
+// other /api/network/v1 routes remain the unauthenticated agent surface.
+func (a *API) registerNetworkAuditRoute(router chi.Router) {
+	router.Get("/api/network/v1/audit", a.networkForward("/v1/audit", true))
+}
+
 func (a *API) registerNetworkPublicRoutes(router chi.Router) {
 	router.Get("/api/network/v1/nodes", a.networkForward("/v1/nodes", false))
 	router.Get("/api/network/v1/actions", a.networkForward("/v1/actions", false))
@@ -133,7 +148,13 @@ func (a *API) forwardNetwork(response http.ResponseWriter, request *http.Request
 		writeNetworkError(response, http.StatusServiceUnavailable, "Network controller is not configured; set RCNET_URL")
 		return
 	}
-	if err := a.network.forward(response, request, upstreamPath, admin); err != nil {
+	actor := NetworkActor{}
+	if admin {
+		if principal, ok := principalFrom(request.Context()); ok {
+			actor = NetworkActor{ID: principal.User.ID, Name: principal.User.Username}
+		}
+	}
+	if err := a.network.forward(response, request, upstreamPath, admin, actor); err != nil {
 		status := http.StatusBadGateway
 		if errors.Is(err, errNetworkPayloadTooLarge) {
 			status = http.StatusRequestEntityTooLarge
@@ -155,7 +176,7 @@ func (e networkGatewayError) Error() string {
 	return "network gateway returned an error"
 }
 
-func (p *NetworkProxy) forward(response http.ResponseWriter, request *http.Request, upstreamPath string, admin bool) error {
+func (p *NetworkProxy) forward(response http.ResponseWriter, request *http.Request, upstreamPath string, admin bool, actor NetworkActor) error {
 	var body []byte
 	var err error
 	if request.Body != nil {
@@ -186,8 +207,18 @@ func (p *NetworkProxy) forward(response http.ResponseWriter, request *http.Reque
 	}
 	if admin {
 		upstreamRequest.Header.Set("Authorization", bearerValue(p.token))
-	} else if bearer := suppliedBearer(request.Header.Get("Authorization")); bearer != "" {
-		upstreamRequest.Header.Set("Authorization", bearer)
+		// These headers are generated from the already authenticated My Utils
+		// principal. Caller supplied values are never copied to the upstream.
+		upstreamRequest.Header.Set("X-RCNet-Actor-ID", actor.ID)
+		upstreamRequest.Header.Set("X-RCNet-Actor-Name", actor.Name)
+		upstreamRequest.Header.Set("X-RCNet-Source", "web")
+	} else {
+		if bearer := suppliedBearer(request.Header.Get("Authorization")); bearer != "" {
+			upstreamRequest.Header.Set("Authorization", bearer)
+		}
+		// Agent clients may identify themselves as CLI or MCP. Other caller
+		// supplied values, including web, are untrusted and become api.
+		upstreamRequest.Header.Set("X-RCNet-Source", networkSource(request.Header.Get("X-RCNet-Source")))
 	}
 
 	upstreamResponse, err := p.client.Do(upstreamRequest)
@@ -222,6 +253,15 @@ func suppliedBearer(value string) string {
 		return ""
 	}
 	return "Bearer " + parts[1]
+}
+
+func networkSource(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "cli", "mcp":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return "api"
+	}
 }
 
 func bearerValue(token string) string {
