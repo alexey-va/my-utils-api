@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -139,6 +141,46 @@ func TestVPNTelegramRequiresDedicatedCompleteConfiguration(t *testing.T) {
 	base["TELEGRAM_BOT_TOKEN"] = "vpn-token"
 	if _, err := Load(mapLookup(base)); err == nil || !strings.Contains(err.Error(), "must be different") {
 		t.Fatalf("shared Telegram token error = %v", err)
+	}
+}
+
+func TestLoadRCNetTokenFileAndEnvironmentFallback(t *testing.T) {
+	t.Parallel()
+
+	base := map[string]string{
+		"RCNET_URL":   "http://rcnet.internal:19090",
+		"RCNET_TOKEN": "environment-token",
+	}
+	cfg, err := Load(mapLookup(base))
+	if err != nil {
+		t.Fatalf("Load() with token fallback error = %v", err)
+	}
+	if cfg.RCNet.URL != base["RCNET_URL"] || cfg.RCNet.Token != base["RCNET_TOKEN"] {
+		t.Fatalf("RCNet fallback config = %#v", cfg.RCNet)
+	}
+
+	tokenFile := filepath.Join(t.TempDir(), "rcnet-token")
+	if err := os.WriteFile(tokenFile, []byte("file-token\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	base["RCNET_TOKEN_FILE"] = tokenFile
+	cfg, err = Load(mapLookup(base))
+	if err != nil {
+		t.Fatalf("Load() with token file error = %v", err)
+	}
+	if cfg.RCNet.Token != "file-token" {
+		t.Fatalf("RCNet file token = %q", cfg.RCNet.Token)
+	}
+}
+
+func TestLoadRejectsInvalidRCNetURL(t *testing.T) {
+	t.Parallel()
+
+	for _, rawURL := range []string{"not-a-url", "ftp://rcnet.internal", "https://user:password@rcnet.internal", "https://rcnet.internal?target=other"} {
+		values := map[string]string{"RCNET_URL": rawURL, "RCNET_TOKEN": "token"}
+		if _, err := Load(mapLookup(values)); err == nil || !strings.Contains(err.Error(), "RCNET_URL") {
+			t.Fatalf("Load(%q) error = %v", rawURL, err)
+		}
 	}
 }
 

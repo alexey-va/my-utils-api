@@ -18,6 +18,8 @@ services:
     ports: !override
       - "127.0.0.1:18080:8080"
     environment:
+      RCNET_URL: "http://rcnet:18770"
+      RCNET_TOKEN_FILE: "/run/rcnet/admin.token"
       MYUTILS_REFRESH_COOKIE_SECURE: "true"
       POSTGRES_HOST: host.docker.internal
       POSTGRES_PORT: "15432"
@@ -39,5 +41,7 @@ services:
       OPENROUTER_PROXY_PORT: "8888"
       MYUTILS_TEMPORAL_ENABLED: "true"
       TEMPORAL_TARGET: "temporal:7233"
+    volumes:
+      - /home/freedeeml/.local/share/rcnet/gateway/auth:/run/rcnet:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"

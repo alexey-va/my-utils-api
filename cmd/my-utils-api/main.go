@@ -89,6 +89,10 @@ func run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	networkProxy, err := httpapi.NewNetworkProxy(httpapi.NetworkProxyConfig{BaseURL: cfg.RCNet.URL, Token: cfg.RCNet.Token})
+	if err != nil {
+		return err
+	}
 	pool, err := store.Open(ctx, cfg.Postgres.URL())
 	if err != nil {
 		return err
@@ -305,7 +309,7 @@ func run(ctx context.Context) error {
 	}
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Auth: authService, Settings: runtimeSettings, Workout: workoutService, Health: healthService,
-		WireGuard: wireGuardService, AgentMemory: agentMemory, TelegramFiles: telegramFiles,
+		WireGuard: wireGuardService, AgentMemory: agentMemory, TelegramFiles: telegramFiles, Network: networkProxy,
 		Metrics: metrics, CORS: cfg.CORS.AllowedOrigins,
 		RefreshCookie: httpapi.RefreshCookieConfig{
 			Name: cfg.Session.RefreshCookieName, TTL: cfg.Session.RefreshTTL, Secure: cfg.Session.RefreshCookieSecure,

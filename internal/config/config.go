@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -28,6 +29,7 @@ type Config struct {
 	OpenRouter  OpenRouter
 	Temporal    Temporal
 	WireGuard   WireGuard
+	RCNet       RCNet
 }
 
 type HTTP struct {
@@ -135,6 +137,11 @@ type WireGuard struct {
 	CredentialsEncryptionKey string
 }
 
+type RCNet struct {
+	URL   string
+	Token string
+}
+
 func Load(lookup LookupEnv) (Config, error) {
 	if lookup == nil {
 		return Config{}, errors.New("environment lookup is nil")
@@ -221,6 +228,18 @@ func Load(lookup LookupEnv) (Config, error) {
 		return Config{}, err
 	}
 
+	rcnetURL := strings.TrimSpace(get("RCNET_URL", ""))
+	rcnetToken := strings.TrimSpace(get("RCNET_TOKEN", ""))
+	if rcnetURL != "" {
+		if tokenFile := strings.TrimSpace(get("RCNET_TOKEN_FILE", "")); tokenFile != "" {
+			contents, readErr := os.ReadFile(tokenFile)
+			if readErr != nil {
+				return Config{}, fmt.Errorf("read RCNET_TOKEN_FILE: %w", readErr)
+			}
+			rcnetToken = strings.TrimSpace(string(contents))
+		}
+	}
+
 	cfg := Config{
 		Environment: environment,
 		HTTP:        HTTP{Address: ":" + strconv.Itoa(serverPort)},
@@ -287,6 +306,7 @@ func Load(lookup LookupEnv) (Config, error) {
 			TaskQueue: "myutils-go-v1",
 		},
 		WireGuard: WireGuard{CredentialsEncryptionKey: get("WIREGUARD_CREDENTIALS_ENCRYPTION_KEY", "")},
+		RCNet:     RCNet{URL: rcnetURL, Token: rcnetToken},
 	}
 
 	if err := cfg.validate(); err != nil {
@@ -330,6 +350,15 @@ func (c Config) validate() error {
 	}
 	if c.OpenRouter.Proxy.Enabled && c.OpenRouter.Proxy.Host == "" {
 		return errors.New("OPENROUTER_PROXY_HOST is required when the proxy is enabled")
+	}
+	if c.RCNet.URL != "" {
+		parsed, err := url.Parse(c.RCNet.URL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" || parsed.Opaque != "" || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || (!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) {
+			return errors.New("RCNET_URL must be an absolute HTTP(S) URL without credentials, query or fragment")
+		}
+		if c.RCNet.Token == "" {
+			return errors.New("RCNET_TOKEN or RCNET_TOKEN_FILE is required when RCNET_URL is configured")
+		}
 	}
 	return nil
 }

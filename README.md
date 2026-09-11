@@ -250,3 +250,24 @@ the existing Discord receiver for a stale agent, broken routing, both exits
 down, primary degradation, reserve use, and sustained packet loss. The
 recovery playbook and its encrypted-key workflow live in
 [`ops/wireguard/ansible/`](ops/wireguard/ansible/README.md).
+
+### RCNet server gateway
+
+The admin-only `/api/admin/network/v1` endpoints proxy RCNet through a fixed
+internal URL after the existing JWT, Redis session and administrator checks.
+The public `/api/network/v1` surface accepts RCNet's own scoped Bearer tokens for
+agent jobs and node polling. It never injects the administrator credential and
+does not expose enrollment issuance, credential management or node disabling.
+
+`RCNET_URL` configures the fixed upstream (production `http://rcnet:18770`).
+`RCNET_TOKEN_FILE` points to the private service credential and takes precedence
+over `RCNET_TOKEN`. Without `RCNET_URL`, the rest of the application starts
+normally and gateway routes return 503. Request/response limits are 2/4 MiB;
+redirects and caller-selected upstreams are rejected.
+
+Before deploying the production Compose overlay, install the RCNet gateway using
+`ruscrafting-ops/scripts/mc gateway install-gateway --host utils ... --apply`.
+It prepares `/home/freedeeml/.local/share/rcnet/gateway/auth/admin.token`, owned by
+UID 10001 with private permissions. The API mounts that auth directory read-only
+at `/run/rcnet`; no token is included in source, images, API responses or logs.
+The gateway joins `my-utils-api_default` as `rcnet` and has no public host port.

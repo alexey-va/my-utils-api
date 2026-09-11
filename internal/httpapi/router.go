@@ -118,6 +118,7 @@ type Dependencies struct {
 	WireGuard     WireGuardService
 	AgentMemory   AgentMemoryService
 	TelegramFiles TelegramFileService
+	Network       *NetworkProxy
 	Metrics       *observability.Metrics
 	CORS          []string
 	RefreshCookie RefreshCookieConfig
@@ -132,7 +133,7 @@ type RefreshCookieConfig struct {
 type principalKey struct{}
 
 func NewRouter(dependencies Dependencies) http.Handler {
-	api := &API{auth: dependencies.Auth, settings: dependencies.Settings, workout: dependencies.Workout, health: dependencies.Health, wireGuard: dependencies.WireGuard, agentMemory: dependencies.AgentMemory, telegramFiles: dependencies.TelegramFiles, refreshCookie: dependencies.RefreshCookie}
+	api := &API{auth: dependencies.Auth, settings: dependencies.Settings, workout: dependencies.Workout, health: dependencies.Health, wireGuard: dependencies.WireGuard, agentMemory: dependencies.AgentMemory, telegramFiles: dependencies.TelegramFiles, network: dependencies.Network, refreshCookie: dependencies.RefreshCookie}
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
@@ -174,9 +175,11 @@ func NewRouter(dependencies Dependencies) http.Handler {
 		admin.Get("/api/admin/settings", api.listSettings)
 		admin.Get("/api/admin/settings/{key:.+}", api.getSetting)
 		admin.Put("/api/admin/settings/{key:.+}", api.updateSetting)
+		api.registerNetworkAdminRoutes(admin)
 		api.registerWireGuardAdminRoutes(admin)
 		api.registerAgentAdminRoutes(admin)
 	})
+	api.registerNetworkPublicRoutes(router)
 	router.NotFound(api.notFound)
 	router.MethodNotAllowed(api.methodNotAllowed)
 
@@ -191,11 +194,18 @@ type API struct {
 	wireGuard     WireGuardService
 	agentMemory   AgentMemoryService
 	telegramFiles TelegramFileService
+	network       *NetworkProxy
 	refreshCookie RefreshCookieConfig
 }
 
 func (a *API) optionalAuthentication(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		// RCNet public routes use gateway-scoped Bearer credentials. They must
+		// not be parsed as this application's JWT or touch its Redis session.
+		if request.URL.Path == "/api/network/v1" || strings.HasPrefix(request.URL.Path, "/api/network/v1/") {
+			next.ServeHTTP(response, request)
+			return
+		}
 		header := request.Header.Get("Authorization")
 		if strings.HasPrefix(header, "Bearer ") && a.auth != nil {
 			token := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
