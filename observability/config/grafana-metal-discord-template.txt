@@ -94,6 +94,7 @@
 {{- $color := 15158332 -}}{{- if eq $a.Status "resolved" }}{{ $color = 3066993 }}{{ else if eq $a.Labels.severity "warning" }}{{ $color = 16705372 }}{{ end -}}
 {{- $embeds = coll.Append (coll.Dict "title" $title "url" $url "description" $body "color" $color) $embeds -}}
 {{- end -}}
-{{- $content := "" -}}{{- if .TruncatedAlerts }}{{ $content = printf "Показаны первые %d тревог; ещё %d скрыты лимитом webhook." (len .Alerts) .TruncatedAlerts }}{{ end -}}
+{{- $content := "" -}}{{- $truncated := data.ToJSON .TruncatedAlerts -}}
+{{- if and (ne $truncated "null") (ne $truncated "0") }}{{ $content = printf "Показаны первые %d тревог; ещё %s скрыты лимитом webhook." (len .Alerts) $truncated }}{{ end -}}
 {{- coll.Dict "content" $content "embeds" $embeds "allowed_mentions" (coll.Dict "parse" (coll.Slice)) | data.ToJSON -}}
 {{- end }}
