@@ -14,7 +14,7 @@ func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
 		return Snapshot{}, err
 	}
 	// One statement sees one PostgreSQL MVCC snapshot, including empty exercises.
-	rows, err := s.pool.Query(ctx, `
+	rows, err := s.db.Query(ctx, `
 		SELECT e.id::text, e.name, e.muscle_group,
 			COALESCE(w.performed_on::text,''), COALESCE(w.weight_kg,0),
 			COALESCE(w.set_count,0), COALESCE(w.reps_per_set,0), COALESCE(w.max_reps,0),

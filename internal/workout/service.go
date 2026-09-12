@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -95,16 +96,32 @@ type Progress struct {
 	Stats    Stats           `json:"stats"`
 }
 
-type Service struct{ pool *pgxpool.Pool }
+type queryer interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
 
-func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+type Service struct {
+	pool *pgxpool.Pool
+	db   queryer
+}
+
+func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool, db: pool} }
+
+// WithTx reuses this service against an existing transaction.
+func (s *Service) WithTx(tx pgx.Tx) *Service {
+	clone := *s
+	clone.db = tx
+	return &clone
+}
 
 func (s *Service) ListExercises(ctx context.Context) ([]Exercise, error) {
 	userID, err := s.localUserID(ctx)
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT id::text, name, muscle_group FROM exercises WHERE user_id = $1::uuid ORDER BY name ASC`, userID)
+	rows, err := s.db.Query(ctx, `SELECT id::text, name, muscle_group FROM exercises WHERE user_id = $1::uuid ORDER BY name ASC`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +147,7 @@ func (s *Service) CreateExercise(ctx context.Context, request CreateExerciseRequ
 		return Exercise{}, badRequest("Exercise name is required")
 	}
 	var exists bool
-	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM exercises WHERE user_id=$1::uuid AND lower(name)=lower($2))`, userID, name).Scan(&exists); err != nil {
+	if err := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM exercises WHERE user_id=$1::uuid AND lower(name)=lower($2))`, userID, name).Scan(&exists); err != nil {
 		return Exercise{}, err
 	}
 	if exists {
@@ -138,7 +155,7 @@ func (s *Service) CreateExercise(ctx context.Context, request CreateExerciseRequ
 	}
 	group := NormalizeMuscleGroup(pointerValue(request.MuscleGroup))
 	var result Exercise
-	err = s.pool.QueryRow(ctx, `INSERT INTO exercises(user_id,name,muscle_group) VALUES($1::uuid,$2,$3) RETURNING id::text,name,muscle_group`, userID, name, group).Scan(&result.ID, &result.Name, &result.MuscleGroup)
+	err = s.db.QueryRow(ctx, `INSERT INTO exercises(user_id,name,muscle_group) VALUES($1::uuid,$2,$3) RETURNING id::text,name,muscle_group`, userID, name, group).Scan(&result.ID, &result.Name, &result.MuscleGroup)
 	return result, err
 }
 
@@ -156,7 +173,7 @@ func (s *Service) UpdateExercise(ctx context.Context, id string, request CreateE
 		return Exercise{}, badRequest("Exercise name is required")
 	}
 	var duplicate bool
-	if err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM exercises WHERE user_id=$1::uuid AND lower(name)=lower($2) AND id<>$3::uuid)`, userID, name, id).Scan(&duplicate); err != nil {
+	if err := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM exercises WHERE user_id=$1::uuid AND lower(name)=lower($2) AND id<>$3::uuid)`, userID, name, id).Scan(&duplicate); err != nil {
 		return Exercise{}, err
 	}
 	if duplicate {
@@ -167,7 +184,7 @@ func (s *Service) UpdateExercise(ctx context.Context, id string, request CreateE
 		group = NormalizeMuscleGroup(pointerValue(request.MuscleGroup))
 	}
 	var result Exercise
-	err = s.pool.QueryRow(ctx, `UPDATE exercises SET name=$2,muscle_group=$3 WHERE id=$1::uuid RETURNING id::text,name,muscle_group`, id, name, group).Scan(&result.ID, &result.Name, &result.MuscleGroup)
+	err = s.db.QueryRow(ctx, `UPDATE exercises SET name=$2,muscle_group=$3 WHERE id=$1::uuid RETURNING id::text,name,muscle_group`, id, name, group).Scan(&result.ID, &result.Name, &result.MuscleGroup)
 	return result, err
 }
 
@@ -179,7 +196,7 @@ func (s *Service) DeleteExercise(ctx context.Context, id string) error {
 	if _, err := s.ownedExercise(ctx, userID, id); err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `DELETE FROM exercises WHERE id=$1::uuid`, id)
+	_, err = s.db.Exec(ctx, `DELETE FROM exercises WHERE id=$1::uuid`, id)
 	return err
 }
 
@@ -280,7 +297,7 @@ func (s *Service) UpsertEntry(ctx context.Context, request EntryRequest) error {
 	if _, err := s.ownedExercise(ctx, userID, request.ExerciseID); err != nil {
 		return err
 	}
-	_, err = s.pool.Exec(ctx, `
+	_, err = s.db.Exec(ctx, `
 		INSERT INTO workout_entries(user_id,exercise_id,performed_on,weight_kg,set_count,reps_per_set,max_reps,set_reps,set_weights)
 		VALUES($1::uuid,$2::uuid,$3,$4,$5,$6,$7,NULLIF($8,''),NULLIF($9,''))
 		ON CONFLICT(user_id,exercise_id,performed_on) DO UPDATE SET
@@ -303,7 +320,7 @@ func (s *Service) DeleteEntry(ctx context.Context, exerciseID, dateText string) 
 	if err != nil {
 		return err
 	}
-	result, err := s.pool.Exec(ctx, `DELETE FROM workout_entries WHERE user_id=$1::uuid AND exercise_id=$2::uuid AND performed_on=$3`, userID, exerciseID, date)
+	result, err := s.db.Exec(ctx, `DELETE FROM workout_entries WHERE user_id=$1::uuid AND exercise_id=$2::uuid AND performed_on=$3`, userID, exerciseID, date)
 	if err != nil {
 		return err
 	}
@@ -373,7 +390,7 @@ func (s *Service) entries(ctx context.Context, exerciseID string, ascending bool
 		arguments = append(arguments, exerciseID)
 	}
 	query += ` ORDER BY ` + order
-	rows, err := s.pool.Query(ctx, query, arguments...)
+	rows, err := s.db.Query(ctx, query, arguments...)
 	if err != nil {
 		return nil, err
 	}
@@ -391,7 +408,7 @@ func (s *Service) entries(ctx context.Context, exerciseID string, ascending bool
 
 func (s *Service) localUserID(ctx context.Context) (string, error) {
 	var id string
-	if err := s.pool.QueryRow(ctx, `SELECT id::text FROM users WHERE lower(email)=lower($1)`, LocalWorkoutEmail).Scan(&id); err != nil {
+	if err := s.db.QueryRow(ctx, `SELECT id::text FROM users WHERE lower(email)=lower($1)`, LocalWorkoutEmail).Scan(&id); err != nil {
 		return "", &Error{Status: http.StatusInternalServerError, Message: "Local workout user is not configured"}
 	}
 	return id, nil
@@ -399,7 +416,7 @@ func (s *Service) localUserID(ctx context.Context) (string, error) {
 
 func (s *Service) ownedExercise(ctx context.Context, userID, id string) (Exercise, error) {
 	var exercise Exercise
-	if err := s.pool.QueryRow(ctx, `SELECT id::text,name,muscle_group FROM exercises WHERE id=$1::uuid AND user_id=$2::uuid`, id, userID).Scan(&exercise.ID, &exercise.Name, &exercise.MuscleGroup); err != nil {
+	if err := s.db.QueryRow(ctx, `SELECT id::text,name,muscle_group FROM exercises WHERE id=$1::uuid AND user_id=$2::uuid`, id, userID).Scan(&exercise.ID, &exercise.Name, &exercise.MuscleGroup); err != nil {
 		return Exercise{}, notFound("Exercise not found")
 	}
 	return exercise, nil

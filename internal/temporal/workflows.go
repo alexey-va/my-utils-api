@@ -17,6 +17,11 @@ const (
 	SendEveningReminderActivity = "SendEveningReminder"
 	SendWeeklyReportActivity    = "SendWeeklyReport"
 	RunAgentTurnActivity        = "RunAgentTurn"
+	AgentTurnQueueSignal        = "GoV1AgentTurnQueueSignal"
+
+	// Keep the per-chat queue history bounded while retaining every signal that
+	// arrived before the ContinueAsNew command.
+	agentTurnQueueMaxTurnsPerRun = 100
 
 	// Unlike the Kotlin workflow, the Go workflow executes the full multi-step
 	// turn in one activity so a retry cannot replay already-persisted mutations.
@@ -56,6 +61,10 @@ type AgentTurnInput struct {
 	Text              string   `json:"text"`
 	Images            []string `json:"images,omitempty"`
 	DeliverToTelegram bool     `json:"deliverToTelegram"`
+}
+
+type AgentTurnQueueInput struct {
+	Pending []AgentTurnInput `json:"pending,omitempty"`
 }
 
 func NotificationWorkflow(ctx workflow.Context, input NotificationInput) error {
@@ -118,6 +127,44 @@ func AgentTurnWorkflow(ctx workflow.Context, input AgentTurnInput) error {
 	return workflow.ExecuteActivity(withActivityOptions(ctx, agentTurnActivityTimeout, 1), RunAgentTurnActivity, input).Get(ctx, nil)
 }
 
+// AgentTurnQueueWorkflow is the durable per-chat FIFO. A signal is one complete
+// turn; processing it as a single activity keeps mutating tool calls ordered.
+func AgentTurnQueueWorkflow(ctx workflow.Context, state AgentTurnQueueInput) error {
+	signals := workflow.GetSignalChannel(ctx, AgentTurnQueueSignal)
+	queue := append([]AgentTurnInput(nil), state.Pending...)
+	processed := 0
+	for {
+		if len(queue) == 0 {
+			var input AgentTurnInput
+			if !signals.Receive(ctx, &input) {
+				return nil
+			}
+			queue = append(queue, input)
+		}
+		input := queue[0]
+		queue = queue[1:]
+		// A failed turn must not poison the chat queue. RunAgentTurn is not
+		// retried because it may already have committed mutations.
+		if err := workflow.ExecuteActivity(withActivityOptions(ctx, agentTurnActivityTimeout, 1), RunAgentTurnActivity, input).Get(ctx, nil); err != nil {
+			workflow.GetLogger(ctx).Error("agent turn failed", "chatId", input.ChatID, "error", err)
+		}
+		processed++
+		if processed >= agentTurnQueueMaxTurnsPerRun || workflow.GetInfo(ctx).GetContinueAsNewSuggested() {
+			// Signals already present in this workflow task are copied into the
+			// next run's input. Signals arriving concurrently with this command
+			// are carried forward by Temporal with the continued execution.
+			for {
+				var pending AgentTurnInput
+				if !signals.ReceiveAsync(&pending) {
+					break
+				}
+				queue = append(queue, pending)
+			}
+			return workflow.NewContinueAsNewError(ctx, AgentTurnQueueWorkflow, AgentTurnQueueInput{Pending: queue})
+		}
+	}
+}
+
 func withActivityOptions(ctx workflow.Context, timeout time.Duration, attempts int32) workflow.Context {
 	return workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
 		StartToCloseTimeout: timeout,
@@ -145,6 +192,10 @@ func NotificationWorkflowID(chatID int64) string {
 }
 func AgentTurnWorkflowID(chatID int64) string {
 	return fmt.Sprintf("go-v1-agent-turn-%d-%s", chatID, randomSuffix())
+}
+
+func AgentTurnQueueWorkflowID(chatID int64) string {
+	return fmt.Sprintf("go-v1-agent-turn-queue-%d", chatID)
 }
 
 func randomSuffix() string {

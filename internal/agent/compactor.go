@@ -24,9 +24,17 @@ func NewCompactor(pool *pgxpool.Pool, client Completer, model func() string) *Co
 }
 
 type compactMessage struct {
-	id   int64
-	raw  string
-	role string
+	id        int64
+	raw       string
+	role      string
+	compacted bool
+	parsed    ChatMessage
+}
+
+type compactTurn struct {
+	messages []compactMessage
+	complete bool
+	fullyRaw bool
 }
 
 func (c *Compactor) Compact(ctx context.Context, chatID int64, keepRecent int) (CompactResult, error) {
@@ -68,30 +76,36 @@ func (c *Compactor) compact(ctx context.Context, chatID int64, selectedCount fun
 		_, _ = connection.Exec(unlockContext, `SELECT pg_advisory_unlock($1)`, chatID)
 	}()
 
-	rows, err := connection.Query(ctx, `SELECT id,message_json FROM agent_conversation_messages WHERE chat_id=$1 AND NOT excluded_from_context AND NOT is_compacted AND COALESCE(message_json::jsonb->>'role','') <> 'system' ORDER BY created_at,id`, chatID)
+	rows, err := connection.Query(ctx, `SELECT id,message_json,is_compacted FROM agent_conversation_messages WHERE chat_id=$1 AND NOT excluded_from_context AND lower(COALESCE(message_json::jsonb->>'role','')) <> 'system' ORDER BY created_at,id`, chatID)
 	if err != nil {
 		return CompactResult{}, err
 	}
 	messages := []compactMessage{}
 	for rows.Next() {
 		var row compactMessage
-		if err := rows.Scan(&row.id, &row.raw); err != nil {
+		if err := rows.Scan(&row.id, &row.raw, &row.compacted); err != nil {
 			rows.Close()
 			return CompactResult{}, err
 		}
-		row.role = roleFromJSON(row.raw)
+		if err := json.Unmarshal([]byte(row.raw), &row.parsed); err != nil {
+			row.role = ""
+		} else {
+			row.role = strings.ToLower(strings.TrimSpace(row.parsed.Role))
+		}
 		messages = append(messages, row)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
 		return CompactResult{}, err
 	}
-	selected := selectedCount(len(messages))
-	selected = rewindSplitToolTurn(messages, selected)
-	if selected <= 0 {
+	turns := splitCompactTurns(messages)
+	if len(turns) < 2 {
 		return CompactResult{Compacted: false}, nil
 	}
-	toCompact := messages[:selected]
+	toCompact := selectCompactMessages(turns, selectedCount(compactRawTurnCount(turns)))
+	if len(toCompact) == 0 {
+		return CompactResult{Compacted: false}, nil
+	}
 	var previous string
 	if err := connection.QueryRow(ctx, `SELECT summary_text FROM agent_context_summaries WHERE chat_id=$1`, chatID).Scan(&previous); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return CompactResult{}, err
@@ -158,6 +172,130 @@ func (c *Compactor) compact(ctx context.Context, chatID int64, selectedCount fun
 		return CompactResult{}, err
 	}
 	return CompactResult{Compacted: true, MessageCount: len(toCompact), SummaryID: &summaryID}, nil
+}
+
+func splitCompactTurns(messages []compactMessage) []compactTurn {
+	turns := []compactTurn{}
+	var current *compactTurn
+	for _, message := range messages {
+		if message.role == "user" {
+			if current != nil {
+				current.complete = compactTurnComplete(current.messages)
+				current.fullyRaw = compactTurnFullyRaw(*current)
+				turns = append(turns, *current)
+			}
+			current = &compactTurn{messages: []compactMessage{message}, fullyRaw: true}
+			continue
+		}
+		if current != nil {
+			current.messages = append(current.messages, message)
+		}
+	}
+	if current != nil {
+		current.complete = compactTurnComplete(current.messages)
+		current.fullyRaw = compactTurnFullyRaw(*current)
+		turns = append(turns, *current)
+	}
+	return turns
+}
+
+func compactTurnFullyRaw(turn compactTurn) bool {
+	for _, message := range turn.messages {
+		if message.compacted {
+			return false
+		}
+	}
+	return true
+}
+
+func compactRawTurnCount(turns []compactTurn) int {
+	// Compacted or mixed legacy turns already have archive/summary state and
+	// must not inflate the auto-compaction threshold or keepRecent count.
+	count := 0
+	for _, turn := range turns {
+		if turn.fullyRaw {
+			count++
+		}
+	}
+	return count
+}
+
+func selectCompactMessages(turns []compactTurn, requested int) []compactMessage {
+	// The newest user turn may still be waiting for an assistant reply or tool
+	// result. Keep it intact even when the caller requests every old turn.
+	requested = max(requested, 0)
+	if requested == 0 || len(turns) <= 1 {
+		return nil
+	}
+	result := make([]compactMessage, 0)
+	selected := 0
+	for index := 0; index < len(turns)-1 && selected < requested; index++ {
+		turn := turns[index]
+		if !turn.complete {
+			continue
+		}
+		if !turn.fullyRaw {
+			// Legacy rows can leave a turn partly compacted or incomplete. Keep
+			// its raw archive intact and continue with newer whole turns.
+			continue
+		}
+		result = append(result, turn.messages...)
+		selected++
+	}
+	return result
+}
+
+func compactTurnComplete(messages []compactMessage) bool {
+	if len(messages) == 0 || messages[0].role != "user" {
+		return false
+	}
+	if len(messages) == 1 {
+		return true
+	}
+	response := false
+	for index := 1; index < len(messages); {
+		message := messages[index]
+		switch message.role {
+		case "assistant":
+			response = true
+			if len(message.parsed.ToolCalls) == 0 {
+				index++
+				continue
+			}
+			required := make(map[string]bool, len(message.parsed.ToolCalls))
+			for _, call := range message.parsed.ToolCalls {
+				if call.ID == "" || required[call.ID] {
+					return false
+				}
+				required[call.ID] = true
+			}
+			results := make(map[string]int, len(required))
+			index++
+			for index < len(messages) && messages[index].role == "tool" {
+				toolID := ""
+				if messages[index].parsed.ToolCallID != nil {
+					toolID = *messages[index].parsed.ToolCallID
+				}
+				if !required[toolID] {
+					return false
+				}
+				results[toolID]++
+				index++
+			}
+			for id := range required {
+				if results[id] != 1 {
+					return false
+				}
+			}
+		case "tool":
+			return false
+		case "", "system":
+			return false
+		default:
+			return false
+		}
+	}
+	return response
 }
 
 func roleFromJSON(raw string) string {

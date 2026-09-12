@@ -3,11 +3,13 @@ package temporal
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/workflow"
 )
 
 func TestWorkflowIDsUseFreshGoNamespace(t *testing.T) {
@@ -78,5 +80,63 @@ func TestAgentTurnWorkflowDoesNotRetryNonIdempotentActivity(t *testing.T) {
 	}
 	if activityDeadline < 5*time.Hour+59*time.Minute {
 		t.Fatalf("activity deadline = %s, want about %s", activityDeadline, agentTurnActivityTimeout)
+	}
+}
+
+func TestAgentTurnQueueWorkflowSerializesAndContinuesAfterFailure(t *testing.T) {
+	t.Parallel()
+	var suite testsuite.WorkflowTestSuite
+	environment := suite.NewTestWorkflowEnvironment()
+	var got []string
+	environment.RegisterActivityWithOptions(func(_ context.Context, input AgentTurnInput) error {
+		got = append(got, input.Text)
+		if input.Text == "first" {
+			return errors.New("failed after mutation")
+		}
+		return nil
+	}, activity.RegisterOptions{Name: RunAgentTurnActivity})
+	environment.RegisterDelayedCallback(func() {
+		environment.SignalWorkflow(AgentTurnQueueSignal, AgentTurnInput{ChatID: 42, Text: "first"})
+		environment.SignalWorkflow(AgentTurnQueueSignal, AgentTurnInput{ChatID: 42, Text: "second"})
+		environment.SignalWorkflow(AgentTurnQueueSignal, AgentTurnInput{ChatID: 42, Text: "third"})
+	}, 0)
+	environment.RegisterDelayedCallback(environment.CancelWorkflow, time.Second)
+	environment.ExecuteWorkflow(AgentTurnQueueWorkflow, AgentTurnQueueInput{})
+
+	if len(got) != 3 {
+		t.Fatalf("processed turns = %#v, want three turns", got)
+	}
+	for i, want := range []string{"first", "second", "third"} {
+		if got[i] != want {
+			t.Fatalf("turn %d = %q, want %q", i, got[i], want)
+		}
+	}
+}
+
+func TestAgentTurnQueueWorkflowCarriesPendingSignalsAcrossContinueAsNew(t *testing.T) {
+	t.Parallel()
+	var suite testsuite.WorkflowTestSuite
+	environment := suite.NewTestWorkflowEnvironment()
+	var got []string
+	environment.RegisterActivityWithOptions(func(_ context.Context, input AgentTurnInput) error {
+		got = append(got, input.Text)
+		return nil
+	}, activity.RegisterOptions{Name: RunAgentTurnActivity})
+	pending := make([]AgentTurnInput, agentTurnQueueMaxTurnsPerRun+1)
+	for index := range pending {
+		pending[index] = AgentTurnInput{ChatID: 42, Text: fmt.Sprintf("turn-%d", index)}
+	}
+	environment.ExecuteWorkflow(AgentTurnQueueWorkflow, AgentTurnQueueInput{Pending: pending})
+
+	if len(got) != agentTurnQueueMaxTurnsPerRun {
+		t.Fatalf("processed turns = %d, want %d", len(got), agentTurnQueueMaxTurnsPerRun)
+	}
+	if !workflow.IsContinueAsNewError(environment.GetWorkflowError()) {
+		t.Fatalf("workflow error = %v, want ContinueAsNew", environment.GetWorkflowError())
+	}
+	for index, text := range got {
+		if want := fmt.Sprintf("turn-%d", index); text != want {
+			t.Fatalf("turn %d = %q, want %q", index, text, want)
+		}
 	}
 }

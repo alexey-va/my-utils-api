@@ -1,215 +1,193 @@
 package agent
 
 import (
+	"encoding/json"
 	"fmt"
-	"math"
-	"regexp"
-	"slices"
-	"strconv"
-	"strings"
-
 	"github.com/alexey-va/my-utils-api/internal/openrouter"
-	"github.com/alexey-va/my-utils-api/internal/workout"
+	"io"
+	"math"
+	"strings"
 )
 
-var (
-	workoutNotation  = regexp.MustCompile(`(?i)(?:^|[^\d.,/])(\d+(?:[.,]\d+)?)\s*(кг|kg|lb|lbs|фунт(?:а|ов)?)?\s+((?:\d+\s*[*xх×]\s*)?\d+(?:\s*/\s*\d+)+)(?:$|[^\d/])`)
-	workoutWrite     = regexp.MustCompile(`(?i)(?:^|\s)(?:запиши(?:те)?|записать|залогируй(?:те)?|зафиксируй(?:те)?|добавь(?:те)?\s+(?:тренировку|в\s+дневник))(?:\s|$)`)
-	deleteWrite      = regexp.MustCompile(`(?i)(?:^|\s)(?:удали(?:те)?|удалить|сотри(?:те)?|стереть|убери(?:те)?|исправь(?:те)?(?:\s+запись)?)(?:\s|$)`)
-	exerciseCreate   = regexp.MustCompile(`(?i)(?:^|\s)(?:создай(?:те)?|создать|добавь(?:те)?)(?:\s+упражнение)?(?:\s|$)`)
-	exerciseRename   = regexp.MustCompile(`(?i)(?:переименуй(?:те)?|переименовать|смени(?:те)?\s+название)`)
-	bodyWeight       = regexp.MustCompile(`(?i)\d+(?:[.,]\d+)?(?:\s*(?:кг|kg|lb|lbs|фунт(?:а|ов)?))?`)
-	bareWeight       = regexp.MustCompile(`(?i)^(?:вес\s*[:=]?\s*)?\d+(?:[.,]\d+)?\s*(?:кг|kg|lb|lbs|фунт(?:а|ов)?)[.!]?$`)
-	weightStatement  = regexp.MustCompile(`(?i)(?:взвесил(?:ся|ась)?|мой\s+вес|вешу).{0,20}\d`)
-	naturalWeight    = regexp.MustCompile(`(?i)(?:^|\s)(?:вес(?:\s+(?:сегодня|вчера))?|(?:сегодня|вчера)\s+вес)\s*[:=—-]?\s*\d`)
-	weightWrite      = regexp.MustCompile(`(?i)(?:запиши(?:те)?|записать|зафиксируй(?:те)?)\s+(?:мой\s+)?вес`)
-	rememberWrite    = regexp.MustCompile(`(?i)(?:^|\s)(?:запомни(?:те)?|учти(?:те)?|сохрани(?:те)?\s+(?:как\s+)?факт)(?:\s|[:—-]|$)`)
-	forgetWrite      = regexp.MustCompile(`(?i)(?:^|\s)(?:забудь(?:те)?|удали(?:те)?\s+факт|больше\s+не\s+учитывай(?:те)?)(?:\s|$)`)
-	notifyWrite      = regexp.MustCompile(`(?i)(?:^|\s)(?:напомни(?:те)?|уведоми(?:те)?|поставь(?:те)?\s+напоминание|запланируй(?:те)?\s+(?:напоминание|уведомление))(?:\s|$)`)
-	cancelNotify     = regexp.MustCompile(`(?i)(?:отмени(?:те)?|удали(?:те)?|сними(?:те)?)\s+(?:(?:это|последнее|предыдущее)\s+)?(?:напоминание|уведомление)`)
-	readQuestion     = regexp.MustCompile(`(?i)^(?:что|ка(?:к|кой|кая|кие)|сколько|когда|почему|зачем|где|покажи|расскажи)(?:\s|$)`)
-	negativeFollowUp = regexp.MustCompile(`(?i)^(?:нет|не надо|не делай|не удаляй|отмена|отмени)[.!\s]*$`)
-)
-
-var mutatingTools = map[string]bool{
-	"create_exercise": true, "rename_exercise": true, "log_workout": true, "delete_workout": true,
-	"log_body_weight": true, "remember_fact": true, "forget_fact": true, "manage_user_fact": true,
-	"send_notification": true, "schedule_notification": true, "cancel_notification": true,
+// Interpret once, validate the entire plan, execute only its exact actions.
+// Natural language intent is not reinterpreted by a second lexical classifier.
+type turnDecision struct {
+	Mode    string          `json:"mode"`
+	Reply   string          `json:"reply"`
+	Actions []plannedAction `json:"actions"`
+}
+type plannedAction struct {
+	Tool         string         `json:"tool"`
+	Arguments    map[string]any `json:"arguments"`
+	RequestQuote string         `json:"request_quote"`
+	DataQuote    string         `json:"data_quote,omitempty"`
 }
 
 func NormalizeToolName(value string) string {
-	var output strings.Builder
-	for index, current := range value {
-		if index > 0 && current >= 'A' && current <= 'Z' {
-			output.WriteByte('_')
+	var out strings.Builder
+	for i, c := range value {
+		if i > 0 && c >= 'A' && c <= 'Z' {
+			out.WriteByte('_')
 		}
-		output.WriteRune(current)
+		out.WriteRune(c)
 	}
-	return strings.ToLower(output.String())
+	return strings.ToLower(out.String())
 }
-
-func MutationAllowed(toolName, userMessage string) bool {
-	toolName = NormalizeToolName(toolName)
-	if !mutatingTools[toolName] {
+func isReadTool(name string) bool {
+	switch NormalizeToolName(name) {
+	case "list_exercises", "get_progress", "get_days", "get_body_weight", "get_conversation_history":
 		return true
-	}
-	message := strings.ToLower(strings.TrimSpace(userMessage))
-	question := strings.Contains(message, "?") || readQuestion.MatchString(message)
-	correction := !question && deleteWrite.MatchString(message)
-	workoutIntent := workoutWrite.MatchString(message) || correction || (!question && workoutNotation.MatchString(message))
-	switch toolName {
-	case "create_exercise":
-		return !question && (exerciseCreate.MatchString(message) || workoutIntent)
-	case "rename_exercise":
-		return exerciseRename.MatchString(message)
-	case "log_workout":
-		return workoutIntent
-	case "delete_workout":
-		return deleteWrite.MatchString(message)
-	case "log_body_weight":
-		return bodyWeight.MatchString(message) && (weightWrite.MatchString(message) || (!question && (bareWeight.MatchString(message) || weightStatement.MatchString(message) || naturalWeight.MatchString(message))))
-	case "remember_fact":
-		return rememberWrite.MatchString(message)
-	case "forget_fact":
-		return forgetWrite.MatchString(message)
-	case "manage_user_fact":
-		return rememberWrite.MatchString(message) || forgetWrite.MatchString(message)
-	case "send_notification", "schedule_notification":
-		return notifyWrite.MatchString(message)
-	case "cancel_notification":
-		return cancelNotify.MatchString(message)
-	default:
-		return false
-	}
-}
-
-func MutationAllowedWithContext(toolName, userMessage string, messages []openrouter.Message) bool {
-	if MutationAllowed(toolName, userMessage) {
-		return true
-	}
-	if !isMutationClarificationReply(userMessage) {
-		return false
-	}
-	skippedCurrentUser := false
-	foundClarification := false
-	for index := len(messages) - 1; index >= 0; index-- {
-		message := messages[index]
-		switch strings.ToLower(strings.TrimSpace(message.Role)) {
-		case "user":
-			if !skippedCurrentUser {
-				skippedCurrentUser = true
-				continue
-			}
-			if !foundClarification {
-				return false
-			}
-			return MutationAllowed(toolName, contentString(message.Content))
-		case "assistant":
-			if len(message.ToolCalls) > 0 {
-				continue
-			}
-			if foundClarification {
-				continue
-			}
-			if !looksLikeMutationClarification(contentString(message.Content)) {
-				return false
-			}
-			foundClarification = true
-		case "tool":
-			continue
-		}
 	}
 	return false
 }
-
-func isMutationClarificationReply(message string) bool {
-	message = strings.TrimSpace(message)
-	if message == "" || len([]rune(message)) > 160 || strings.Contains(message, "?") {
-		return false
+func decisionTool(catalog []openrouter.Tool) openrouter.Tool {
+	variants := make([]any, 0, len(catalog))
+	for _, tool := range catalog {
+		variants = append(variants, map[string]any{"type": "object", "additionalProperties": false, "required": []string{"tool", "arguments", "request_quote"}, "properties": map[string]any{
+			"tool":          map[string]any{"type": "string", "enum": []string{tool.Function.Name}, "description": tool.Function.Description},
+			"arguments":     tool.Function.Parameters,
+			"data_quote":    map[string]any{"type": "string", "description": "Для log_workout: дословный фрагмент пользовательской реплики с числами РОВНО ОДНОГО упражнения. Можно из предыдущего незавершённого запроса. Обязателен для log_workout. Для copy_workout с новым weight_kg — точная фраза пользователя с одним новым весом. Не цитируй модель или снимок."},
+			"request_quote": map[string]any{"type": "string", "description": "Дословный фрагмент ТЕКУЩЕГО сообщения пользователя, запрашивающий действие. Для чтения пустая строка."},
+		}})
 	}
-	lower := strings.ToLower(message)
-	return !readQuestion.MatchString(lower) && !negativeFollowUp.MatchString(lower)
+	return openrouter.Tool{Type: "function", Function: openrouter.ToolFunction{Name: "resolve_turn", Description: "Пойми текущую реплику в контексте диалога. Верни ответ ИЛИ точный план действий, ещё не результат выполнения.", Parameters: map[string]any{
+		"type": "object", "additionalProperties": false, "required": []string{"mode", "reply", "actions"}, "properties": map[string]any{
+			"mode":    map[string]any{"type": "string", "enum": []string{"read", "write", "clarify"}},
+			"reply":   map[string]any{"type": "string", "description": "Ответ при read/clarify без действий; иначе пустая строка. Не обещай успех до выполнения."},
+			"actions": map[string]any{"type": "array", "maxItems": 20, "items": map[string]any{"oneOf": variants}},
+		},
+	}}}
 }
-
-func looksLikeMutationClarification(message string) bool {
-	lower := strings.ToLower(strings.TrimSpace(message))
-	for _, marker := range []string{"уточни", "подтверди", "подтвержда", "какую", "какой", "какое", "какая"} {
-		if strings.Contains(lower, marker) {
-			return true
+func parseDecision(message openrouter.Message, userText string, catalog []openrouter.Tool, readOnly bool) (turnDecision, error) {
+	var d turnDecision
+	if len(message.ToolCalls) != 1 || message.ToolCalls[0].Function.Name != "resolve_turn" {
+		return d, fmt.Errorf("ожидался один resolve_turn")
+	}
+	dec := json.NewDecoder(strings.NewReader(message.ToolCalls[0].Function.Arguments))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&d); err != nil {
+		return d, err
+	}
+	if dec.Decode(new(any)) != io.EOF {
+		return d, fmt.Errorf("лишние данные после решения")
+	}
+	if d.Mode != "read" && d.Mode != "write" && d.Mode != "clarify" {
+		return d, fmt.Errorf("неизвестный mode")
+	}
+	if len(d.Actions) > 20 {
+		return d, fmt.Errorf("не более 20 действий")
+	}
+	if len(d.Actions) == 0 {
+		if d.Mode == "write" || strings.TrimSpace(d.Reply) == "" {
+			return d, fmt.Errorf("нужен ответ или действие")
 		}
+		return d, nil
 	}
-	return false
-}
-
-type toolArgumentGrounder struct {
-	workoutNotations []string
-	used             []bool
-}
-
-func newToolArgumentGrounder(userMessage string) *toolArgumentGrounder {
-	notations := extractWorkoutNotations(userMessage)
-	return &toolArgumentGrounder{workoutNotations: notations, used: make([]bool, len(notations))}
-}
-
-func (g *toolArgumentGrounder) Ground(toolName string, args map[string]any) error {
-	if NormalizeToolName(toolName) != "log_workout" || len(g.workoutNotations) == 0 {
-		return nil
+	if d.Mode == "clarify" || strings.TrimSpace(d.Reply) != "" {
+		return d, fmt.Errorf("ответ и действия должны быть раздельными")
 	}
-	selected := -1
-	modelNotation := optionalString(args, "notation")
-	for index, notation := range g.workoutNotations {
-		if !g.used[index] && workoutNotationsEquivalent(modelNotation, notation) {
-			if selected >= 0 {
-				selected = -1
-				break
+	defs := map[string]openrouter.Tool{}
+	for _, t := range catalog {
+		defs[t.Function.Name] = t
+	}
+	seen, targets := map[string]bool{}, map[string]bool{}
+	hasExternal, hasDatabase := false, false
+	for i := range d.Actions {
+		a := &d.Actions[i]
+		a.Tool = NormalizeToolName(a.Tool)
+		if isExternalTool(a.Tool) {
+			hasExternal = true
+		} else {
+			hasDatabase = true
+		}
+		def, ok := defs[a.Tool]
+		if !ok {
+			return d, fmt.Errorf("неизвестный инструмент %q", a.Tool)
+		}
+		if !isReadTool(a.Tool) {
+			if readOnly || d.Mode != "write" {
+				return d, fmt.Errorf("режим чтения запрещает %s", a.Tool)
 			}
-			selected = index
+			q := strings.TrimSpace(a.RequestQuote)
+			if q == "" || !strings.Contains(userText, q) {
+				return d, fmt.Errorf("%s: нет дословного основания в текущем запросе", a.Tool)
+			}
+		}
+		if err := validateArguments(a.Arguments, def.Function.Parameters); err != nil {
+			return d, fmt.Errorf("%s: %w", a.Tool, err)
+		}
+		key := actionKey(a.Tool, a.Arguments)
+		if seen[key] {
+			return d, fmt.Errorf("действие %s повторяется", a.Tool)
+		}
+		seen[key] = true
+		// Correction is one upsert. A delete+write plan risks losing the old row.
+		switch a.Tool {
+		case "log_workout", "copy_workout", "delete_workout":
+			date, _ := a.Arguments["date"].(string)
+			if date == "" {
+				date, _ = a.Arguments["performed_on"].(string)
+			}
+			name, _ := a.Arguments["exercise_name"].(string)
+			identity := name
+			if id, _ := a.Arguments["exercise_id"].(string); id != "" {
+				identity = id
+			}
+			target := strings.ToLower(strings.TrimSpace(identity)) + ":" + date
+			if targets[target] {
+				return d, fmt.Errorf("несколько изменений одной записи %s; используй один upsert", name)
+			}
+			targets[target] = true
 		}
 	}
-	if selected < 0 {
-		for index := range g.workoutNotations {
-			if !g.used[index] {
-				selected = index
-				break
+	if hasExternal && hasDatabase {
+		return d, fmt.Errorf("раздели чтение/изменение дневника и отправку/напоминания: внешние действия не входят в транзакцию дневника")
+	}
+	return d, nil
+}
+func actionKey(name string, args map[string]any) string {
+	raw, _ := json.Marshal(args)
+	return NormalizeToolName(name) + ":" + string(raw)
+}
+func validateArguments(args map[string]any, schema map[string]any) error {
+	if args == nil {
+		return fmt.Errorf("arguments должен быть объектом")
+	}
+	props, _ := schema["properties"].(map[string]any)
+	if required, ok := schema["required"].([]string); ok {
+		for _, key := range required {
+			if _, ok := args[key]; !ok {
+				return fmt.Errorf("обязательное поле %s отсутствует", key)
 			}
 		}
 	}
-	if selected < 0 {
-		return fmt.Errorf("не удалось однозначно сопоставить данные упражнения с сообщением пользователя")
+	for key, value := range args {
+		raw, ok := props[key]
+		if !ok {
+			return fmt.Errorf("неизвестное поле %s", key)
+		}
+		p := raw.(map[string]any)
+		switch p["type"] {
+		case "string":
+			s, ok := value.(string)
+			if !ok || strings.TrimSpace(s) == "" {
+				return fmt.Errorf("%s должен быть непустой строкой", key)
+			}
+			if values, ok := p["enum"].([]string); ok {
+				found := false
+				for _, v := range values {
+					found = found || s == v
+				}
+				if !found {
+					return fmt.Errorf("недопустимое значение %s", key)
+				}
+			}
+		case "integer", "number":
+			n, ok := value.(float64)
+			if !ok || math.IsNaN(n) || math.IsInf(n, 0) || (p["type"] == "integer" && math.Trunc(n) != n) {
+				return fmt.Errorf("%s должен быть числом нужного типа", key)
+			}
+		}
 	}
-	g.used[selected] = true
-	args["notation"] = g.workoutNotations[selected]
 	return nil
-}
-
-func GroundToolArguments(toolName string, args map[string]any, userMessage string) {
-	_ = newToolArgumentGrounder(userMessage).Ground(toolName, args)
-}
-
-func extractWorkoutNotations(message string) []string {
-	matches := workoutNotation.FindAllStringSubmatch(message, -1)
-	result := make([]string, 0, len(matches))
-	for _, match := range matches {
-		weight, err := strconv.ParseFloat(strings.ReplaceAll(match[1], ",", "."), 64)
-		if err != nil || weight <= 0 {
-			continue
-		}
-		unit := strings.ToLower(strings.TrimSpace(match[2]))
-		if unit == "lb" || unit == "lbs" || strings.HasPrefix(unit, "фунт") {
-			weight = math.Round(weight * 0.45359237)
-		}
-		weightText := strconv.FormatFloat(weight, 'f', -1, 64)
-		reps := strings.Join(strings.Fields(match[3]), "")
-		result = append(result, weightText+" "+reps)
-	}
-	return result
-}
-
-func workoutNotationsEquivalent(first, second string) bool {
-	left, leftErr := workout.ParseNotation(first)
-	right, rightErr := workout.ParseNotation(second)
-	if leftErr != nil || rightErr != nil {
-		return false
-	}
-	return left.WeightKg == right.WeightKg && slices.Equal(left.Weights, right.Weights) && slices.Equal(left.Reps, right.Reps)
 }

@@ -45,7 +45,7 @@ func (*recordingActivityMetrics) RecordTool(string, string, string, time.Duratio
 type activityCompleter struct{}
 
 func (activityCompleter) Complete(context.Context, openrouter.Request) (openrouter.Response, error) {
-	return openrouter.Response{Message: openrouter.Message{Role: "assistant", Content: "готово"}}, nil
+	return openrouter.Response{Message: openrouter.Message{Role: "assistant", ToolCalls: []openrouter.ToolCall{{ID: "decision", Type: "function", Function: openrouter.ToolFunction{Name: "resolve_turn", Arguments: `{"mode":"read","reply":"готово","actions":[]}`}}}}}, nil
 }
 
 type activityConversation struct{ messages []openrouter.Message }

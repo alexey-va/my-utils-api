@@ -83,7 +83,8 @@ func (c *ContextualConversation) sandboxSnapshot(ctx context.Context, chatID int
 			return "", fmt.Errorf("decode sandbox state: %w", err)
 		}
 	}
-	return FormatSandboxSnapshot(state), nil
+	now := time.Now().In(loadLocation(valueOr(c.zoneID, "Europe/Moscow")))
+	return fmt.Sprintf("Сейчас: %s (%s); сегодня: %s; завтра: %s.\n\n", now.Format("02.01.2006 15:04"), now.Location(), now.Format(time.DateOnly), now.AddDate(0, 0, 1).Format(time.DateOnly)) + FormatSandboxSnapshot(state), nil
 }
 
 func (c *ContextualConversation) realSnapshot(ctx context.Context) (string, error) {
@@ -149,7 +150,7 @@ func FormatFreshSnapshot(now time.Time, grid workout.Grid, exercises []workout.E
 
 	var builder strings.Builder
 	builder.WriteString("## Актуальный снимок дневника\n")
-	builder.WriteString("Данные ниже уже в контексте — для плана, статистики и прогресса НЕ вызывай get_days / get_progress / list_exercises, если пользователь не просит дату вне календаря.\n")
+	builder.WriteString("Свежие данные базы. Используй их для текущего состояния; если нужны другие даты или точные старые вызовы, обратись к инструментам. Отсутствие записи не означает отсутствие попытки её сохранить.\n")
 	fmt.Fprintf(&builder, "Сейчас: %s (%s)\n", now.Format("02.01.2006 15:04"), now.Location())
 	fmt.Fprintf(&builder, "Сегодня: %s (%s); завтра: %s (%s); неделя: %s–%s (понедельник–воскресенье)\n\n",
 		today, weekdayRU(now.Weekday()), now.AddDate(0, 0, 1).Format(time.DateOnly), weekdayRU(now.AddDate(0, 0, 1).Weekday()), weekStart.Format("02.01"), weekEnd.Format("02.01"))
@@ -250,7 +251,7 @@ func FormatFreshSnapshot(now time.Time, grid workout.Grid, exercises []workout.E
 
 	builder.WriteString("\n### Баланс групп мышц на неделе\n")
 	appendGroupBalance(&builder, exercises, doneThisWeek)
-	builder.WriteString("\nПодсказка для плана: чередуй группы (грудь+трицепс, спина+бицепс, ноги, плечи). Приоритет — упражнения из «ещё не делали» и группы с 0 сессий на неделе.\n")
+	builder.WriteString("\nПри запросе плана учитывай восстановление и индивидуальные факты пользователя. Список упражнений, которых не было на неделе, не является обязательным планом и не требует закрыть их все.\n")
 
 	for _, section := range []struct{ title, date string }{{"Сегодня", today}, {"Вчера", now.AddDate(0, 0, -1).Format(time.DateOnly)}} {
 		fmt.Fprintf(&builder, "\n### %s\n", section.title)

@@ -96,9 +96,11 @@ zero lines preserve missing calendar days.
 
 Telegram uses long polling and accepts text or voice messages. Allowed voice
 messages are downloaded with a 20 MB limit, transcribed through OpenRouter STT,
-then passed into the same serial agent turn as text. Every message and tool
-result is stored in PostgreSQL. Old dialogs are compressed into one rolling
-summary automatically while the configured recent tail stays verbatim.
+then queued with text messages in one durable FIFO per chat. The shared agent
+interprets each request as a typed plan, checks it before execution, and returns
+actual service receipts for writes. Complete recent user turns stay verbatim;
+older exact calls and failures remain retrievable from the archive after
+compaction. See [the agent contract](docs/ARCHITECTURE.md#telegram-and-agent).
 
 All Go workers poll task queue `myutils-go-v1`. Workflow IDs use the `go-v1-`
 generation marker. Startup deliberately does not query, terminate, signal or

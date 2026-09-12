@@ -89,6 +89,22 @@ func (s *ToolService) Execute(ctx context.Context, chatID int64, name string, ar
 
 func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string, args map[string]any) (string, error) {
 	switch name {
+	case "get_conversation_history":
+		return s.memory.ConversationHistory(ctx, chatID, int64(optionalInt(args, "before_id", 0, 0, 2_147_483_647)), optionalInt(args, "limit", 100, 1, 100))
+	case "copy_workout":
+		exercise, err := s.findExercise(ctx, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
+		if err != nil {
+			return "", err
+		}
+		options, err := copyOptions(args)
+		if err != nil {
+			return "", err
+		}
+		request, sourceDate, err := s.workout.CopyPreviousEntry(ctx, exercise.ID, requiredString(args, "date"), options)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("Записано: %s, %s — %s (кг; как %s).", exercise.Name, request.PerformedOn, workout.Display(request.WeightKg, request.SetReps, request.SetWeights), sourceDate), nil
 	case "list_exercises":
 		exercises, err := s.workout.ListExercises(ctx)
 		if err != nil {
@@ -114,7 +130,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		}
 		return fmt.Sprintf("Создано упражнение «%s» (%s).", exercise.Name, exercise.MuscleGroup), nil
 	case "rename_exercise":
-		exercise, err := s.findExercise(ctx, requiredString(args, "current_name"))
+		exercise, err := s.findExercise(ctx, optionalString(args, "current_name"), optionalString(args, "exercise_id"))
 		if err != nil {
 			return "", err
 		}
@@ -129,7 +145,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		}
 		return fmt.Sprintf("«%s» переименовано в «%s».", exercise.Name, updated.Name), nil
 	case "log_workout":
-		exercise, err := s.findExercise(ctx, requiredString(args, "exercise_name"))
+		exercise, err := s.findExercise(ctx, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
 			return "", err
 		}
@@ -150,7 +166,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		}
 		return fmt.Sprintf("Записано: %s, %s — %s.", exercise.Name, date, workout.Display(parsed.WeightKg, parsed.Reps, parsed.Weights)), nil
 	case "delete_workout":
-		exercise, err := s.findExercise(ctx, requiredString(args, "exercise_name"))
+		exercise, err := s.findExercise(ctx, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
 			return "", err
 		}
@@ -170,7 +186,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		if nameArg == "" {
 			nameArg = requiredString(args, "exercises")
 		}
-		exercise, err := s.findExercise(ctx, nameArg)
+		exercise, err := s.findExercise(ctx, nameArg, optionalString(args, "exercise_id"))
 		if err != nil {
 			return "", err
 		}
@@ -304,7 +320,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		}
 		return "График прогресса отправлен в чат.", nil
 	case "estimate_1rm":
-		exercise, err := s.findExercise(ctx, requiredString(args, "exercise_name"))
+		exercise, err := s.findExercise(ctx, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
 			return "", err
 		}
@@ -390,6 +406,9 @@ func (s *ToolService) executeSandbox(ctx context.Context, chatID int64, name str
 			return "", fmt.Errorf("decode sandbox state: %w", err)
 		}
 	}
+	if name == "get_conversation_history" {
+		return s.memory.ConversationHistory(ctx, chatID, int64(optionalInt(args, "before_id", 0, 0, 2_147_483_647)), optionalInt(args, "limit", 100, 1, 100))
+	}
 	result, err := s.runSandboxTool(&state, name, args)
 	if err != nil {
 		return "", err
@@ -409,6 +428,53 @@ func (s *ToolService) executeSandbox(ctx context.Context, chatID int64, name str
 
 func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[string]any) (string, error) {
 	switch name {
+	case "copy_workout":
+		exercise, err := sandboxExerciseByName(state, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
+		if err != nil {
+			return "", err
+		}
+		date := requiredString(args, "date")
+		if _, err := time.Parse(time.DateOnly, date); err != nil {
+			return "", errors.New("date должна быть YYYY-MM-DD")
+		}
+		options, err := copyOptions(args)
+		if err != nil {
+			return "", err
+		}
+		var previous *sandboxWorkout
+		for _, row := range state.Workouts {
+			eligible := row.PerformedOn < date
+			if options.SourceDate != "" {
+				eligible = row.PerformedOn == options.SourceDate
+			}
+			if row.ExerciseID == exercise.ID && eligible && (previous == nil || row.PerformedOn > previous.PerformedOn) {
+				copy := row
+				previous = &copy
+			}
+		}
+		if previous == nil {
+			if options.SourceDate != "" {
+				return "", fmt.Errorf("Нет записи на %s; нужны вес и подходы.", options.SourceDate)
+			}
+			return "", fmt.Errorf("Нет предыдущей записи до %s; нужны вес и подходы.", date)
+		}
+		if options.WeightKg != nil {
+			previous.WeightKg = *options.WeightKg
+			previous.Weights = nil
+		}
+		sourceDate := previous.PerformedOn
+		previous.PerformedOn = date
+		if _, err := time.Parse(time.DateOnly, date); err != nil {
+			return "", errors.New("date должна быть YYYY-MM-DD")
+		}
+		filtered := state.Workouts[:0]
+		for _, row := range state.Workouts {
+			if row.ExerciseID != exercise.ID || row.PerformedOn != date {
+				filtered = append(filtered, row)
+			}
+		}
+		state.Workouts = append(filtered, *previous)
+		return fmt.Sprintf("SANDBOX: записано %s, %s — %s (как %s).", exercise.Name, date, workout.Display(previous.WeightKg, previous.Reps, previous.Weights), sourceDate), nil
 	case "list_exercises":
 		if len(state.Exercises) == 0 {
 			return "В SANDBOX упражнений пока нет.", nil
@@ -430,7 +496,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 		state.Exercises = append(state.Exercises, sandboxExercise{ID: randomID("exercise"), Name: nameArg, MuscleGroup: group})
 		return fmt.Sprintf("SANDBOX: создано упражнение «%s» (%s).", nameArg, group), nil
 	case "rename_exercise":
-		exercise, err := sandboxExerciseByName(state, requiredString(args, "current_name"))
+		exercise, err := sandboxExerciseByName(state, optionalString(args, "current_name"), optionalString(args, "exercise_id"))
 		if err != nil {
 			return "", err
 		}
@@ -446,7 +512,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 		}
 		return fmt.Sprintf("SANDBOX: «%s» переименовано в «%s».", previous, exercise.Name), nil
 	case "log_workout":
-		exercise, err := sandboxExerciseByName(state, requiredString(args, "exercise_name"))
+		exercise, err := sandboxExerciseByName(state, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
 			return "", err
 		}
@@ -461,6 +527,9 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 		if date == "" {
 			date = s.today()
 		}
+		if _, err := time.Parse(time.DateOnly, date); err != nil {
+			return "", errors.New("date должна быть YYYY-MM-DD")
+		}
 		filtered := state.Workouts[:0]
 		for _, row := range state.Workouts {
 			if row.ExerciseID != exercise.ID || row.PerformedOn != date {
@@ -470,7 +539,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 		state.Workouts = append(filtered, sandboxWorkout{ExerciseID: exercise.ID, ExerciseName: exercise.Name, PerformedOn: date, WeightKg: parsed.WeightKg, Reps: parsed.Reps, Weights: parsed.Weights})
 		return fmt.Sprintf("SANDBOX: записано %s, %s — %s", exercise.Name, date, workout.Display(parsed.WeightKg, parsed.Reps, parsed.Weights)), nil
 	case "delete_workout":
-		exercise, err := sandboxExerciseByName(state, requiredString(args, "exercise_name"))
+		exercise, err := sandboxExerciseByName(state, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
 			return "", err
 		}
@@ -479,6 +548,9 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 			date = s.today()
 		}
 		removed := false
+		if _, err := time.Parse(time.DateOnly, date); err != nil {
+			return "", errors.New("date должна быть YYYY-MM-DD")
+		}
 		filtered := state.Workouts[:0]
 		for _, row := range state.Workouts {
 			if row.ExerciseID == exercise.ID && row.PerformedOn == date {
@@ -497,7 +569,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 		if exerciseName == "" {
 			exerciseName = requiredString(args, "exercises")
 		}
-		exercise, err := sandboxExerciseByName(state, exerciseName)
+		exercise, err := sandboxExerciseByName(state, exerciseName, optionalString(args, "exercise_id"))
 		if err != nil {
 			return "", err
 		}
@@ -539,6 +611,13 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 		date := optionalString(args, "date")
 		if date == "" {
 			date = s.today()
+		}
+		if _, err := time.Parse(time.DateOnly, date); err != nil {
+			return "", errors.New("date должна быть YYYY-MM-DD")
+		}
+		value = math.Floor(value*10+0.5) / 10
+		if value < 20 || value > 400 {
+			return "", errors.New("Вес тела должен быть от 20 до 400 кг")
 		}
 		filtered := state.BodyWeights[:0]
 		for _, row := range state.BodyWeights {
@@ -606,7 +685,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 		}
 		return "SANDBOX: график не отправлялся наружу.\n" + progress, nil
 	case "estimate_1rm":
-		exercise, err := sandboxExerciseByName(state, requiredString(args, "exercise_name"))
+		exercise, err := sandboxExerciseByName(state, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
 			return "", err
 		}
@@ -631,61 +710,46 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 	}
 }
 
-func (s *ToolService) findExercise(ctx context.Context, name string) (workout.Exercise, error) {
+func (s *ToolService) findExercise(ctx context.Context, name, id string) (workout.Exercise, error) {
 	exercises, err := s.workout.ListExercises(ctx)
 	if err != nil {
 		return workout.Exercise{}, err
 	}
-	names := make([]string, len(exercises))
-	for index := range exercises {
-		names[index] = exercises[index].Name
+	candidates := make([]ExerciseCandidate, len(exercises))
+	for i, e := range exercises {
+		candidates[i] = ExerciseCandidate{ID: e.ID, Name: e.Name, MuscleGroup: e.MuscleGroup}
 	}
-	matches := bestExerciseMatchIndexes(names, name)
-	if len(matches) == 0 {
-		return workout.Exercise{}, fmt.Errorf("упражнение %q не найдено", name)
+	selected, err := ResolveExercise(id, name, candidates)
+	if err != nil {
+		return workout.Exercise{}, err
 	}
-	if len(matches) > 1 {
-		return workout.Exercise{}, fmt.Errorf("упражнение %q неоднозначно", name)
-	}
-	return exercises[matches[0]], nil
-}
-
-func exerciseNameMatches(candidate, requested string) bool {
-	return exerciseNameMatchRank(candidate, requested) > 0
-}
-
-func exerciseNameMatchRank(candidate, requested string) int {
-	candidate = strings.ToLower(strings.TrimSpace(candidate))
-	requested = strings.ToLower(strings.TrimSpace(requested))
-	if candidate == requested {
-		return 2
-	}
-	if requested != "" && strings.Contains(candidate, requested) {
-		return 1
-	}
-	return 0
-}
-
-func bestExerciseMatchIndexes(candidates []string, requested string) []int {
-	bestRank := 0
-	matches := []int{}
-	for index, candidate := range candidates {
-		rank := exerciseNameMatchRank(candidate, requested)
-		switch {
-		case rank == 0:
-			continue
-		case rank > bestRank:
-			bestRank = rank
-			matches = []int{index}
-		case rank == bestRank:
-			matches = append(matches, index)
+	for _, e := range exercises {
+		if e.ID == selected.ID {
+			return e, nil
 		}
 	}
-	return matches
+	return workout.Exercise{}, fmt.Errorf("упражнение не найдено")
 }
 
 func (s *ToolService) today() string {
 	return s.todayTime().Format(time.DateOnly)
+}
+
+func copyOptions(args map[string]any) (*workout.CopyOptions, error) {
+	options := &workout.CopyOptions{SourceDate: optionalString(args, "source_date")}
+	if options.SourceDate != "" {
+		if _, err := time.Parse(time.DateOnly, options.SourceDate); err != nil {
+			return nil, errors.New("source_date должна быть YYYY-MM-DD")
+		}
+	}
+	if _, present := args["weight_kg"]; present {
+		weight, err := requiredFloat(args, "weight_kg")
+		if err != nil || weight < 0.25 || weight > 10000 {
+			return nil, errors.New("weight_kg должен быть от 0.25 до 10000 кг")
+		}
+		options.WeightKg = &weight
+	}
+	return options, nil
 }
 
 func (s *ToolService) todayTime() time.Time {
@@ -792,19 +856,21 @@ func formatGridDays(grid workout.Grid, dates []string) string {
 	return strings.Join(blocks, "\n\n")
 }
 
-func sandboxExerciseByName(state *sandboxState, name string) (*sandboxExercise, error) {
-	names := make([]string, len(state.Exercises))
-	for index := range state.Exercises {
-		names[index] = state.Exercises[index].Name
+func sandboxExerciseByName(state *sandboxState, name, id string) (*sandboxExercise, error) {
+	candidates := make([]ExerciseCandidate, len(state.Exercises))
+	for i, e := range state.Exercises {
+		candidates[i] = ExerciseCandidate{ID: e.ID, Name: e.Name, MuscleGroup: e.MuscleGroup}
 	}
-	matches := bestExerciseMatchIndexes(names, name)
-	if len(matches) == 0 {
-		return nil, fmt.Errorf("в SANDBOX нет упражнения %q", name)
+	selected, err := ResolveExercise(id, name, candidates)
+	if err != nil {
+		return nil, err
 	}
-	if len(matches) > 1 {
-		return nil, fmt.Errorf("неоднозначное sandbox-упражнение %q", name)
+	for i := range state.Exercises {
+		if state.Exercises[i].ID == selected.ID {
+			return &state.Exercises[i], nil
+		}
 	}
-	return &state.Exercises[matches[0]], nil
+	return nil, fmt.Errorf("sandbox-упражнение не найдено")
 }
 
 func sandboxForgetFact(state *sandboxState, id string) (string, error) {

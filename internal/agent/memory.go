@@ -13,6 +13,7 @@ import (
 	"github.com/alexey-va/my-utils-api/internal/openrouter"
 	"github.com/alexey-va/my-utils-api/internal/workout"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -35,23 +36,27 @@ type ToolFunction struct {
 }
 
 type Message struct {
-	ID         int64     `json:"id"`
-	ChatID     int64     `json:"chatId"`
-	Role       string    `json:"role"`
-	Content    *string   `json:"content"`
-	Images     []string  `json:"images"`
-	ToolCallID *string   `json:"toolCallId"`
-	ToolName   *string   `json:"toolName"`
-	Excluded   bool      `json:"excludedFromContext"`
-	SummaryID  *string   `json:"compactedIntoSummaryId"`
-	Compacted  bool      `json:"isCompacted"`
-	CreatedAt  time.Time `json:"createdAt"`
-	RawJSON    string    `json:"rawJson"`
+	ID         int64      `json:"id"`
+	ChatID     int64      `json:"chatId"`
+	Role       string     `json:"role"`
+	Content    *string    `json:"content"`
+	Images     []string   `json:"images"`
+	ToolCalls  []ToolCall `json:"toolCalls,omitempty"`
+	ToolCallID *string    `json:"toolCallId"`
+	ToolName   *string    `json:"toolName"`
+	Excluded   bool       `json:"excludedFromContext"`
+	SummaryID  *string    `json:"compactedIntoSummaryId"`
+	Compacted  bool       `json:"isCompacted"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	RawJSON    string     `json:"rawJson"`
 }
 type MessagePage struct {
 	Messages     []Message `json:"messages"`
 	NextBeforeID *int64    `json:"nextBeforeId"`
 }
+
+const conversationHistoryByteBudget = 256 * 1024
+
 type Fact struct {
 	ID         string    `json:"id"`
 	ChatID     int64     `json:"chatId"`
@@ -114,8 +119,16 @@ type TestChat struct {
 type Turner interface {
 	Turn(context.Context, int64, string, []string, bool) (TurnResult, error)
 }
+
+type queryer interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
 type Memory struct {
 	pool      *pgxpool.Pool
+	db        queryer
 	turner    Turner
 	zoneID    func() string
 	compactor interface {
@@ -126,7 +139,17 @@ type Memory struct {
 
 func (m *Memory) SetAutoCompactor(compactor interface{ Trigger(int64) }) { m.autoCompactor = compactor }
 
-func NewMemory(pool *pgxpool.Pool, turner Turner) *Memory { return &Memory{pool: pool, turner: turner} }
+func NewMemory(pool *pgxpool.Pool, turner Turner) *Memory {
+	return &Memory{pool: pool, db: pool, turner: turner}
+}
+
+// WithTx reuses memory's fact and message SQL against an existing transaction.
+// The returned clone must not outlive the transaction.
+func (m *Memory) WithTx(tx pgx.Tx) *Memory {
+	clone := *m
+	clone.db = tx
+	return &clone
+}
 
 func (m *Memory) SetTurner(turner Turner)        { m.turner = turner }
 func (m *Memory) SetZoneID(zoneID func() string) { m.zoneID = zoneID }
@@ -141,6 +164,14 @@ func (m *Memory) AppendOpenRouter(ctx context.Context, id int64, message openrou
 }
 
 func (m *Memory) AppendMessage(ctx context.Context, id int64, message openrouter.Message) (Message, error) {
+	result, err := appendMessageTo(ctx, m.db, id, message)
+	if err == nil && m.autoCompactor != nil {
+		m.autoCompactor.Trigger(id)
+	}
+	return result, err
+}
+
+func appendMessageTo(ctx context.Context, db queryer, id int64, message openrouter.Message) (Message, error) {
 	stored := ChatMessage{Role: message.Role}
 	if text := strings.TrimSpace(contentString(message.Content)); text != "" {
 		stored.Content = &text
@@ -170,11 +201,7 @@ func (m *Memory) AppendMessage(ctx context.Context, id int64, message openrouter
 	if err != nil {
 		return Message{}, err
 	}
-	result, err := scanMessage(m.pool.QueryRow(ctx, `INSERT INTO agent_conversation_messages(chat_id,message_json) VALUES($1,$2) RETURNING id,chat_id,message_json,excluded_from_context,compacted_into_summary_id::text,is_compacted,created_at`, id, string(raw)))
-	if err == nil && m.autoCompactor != nil {
-		m.autoCompactor.Trigger(id)
-	}
-	return result, err
+	return scanMessage(db.QueryRow(ctx, `INSERT INTO agent_conversation_messages(chat_id,message_json) VALUES($1,$2) RETURNING id,chat_id,message_json,excluded_from_context,compacted_into_summary_id::text,is_compacted,created_at`, id, string(raw)))
 }
 
 // Append implements the turner's Conversation interface.
@@ -186,7 +213,30 @@ func (m *Memory) Context(ctx context.Context, id int64, limit int) ([]openrouter
 	if limit < 1 {
 		limit = 1
 	}
-	rows, err := m.pool.Query(ctx, `SELECT message_json,created_at FROM (SELECT id,message_json,created_at FROM agent_conversation_messages WHERE chat_id=$1 AND NOT excluded_from_context AND NOT is_compacted ORDER BY created_at DESC,id DESC LIMIT $2) recent ORDER BY created_at,id`, id, limit)
+	if limit > 100 {
+		limit = 100
+	}
+	var boundaryID int64
+	var boundaryAt time.Time
+	if err := m.db.QueryRow(ctx, `
+		SELECT id,created_at
+		FROM (
+			SELECT id,created_at
+			FROM agent_conversation_messages
+			WHERE chat_id=$1 AND NOT excluded_from_context
+			  AND lower(COALESCE(message_json::jsonb->>'role',''))='user'
+			ORDER BY created_at DESC,id DESC
+			LIMIT $2
+		) recent_users
+		ORDER BY created_at,id
+		LIMIT 1
+	`, id, limit).Scan(&boundaryID, &boundaryAt); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return []openrouter.Message{}, nil
+		}
+		return nil, err
+	}
+	rows, err := m.db.Query(ctx, `SELECT message_json,created_at FROM agent_conversation_messages WHERE chat_id=$1 AND NOT excluded_from_context AND (created_at,id) >= ($2,$3) ORDER BY created_at,id`, id, boundaryAt, boundaryID)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +329,11 @@ func dropIncompleteToolTurns(messages []openrouter.Message) []openrouter.Message
 		message := messages[index]
 		if message.Role == "assistant" && len(message.ToolCalls) > 0 {
 			required := make(map[string]bool, len(message.ToolCalls))
+			validCalls := true
 			for _, call := range message.ToolCalls {
+				if strings.TrimSpace(call.ID) == "" || required[call.ID] {
+					validCalls = false
+				}
 				required[call.ID] = true
 			}
 			cursor := index + 1
@@ -294,7 +348,7 @@ func dropIncompleteToolTurns(messages []openrouter.Message) []openrouter.Message
 				}
 				cursor++
 			}
-			complete := !unexpected
+			complete := validCalls && !unexpected
 			for id := range required {
 				complete = complete && results[id] == 1
 			}
@@ -314,7 +368,7 @@ func dropIncompleteToolTurns(messages []openrouter.Message) []openrouter.Message
 
 func (m *Memory) PromptContext(ctx context.Context, id int64) (string, error) {
 	var summary string
-	if err := m.pool.QueryRow(ctx, `SELECT summary_text FROM agent_context_summaries WHERE chat_id=$1 ORDER BY sequence DESC LIMIT 1`, id).Scan(&summary); err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err := m.db.QueryRow(ctx, `SELECT summary_text FROM agent_context_summaries WHERE chat_id=$1 ORDER BY sequence DESC LIMIT 1`, id).Scan(&summary); err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return "", err
 	}
 	facts, err := m.facts(ctx, id)
@@ -345,7 +399,7 @@ func (m *Memory) PromptContext(ctx context.Context, id int64) (string, error) {
 }
 
 func (m *Memory) ListChats(ctx context.Context) ([]ChatSummary, error) {
-	rows, err := m.pool.Query(ctx, `SELECT chat_id FROM (SELECT DISTINCT chat_id FROM agent_conversation_messages UNION SELECT DISTINCT chat_id FROM agent_user_facts) c ORDER BY chat_id`)
+	rows, err := m.db.Query(ctx, `SELECT chat_id FROM (SELECT DISTINCT chat_id FROM agent_conversation_messages UNION SELECT DISTINCT chat_id FROM agent_user_facts) c ORDER BY chat_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +421,7 @@ func (m *Memory) ListChats(ctx context.Context) ([]ChatSummary, error) {
 func (m *Memory) chatSummary(ctx context.Context, id int64) (ChatSummary, error) {
 	var result ChatSummary
 	result.ChatID = id
-	err := m.pool.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_conversation_messages WHERE chat_id=$1),(SELECT count(*) FROM agent_user_facts WHERE chat_id=$1),(SELECT count(*) FROM agent_context_summaries WHERE chat_id=$1),(SELECT max(created_at) FROM agent_conversation_messages WHERE chat_id=$1)`, id).Scan(&result.MessageCount, &result.FactCount, &result.SummaryCount, &result.LastActivityAt)
+	err := m.db.QueryRow(ctx, `SELECT (SELECT count(*) FROM agent_conversation_messages WHERE chat_id=$1),(SELECT count(*) FROM agent_user_facts WHERE chat_id=$1),(SELECT count(*) FROM agent_context_summaries WHERE chat_id=$1),(SELECT max(created_at) FROM agent_conversation_messages WHERE chat_id=$1)`, id).Scan(&result.MessageCount, &result.FactCount, &result.SummaryCount, &result.LastActivityAt)
 	return result, err
 }
 func (m *Memory) Detail(ctx context.Context, id int64) (ChatDetail, error) {
@@ -384,10 +438,10 @@ func (m *Memory) Detail(ctx context.Context, id int64) (ChatDetail, error) {
 		return ChatDetail{}, err
 	}
 	var recent, compactable int
-	if err := m.pool.QueryRow(ctx, `SELECT count(*) FROM agent_conversation_messages WHERE chat_id=$1`, id).Scan(&recent); err != nil {
+	if err := m.db.QueryRow(ctx, `SELECT count(*) FROM agent_conversation_messages WHERE chat_id=$1`, id).Scan(&recent); err != nil {
 		return ChatDetail{}, err
 	}
-	if err := m.pool.QueryRow(ctx, `SELECT count(*) FROM agent_conversation_messages WHERE chat_id=$1 AND NOT excluded_from_context AND NOT is_compacted`, id).Scan(&compactable); err != nil {
+	if err := m.db.QueryRow(ctx, `SELECT count(*) FROM agent_conversation_messages WHERE chat_id=$1 AND NOT excluded_from_context AND NOT is_compacted`, id).Scan(&compactable); err != nil {
 		return ChatDetail{}, err
 	}
 	return ChatDetail{ChatID: id, Stats: stats, Summaries: summaries, Facts: facts, RecentContextMessageCount: recent, Compaction: CompactionPreview{Available: m.compactor != nil, CompactableCount: compactable}}, nil
@@ -399,7 +453,7 @@ func (m *Memory) Messages(ctx context.Context, id int64, before *int64, limit in
 	if limit > 200 {
 		limit = 200
 	}
-	rows, err := m.pool.Query(ctx, `SELECT id,chat_id,message_json,excluded_from_context,compacted_into_summary_id::text,is_compacted,created_at FROM agent_conversation_messages WHERE chat_id=$1 AND ($2::bigint IS NULL OR id<$2) ORDER BY created_at DESC LIMIT $3`, id, before, limit)
+	rows, err := m.db.Query(ctx, `SELECT id,chat_id,message_json,excluded_from_context,compacted_into_summary_id::text,is_compacted,created_at FROM agent_conversation_messages WHERE chat_id=$1 AND ($2::bigint IS NULL OR id<$2) ORDER BY created_at DESC LIMIT $3`, id, before, limit)
 	if err != nil {
 		return MessagePage{}, err
 	}
@@ -418,6 +472,69 @@ func (m *Memory) Messages(ctx context.Context, id int64, before *int64, limit in
 	}
 	return result, rows.Err()
 }
+
+// ConversationHistory returns a bounded JSON archive for one chat, including
+// compacted rows but excluding messages manually hidden from model context.
+// A zero beforeID starts at the newest row; positive IDs continue backwards.
+// The archive preserves exact IDs, timestamps, tool calls and tool results.
+func (m *Memory) ConversationHistory(ctx context.Context, id, beforeID int64, limit int) (string, error) {
+	if limit < 1 {
+		limit = 1
+	}
+	if limit > 100 {
+		limit = 100
+	}
+	var before *int64
+	if beforeID > 0 {
+		before = &beforeID
+	}
+	rows, err := m.db.Query(ctx, `SELECT id,chat_id,message_json,excluded_from_context,compacted_into_summary_id::text,is_compacted,created_at FROM agent_conversation_messages WHERE chat_id=$1 AND NOT excluded_from_context AND ($2::bigint IS NULL OR id<$2) ORDER BY id DESC LIMIT $3`, id, before, limit)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	result := MessagePage{Messages: []Message{}}
+	hasMore := false
+	for rows.Next() {
+		message, err := scanMessage(rows)
+		if err != nil {
+			return "", err
+		}
+		candidate := append(append([]Message(nil), result.Messages...), message)
+		// Reserve space for the cursor while adding rows. This keeps the final
+		// page within the byte budget even when it has another page.
+		cursor := message.ID
+		archive, err := json.Marshal(MessagePage{Messages: candidate, NextBeforeID: &cursor})
+		if err != nil {
+			return "", err
+		}
+		if len(archive) > conversationHistoryByteBudget {
+			if len(result.Messages) == 0 {
+				return "", conversationHistoryTooLarge(message.ID, len(archive))
+			}
+			hasMore = true
+			break
+		}
+		result.Messages = candidate
+	}
+	if len(result.Messages) > 0 && (hasMore || len(result.Messages) == limit) {
+		value := result.Messages[len(result.Messages)-1].ID
+		result.NextBeforeID = &value
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	archive, err := json.Marshal(result)
+	if err != nil {
+		return "", err
+	}
+	return string(archive), nil
+}
+
+func conversationHistoryTooLarge(id int64, size int) error {
+	return fmt.Errorf("conversation history message id %d exceeds the %d-byte page budget (%d bytes); use before_id to read older data", id, conversationHistoryByteBudget, size)
+}
+
 func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 	var result Message
 	err := row.Scan(&result.ID, &result.ChatID, &result.RawJSON, &result.Excluded, &result.SummaryID, &result.Compacted, &result.CreatedAt)
@@ -429,6 +546,7 @@ func scanMessage(row interface{ Scan(...any) error }) (Message, error) {
 		result.Role = parsed.Role
 		result.Content = parsed.Content
 		result.Images = parsed.Images
+		result.ToolCalls = parsed.ToolCalls
 		result.ToolCallID = parsed.ToolCallID
 		result.ToolName = parsed.Name
 	} else {
@@ -454,7 +572,7 @@ func (m *Memory) AppendManual(ctx context.Context, id int64, role, content strin
 		contentPtr = &content
 	}
 	raw, _ := json.Marshal(ChatMessage{Role: role, Content: contentPtr, Images: nilIfEmpty(images)})
-	result, err := scanMessage(m.pool.QueryRow(ctx, `INSERT INTO agent_conversation_messages(chat_id,message_json) VALUES($1,$2) RETURNING id,chat_id,message_json,excluded_from_context,compacted_into_summary_id::text,is_compacted,created_at`, id, string(raw)))
+	result, err := scanMessage(m.db.QueryRow(ctx, `INSERT INTO agent_conversation_messages(chat_id,message_json) VALUES($1,$2) RETURNING id,chat_id,message_json,excluded_from_context,compacted_into_summary_id::text,is_compacted,created_at`, id, string(raw)))
 	if err == nil && m.autoCompactor != nil {
 		m.autoCompactor.Trigger(id)
 	}
@@ -472,7 +590,7 @@ func (m *Memory) CreateFact(ctx context.Context, id int64, content string, confi
 	if value < 0 || value > 1 {
 		return Fact{}, badRequest("confidence must be between 0 and 1")
 	}
-	return scanFact(m.pool.QueryRow(ctx, `INSERT INTO agent_user_facts(id,chat_id,content,confidence) VALUES(gen_random_uuid(),$1,$2,$3) RETURNING id::text,chat_id,content,confidence,created_at,updated_at`, id, content, value))
+	return scanFact(m.db.QueryRow(ctx, `INSERT INTO agent_user_facts(id,chat_id,content,confidence) VALUES(gen_random_uuid(),$1,$2,$3) RETURNING id::text,chat_id,content,confidence,created_at,updated_at`, id, content, value))
 }
 func (m *Memory) UpdateFact(ctx context.Context, id, content string, confidence *float64) (Fact, error) {
 	content = strings.TrimSpace(content)
@@ -482,7 +600,7 @@ func (m *Memory) UpdateFact(ctx context.Context, id, content string, confidence 
 	if confidence != nil && (*confidence < 0 || *confidence > 1) {
 		return Fact{}, badRequest("confidence must be between 0 and 1")
 	}
-	value, err := scanFact(m.pool.QueryRow(ctx, `UPDATE agent_user_facts SET content=$2,confidence=COALESCE($3,confidence),updated_at=now() WHERE id=$1::uuid RETURNING id::text,chat_id,content,confidence,created_at,updated_at`, id, content, confidence))
+	value, err := scanFact(m.db.QueryRow(ctx, `UPDATE agent_user_facts SET content=$2,confidence=COALESCE($3,confidence),updated_at=now() WHERE id=$1::uuid RETURNING id::text,chat_id,content,confidence,created_at,updated_at`, id, content, confidence))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Fact{}, notFound("Факт не найден.")
 	}
@@ -494,7 +612,7 @@ func scanFact(row interface{ Scan(...any) error }) (Fact, error) {
 	return value, err
 }
 func (m *Memory) DeleteFact(ctx context.Context, id string) error {
-	_, err := m.pool.Exec(ctx, `DELETE FROM agent_user_facts WHERE id=$1::uuid`, id)
+	_, err := m.db.Exec(ctx, `DELETE FROM agent_user_facts WHERE id=$1::uuid`, id)
 	return err
 }
 func (m *Memory) DeleteSummary(ctx context.Context, id string) error {
@@ -518,14 +636,14 @@ func (m *Memory) DeleteSummary(ctx context.Context, id string) error {
 	return tx.Commit(ctx)
 }
 func (m *Memory) ExcludeMessage(ctx context.Context, id int64, excluded bool) (Message, error) {
-	value, err := scanMessage(m.pool.QueryRow(ctx, `UPDATE agent_conversation_messages SET excluded_from_context=$2 WHERE id=$1 RETURNING id,chat_id,message_json,excluded_from_context,compacted_into_summary_id::text,is_compacted,created_at`, id, excluded))
+	value, err := scanMessage(m.db.QueryRow(ctx, `UPDATE agent_conversation_messages SET excluded_from_context=$2 WHERE id=$1 RETURNING id,chat_id,message_json,excluded_from_context,compacted_into_summary_id::text,is_compacted,created_at`, id, excluded))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Message{}, notFound("Сообщение не найдено.")
 	}
 	return value, err
 }
 func (m *Memory) DeleteMessage(ctx context.Context, id int64) error {
-	_, err := m.pool.Exec(ctx, `DELETE FROM agent_conversation_messages WHERE id=$1`, id)
+	_, err := m.db.Exec(ctx, `DELETE FROM agent_conversation_messages WHERE id=$1`, id)
 	return err
 }
 func (m *Memory) ClearDialog(ctx context.Context, id int64) error {
@@ -557,7 +675,7 @@ func (m *Memory) Compact(ctx context.Context, chatID int64, keepRecent int) (Com
 }
 
 func (m *Memory) summaries(ctx context.Context, id int64) ([]Summary, error) {
-	rows, err := m.pool.Query(ctx, `SELECT id::text,sequence,summary_text,covers_message_id_from,covers_message_id_to,source_message_count,model,tokens_before,tokens_after,created_at FROM agent_context_summaries WHERE chat_id=$1 ORDER BY sequence`, id)
+	rows, err := m.db.Query(ctx, `SELECT id::text,sequence,summary_text,covers_message_id_from,covers_message_id_to,source_message_count,model,tokens_before,tokens_after,created_at FROM agent_context_summaries WHERE chat_id=$1 ORDER BY sequence`, id)
 	if err != nil {
 		return nil, err
 	}
@@ -573,7 +691,7 @@ func (m *Memory) summaries(ctx context.Context, id int64) ([]Summary, error) {
 	return result, rows.Err()
 }
 func (m *Memory) facts(ctx context.Context, id int64) ([]Fact, error) {
-	rows, err := m.pool.Query(ctx, `SELECT id::text,chat_id,content,confidence,created_at,updated_at FROM agent_user_facts WHERE chat_id=$1 ORDER BY updated_at DESC`, id)
+	rows, err := m.db.Query(ctx, `SELECT id::text,chat_id,content,confidence,created_at,updated_at FROM agent_user_facts WHERE chat_id=$1 ORDER BY updated_at DESC`, id)
 	if err != nil {
 		return nil, err
 	}

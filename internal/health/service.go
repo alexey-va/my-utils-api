@@ -30,9 +30,25 @@ type WeightResult struct {
 	Created  bool    `json:"created"`
 }
 
-type Service struct{ pool *pgxpool.Pool }
+type queryer interface {
+	Exec(context.Context, string, ...any) (pgconn.CommandTag, error)
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
 
-func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool} }
+type Service struct {
+	pool *pgxpool.Pool
+	db   queryer
+}
+
+func NewService(pool *pgxpool.Pool) *Service { return &Service{pool: pool, db: pool} }
+
+// WithTx reuses this service against an existing transaction.
+func (s *Service) WithTx(tx pgx.Tx) *Service {
+	clone := *s
+	clone.db = tx
+	return &clone
+}
 
 func (s *Service) UpsertSteps(ctx context.Context, parsed ParsedSteps) (int, error) {
 	userID, err := s.localUserID(ctx)
@@ -71,7 +87,7 @@ func (s *Service) StepsHistory(ctx context.Context, days int, today time.Time) (
 		arguments = append(arguments, today.AddDate(0, 0, -(days-1)), today)
 	}
 	query += ` ORDER BY step_date ASC`
-	rows, err := s.pool.Query(ctx, query, arguments...)
+	rows, err := s.db.Query(ctx, query, arguments...)
 	if err != nil {
 		return StepsHistory{}, err
 	}
@@ -103,7 +119,7 @@ func (s *Service) UpsertWeight(ctx context.Context, weight float64, date string)
 	if err != nil {
 		return WeightResult{}, err
 	}
-	return upsertWeight(ctx, s.pool, userID, normalized, date)
+	return upsertWeight(ctx, s.db, userID, normalized, date)
 }
 
 func (s *Service) UpsertWeights(ctx context.Context, days []WeightDay) ([]WeightResult, error) {
@@ -170,7 +186,7 @@ func (s *Service) WeightHistory(ctx context.Context, days int, today time.Time) 
 		arguments = append(arguments, today.AddDate(0, 0, -(days-1)), today)
 	}
 	query += ` ORDER BY weight_date ASC`
-	rows, err := s.pool.Query(ctx, query, arguments...)
+	rows, err := s.db.Query(ctx, query, arguments...)
 	if err != nil {
 		return WeightHistory{}, err
 	}
@@ -188,7 +204,7 @@ func (s *Service) WeightHistory(ctx context.Context, days int, today time.Time) 
 	}
 	var latestDate string
 	var latestWeight float64
-	if err := s.pool.QueryRow(ctx, `SELECT weight_date::text,weight_kg::float8 FROM health_body_weight WHERE user_id=$1::uuid ORDER BY weight_date DESC LIMIT 1`, userID).Scan(&latestDate, &latestWeight); err == nil {
+	if err := s.db.QueryRow(ctx, `SELECT weight_date::text,weight_kg::float8 FROM health_body_weight WHERE user_id=$1::uuid ORDER BY weight_date DESC LIMIT 1`, userID).Scan(&latestDate, &latestWeight); err == nil {
 		result.LatestDate, result.LatestWeightKg = &latestDate, &latestWeight
 	}
 	return result, nil
@@ -196,7 +212,7 @@ func (s *Service) WeightHistory(ctx context.Context, days int, today time.Time) 
 
 func (s *Service) localUserID(ctx context.Context) (string, error) {
 	var id string
-	if err := s.pool.QueryRow(ctx, `SELECT id::text FROM users WHERE lower(email)=lower($1)`, workout.LocalWorkoutEmail).Scan(&id); err != nil {
+	if err := s.db.QueryRow(ctx, `SELECT id::text FROM users WHERE lower(email)=lower($1)`, workout.LocalWorkoutEmail).Scan(&id); err != nil {
 		return "", fmt.Errorf("local workout user: %w", err)
 	}
 	return id, nil

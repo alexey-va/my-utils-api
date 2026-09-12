@@ -30,7 +30,7 @@ func (m *recordingMetrics) RecordTool(path, tool, status string, _ time.Duration
 
 func TestTemporalMetricsPathFlowsThroughTurnAndTools(t *testing.T) {
 	metrics := &recordingMetrics{}
-	llm := &fakeCompleter{responses: []openrouter.Response{{Message: openrouter.Message{Role: "assistant", Content: "готово"}}}}
+	llm := &fakeCompleter{responses: []openrouter.Response{decisionResponse("read", "готово")}}
 	turner := NewTurner(
 		TurnerConfig{
 			Model: func() string { return "p/m" }, MaxToolIterations: func() int { return 2 },

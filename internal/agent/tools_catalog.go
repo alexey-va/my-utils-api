@@ -22,6 +22,8 @@ func ToolDefinitions(temporalEnabled bool) []openrouter.Tool {
 		definition("rename_exercise", "Переименовать упражнение.", property{"current_name": text("Текущее название"), "new_name": text("Новое название"), "muscle_group": text("Группа мышц")}, "current_name", "new_name"),
 		definition("delete_workout", "Удалить запись за день.", property{"exercise_name": text("Упражнение"), "performed_on": text("Дата YYYY-MM-DD")}, "exercise_name"),
 		definition("log_workout", "Записать тренировку. notation: 70 3*10/12, 70 10/12, 70 10/10, 70 7/7/7 или 70/75/80 10/10/10.", property{"exercise_name": text("Упражнение"), "notation": text("Запись подходов"), "date": text("Дата YYYY-MM-DD")}, "exercise_name", "notation"),
+		definition("copy_workout", "Скопировать подходы из дневника. Без source_date — последняя сессия ДО date. При исправлении веса source_date=date сохраняет подходы этой записи. Для переноса даты копируй с явной source_date, затем удали исходную запись в том же плане. Не сочиняй notation из summary.", property{"exercise_name": text("Упражнение"), "date": text("Целевая дата YYYY-MM-DD"), "source_date": text("Точная дата источника YYYY-MM-DD, только для выбранной пользователем записи"), "weight_kg": property{"type": "number", "description": "Новый вес в кг, только если пользователь его назвал; иначе исходные веса сохраняются"}}, "exercise_name", "date"),
+		definition("get_conversation_history", "Точный архив этого чата, включая неудачные вызовы и сжатую историю. Обязателен для вопросов о прежних попытках/ошибках/JSON. Только этот чат; листай next_before_id.", property{"limit": integer("1–100 сообщений, по умолчанию 100"), "before_id": integer("Сообщения строго до ID, для следующей страницы")}),
 		definition("get_progress", "Прогресс по одному упражнению за последние сессии.", property{"exercise": text("Упражнение"), "recent_sessions": integer("Количество сессий")}, "exercise"),
 		definition("get_days", "Записи за дни. days — даты YYYY-MM-DD через запятую. Без days — сегодня.", property{"days": text("Даты через запятую")}),
 		definition("log_body_weight", "Записать вес тела, не вес на штанге.", property{"weight_kg": property{"type": "number"}, "date": text("Дата YYYY-MM-DD")}, "weight_kg"),
@@ -38,6 +40,13 @@ func ToolDefinitions(temporalEnabled bool) []openrouter.Tool {
 			definition("schedule_notification", "Напоминание на время deliver_at в ISO datetime.", property{"message": text("Сообщение"), "deliver_at": text("ISO datetime")}, "message", "deliver_at"),
 			definition("cancel_notification", "Отменить напоминание по workflow_id.", property{"workflow_id": text("Workflow ID")}, "workflow_id"),
 		)
+	}
+	for index := range tools {
+		switch tools[index].Function.Name {
+		case "rename_exercise", "delete_workout", "log_workout", "copy_workout", "get_progress", "estimate_1rm":
+			props := tools[index].Function.Parameters["properties"].(map[string]any)
+			props["exercise_id"] = text("Точный ID из свежего списка упражнений. Предпочитай его для существующего упражнения; не выдумывай. Имя остаётся подписью.")
+		}
 	}
 	return tools
 }

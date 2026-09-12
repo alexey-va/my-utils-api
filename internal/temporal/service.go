@@ -52,6 +52,7 @@ func (s *Service) Warm(ctx context.Context) error {
 	workerInstance.RegisterWorkflowWithOptions(EveningReminderWorkflow, workflow.RegisterOptions{Name: "GoV1EveningReminderWorkflow"})
 	workerInstance.RegisterWorkflowWithOptions(WeeklyReportWorkflow, workflow.RegisterOptions{Name: "GoV1WeeklyReportWorkflow"})
 	workerInstance.RegisterWorkflowWithOptions(AgentTurnWorkflow, workflow.RegisterOptions{Name: "GoV1AgentTurnWorkflow"})
+	workerInstance.RegisterWorkflowWithOptions(AgentTurnQueueWorkflow, workflow.RegisterOptions{Name: "GoV1AgentTurnQueueWorkflow"})
 	workerInstance.RegisterActivityWithOptions(s.activities.SendTelegramMessage, activity.RegisterOptions{Name: SendTelegramMessageActivity})
 	workerInstance.RegisterActivityWithOptions(s.activities.HasWorkoutToday, activity.RegisterOptions{Name: HasWorkoutTodayActivity})
 	workerInstance.RegisterActivityWithOptions(s.activities.SendEveningReminder, activity.RegisterOptions{Name: SendEveningReminderActivity})
@@ -177,8 +178,13 @@ func (s *Service) Cancel(ctx context.Context, workflowID string) (bool, error) {
 }
 
 func (s *Service) StartAgentTurn(ctx context.Context, input AgentTurnInput) (string, error) {
-	id := AgentTurnWorkflowID(input.ChatID)
-	_, err := s.start(ctx, client.StartWorkflowOptions{ID: id, TaskQueue: s.config.TaskQueue}, AgentTurnWorkflow, input)
+	id := AgentTurnQueueWorkflowID(input.ChatID)
+	clientInstance, err := s.readyClient()
+	if err != nil {
+		return id, err
+	}
+	_, err = clientInstance.SignalWithStartWorkflow(ctx, id, AgentTurnQueueSignal, input,
+		client.StartWorkflowOptions{ID: id, TaskQueue: s.config.TaskQueue}, AgentTurnQueueWorkflow, AgentTurnQueueInput{})
 	return id, err
 }
 

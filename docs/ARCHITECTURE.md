@@ -51,15 +51,47 @@ Telegram getUpdates
   → serial per-chat runner
   → allowlist check
   → voice file download + OpenRouter STT (voice messages only)
-  → Temporal AgentTurn workflow (when enabled) or direct turner
-  → OpenRouter completion
-  ↔ validated tool execution
+  → durable per-chat Temporal FIFO (when enabled) or locked direct turner
+  → structured resolve_turn decision (read / write / clarify)
+  → whole-plan schema, intent evidence and numeric validation
+  → exact tool execution and persisted receipts
   → stored final assistant message
   → Telegram reply
 ```
 
-OpenRouter tool names are snake_case end to end. Mutating calls require an
-explicit mutation intent in the current user text. The test console uses a
+`internal/agent/turner.go` owns interpretation, validation, execution and final
+receipts. The model produces a typed `resolve_turn` decision. A read decision
+cannot escalate to writes in later tool steps. Every write carries a literal
+current-request quote; workout numbers must also match a single user's data
+quote. Numeric validation never consumes, reassigns or overwrites data. The
+interpreter resolves contextual intent (including corrections and short replies),
+so no lexical allowlist decides whether a natural sentence is writable.
+
+The entire plan is validated before its first side effect. Duplicate operations
+and delete-then-write replacements are rejected. All database actions and their receipts commit in one transaction; a failed
+action rolls back the plan. External deliveries cannot join a database plan.
+Mutation results become the
+stored final reply directly; no second model completion can invent success or
+unsolicited training advice. Each attempted tool call retains exact arguments,
+matching call ID and an `ok/result/error` receipt. A failed operation is not
+blindly replayed. `copy_workout` reads exact sets from the database: by default the latest
+session before the target date, or an explicitly selected `source_date`. An
+explicit weight override keeps the repetitions. A date move copies the selected
+source before deleting it in the same transaction. Existing exercises resolve
+by canonical ID; exact names take priority over fuzzy matches.
+
+`agent.memory.recent-messages` now counts complete user turns, including every
+tool round and final reply; the current turn remains in memory throughout
+execution. Compaction keeps whole turns and excludes the newest one. Exact older
+attempts remain available through same-chat `get_conversation_history`, including
+compacted failures. Summary is background, never evidence of a mutation.
+
+`AgentTurnQueueWorkflow` receives durable signals using a stable per-chat ID,
+executes one activity at a time without automatic mutation retries, and carries
+pending signals across ContinueAsNew. Legacy one-shot workflows remain registered.
+The direct/test path uses the same turner with an in-process per-chat lock.
+
+OpenRouter action names are snake_case end to end. The test console uses a
 persisted sandbox; unsupported operations fail closed instead of reaching real
 workout, health, facts, notifications or Telegram delivery.
 
@@ -123,3 +155,24 @@ go vet ./...
 Push to `main` starts Woodpecker and the server-side deploy script. The
 production overlay binds API/Temporal only on localhost; nginx owns public
 routing. The `docker-compose.jenkins.yml` name is historical.
+
+## Optional model behavior checks
+
+`cmd/agent-eval` is an opt-in synthetic dialogue runner. It creates disposable
+sandbox chats, has no real workout/health/Telegram adapters, reads state after
+each turn and removes only the chats it created. Ordinary `go test` uses fakes
+and never calls OpenRouter. Run it only with an explicitly selected local test
+database and approved model credentials; do not import production conversations
+into a model eval without the user's specific authorization.
+
+```bash
+AGENT_EVAL_DATABASE_URL=... AGENT_EVAL_BASE_URL=... AGENT_EVAL_API_KEY=... \
+AGENT_EVAL_MODEL=... go run ./cmd/agent-eval cmd/agent-eval/testdata/scenarios.json
+```
+
+The checked-in synthetic corpus covers decimals and typos, historical copying,
+short clarification/correction, independent multi-exercise values and pounds,
+hypothetical instructions, exact failed-call history, ambiguous exercise IDs,
+copy overrides/date moves, and failed multi-action plans. Inspect each result's
+`turns` (including linked calls and receipts) and `states` against the requested
+changes; a fluent reply alone is not a pass.
