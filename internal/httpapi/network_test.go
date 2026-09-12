@@ -79,6 +79,8 @@ func TestNetworkProxyAllowlistedRoutes(t *testing.T) {
 		{"admin health", http.MethodGet, "/api/admin/network/health", "/healthz", true},
 		{"admin nodes", http.MethodGet, "/api/admin/network/v1/nodes", "/v1/nodes", true},
 		{"admin actions", http.MethodGet, "/api/admin/network/v1/actions", "/v1/actions", true},
+		{"admin activity", http.MethodGet, "/api/admin/network/v1/activity", "/v1/activity", true},
+		{"admin doctor", http.MethodGet, "/api/admin/network/v1/doctor", "/v1/doctor", true},
 		{"admin jobs list", http.MethodGet, "/api/admin/network/v1/jobs", "/v1/jobs", true},
 		{"admin jobs create", http.MethodPost, "/api/admin/network/v1/jobs", "/v1/jobs", true},
 		{"admin job", http.MethodGet, "/api/admin/network/v1/jobs/job-1", "/v1/jobs/job-1", true},
@@ -154,17 +156,19 @@ func TestNetworkAuditRouteRequiresMyUtilsAdmin(t *testing.T) {
 		{name: "bootstrap admin", token: "bootstrap-admin", want: http.StatusForbidden},
 		{name: "ready admin", token: "ready-admin", want: http.StatusNoContent},
 	} {
-		t.Run(test.name, func(t *testing.T) {
-			request := httptest.NewRequest(http.MethodGet, "/api/network/v1/audit?limit=3", nil)
-			if test.token != "" {
-				request.Header.Set("Authorization", "Bearer "+test.token)
-			}
-			response := httptest.NewRecorder()
-			router.ServeHTTP(response, request)
-			if response.Code != test.want {
-				t.Fatalf("status = %d, want %d, body=%s", response.Code, test.want, response.Body.String())
-			}
-		})
+		for _, path := range []string{"/api/network/v1/audit?limit=3", "/api/admin/network/v1/activity?window=1h", "/api/admin/network/v1/doctor"} {
+			t.Run(test.name+path, func(t *testing.T) {
+				request := httptest.NewRequest(http.MethodGet, path, nil)
+				if test.token != "" {
+					request.Header.Set("Authorization", "Bearer "+test.token)
+				}
+				response := httptest.NewRecorder()
+				router.ServeHTTP(response, request)
+				if response.Code != test.want {
+					t.Fatalf("status = %d, want %d, body=%s", response.Code, test.want, response.Body.String())
+				}
+			})
+		}
 	}
 }
 

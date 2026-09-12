@@ -90,6 +90,8 @@ func (a *API) registerNetworkAdminRoutes(router chi.Router) {
 	router.Route("/api/admin/network/v1", func(routes chi.Router) {
 		routes.Get("/nodes", a.networkForward("/v1/nodes", true))
 		routes.Get("/actions", a.networkForward("/v1/actions", true))
+		routes.Get("/activity", a.networkForward("/v1/activity", true))
+		routes.Get("/doctor", a.networkForward("/v1/doctor", true))
 		routes.Get("/jobs", a.networkForward("/v1/jobs", true))
 		routes.Post("/jobs", a.networkForward("/v1/jobs", true))
 		routes.Get("/jobs/{jobID}", a.networkForwardID("/v1/jobs/", "jobID", "", true))
