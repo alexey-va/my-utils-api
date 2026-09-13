@@ -2,6 +2,7 @@ package report
 
 import (
 	"bytes"
+	"image/color"
 	"image/png"
 	"testing"
 	"time"
@@ -55,6 +56,30 @@ func TestWeeklyRenderersProduceReadablePNG(t *testing.T) {
 		if image.Bounds().Dx() < 800 || image.Bounds().Dy() < 1_100 || len(test.png) < 5_000 {
 			t.Fatalf("%s PNG too small: bounds=%v bytes=%d", test.name, image.Bounds(), len(test.png))
 		}
+	}
+}
+
+func TestStepsRenderAsBarsFromZeroBaseline(t *testing.T) {
+	t.Parallel()
+	from := time.Date(2026, 8, 1, 0, 0, 0, 0, time.UTC)
+	to := time.Date(2026, 8, 20, 0, 0, 0, 0, time.UTC)
+	data, err := NewRenderer().RenderSteps([]health.StepDay{{Date: "2026-08-19", Steps: 9000}, {Date: "2026-08-20", Steps: 12000}}, from, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	accent := color.RGBA{R: 91, G: 192, B: 235, A: 255}
+	accentPixels := 0
+	for x := 110; x <= 1140; x++ {
+		if color.RGBAModel.Convert(image.At(x, 609)) == accent {
+			accentPixels++
+		}
+	}
+	if accentPixels < 20 {
+		t.Fatalf("expected step bars at zero baseline, found %d accent pixels", accentPixels)
 	}
 }
 

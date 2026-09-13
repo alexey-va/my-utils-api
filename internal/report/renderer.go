@@ -43,7 +43,7 @@ func (r *Renderer) RenderSteps(values []health.StepDay, from, to time.Time) ([]b
 		}
 		points = append(points, point{date: date, value: float64(value.Steps)})
 	}
-	return renderChart("Steps", "steps", points, from, to, color.RGBA{R: 91, G: 192, B: 235, A: 255}, latestStepRows(points, to))
+	return renderChart("Steps", "steps", points, from, to, color.RGBA{R: 91, G: 192, B: 235, A: 255}, latestStepRows(points, to), true)
 }
 
 func (r *Renderer) RenderWeight(values []health.WeightDay, from, to time.Time) ([]byte, error) {
@@ -55,7 +55,7 @@ func (r *Renderer) RenderWeight(values []health.WeightDay, from, to time.Time) (
 		}
 		points = append(points, point{date: date, value: value.WeightKg})
 	}
-	return renderChart("Body weight", "kg", points, from, to, color.RGBA{R: 255, G: 177, B: 66, A: 255}, latestWeightRows(points, to))
+	return renderChart("Body weight", "kg", points, from, to, color.RGBA{R: 255, G: 177, B: 66, A: 255}, latestWeightRows(points, to), false)
 }
 
 func (r *Renderer) RenderProgress(progress workout.Progress, recent int) ([]byte, error) {
@@ -75,7 +75,7 @@ func (r *Renderer) RenderProgress(progress workout.Progress, recent int) ([]byte
 	if len(points) > 0 {
 		from, to = points[0].date, points[len(points)-1].date
 	}
-	return renderChart(progress.Exercise.Name+" progress", "kg", points, from, to, color.RGBA{R: 117, G: 222, B: 154, A: 255}, nil)
+	return renderChart(progress.Exercise.Name+" progress", "kg", points, from, to, color.RGBA{R: 117, G: 222, B: 154, A: 255}, nil, false)
 }
 
 func (r *Renderer) RenderOneRM(exercise string, weight float64, reps int, estimate float64) ([]byte, error) {
@@ -95,7 +95,7 @@ func (r *Renderer) RenderOneRM(exercise string, weight float64, reps int, estima
 	return encodePNG(canvas)
 }
 
-func renderChart(title, unit string, points []point, from, to time.Time, accent color.RGBA, rows []tableRow) ([]byte, error) {
+func renderChart(title, unit string, points []point, from, to time.Time, accent color.RGBA, rows []tableRow, bars bool) ([]byte, error) {
 	height := 700
 	if rows != nil {
 		height = max(1180, 800+len(rows)*44)
@@ -123,20 +123,24 @@ func renderChart(title, unit string, points []point, from, to time.Time, accent 
 		minimum = math.Min(minimum, value.value)
 		maximum = math.Max(maximum, value.value)
 	}
-	if maximum == minimum {
+	if bars {
+		minimum = 0
+		maximum = math.Max(1, maximum*1.12)
+	} else if maximum == minimum {
 		margin := math.Max(1, maximum*0.05)
 		minimum, maximum = minimum-margin, maximum+margin
 	} else {
 		margin := (maximum - minimum) * 0.12
 		minimum, maximum = minimum-margin, maximum+margin
 	}
-	drawLabel(canvas, 55, top+8, formatValue(maximum)+" "+unit, color.RGBA{140, 150, 170, 255})
-	drawLabel(canvas, 55, bottom, formatValue(minimum)+" "+unit, color.RGBA{140, 150, 170, 255})
+	drawLabel(canvas, 55, top+8, formatAxisValue(maximum, bars)+" "+unit, color.RGBA{140, 150, 170, 255})
+	drawLabel(canvas, 55, bottom, formatAxisValue(minimum, bars)+" "+unit, color.RGBA{140, 150, 170, 255})
 	dateSpan := to.Sub(from).Hours() / 24
 	if dateSpan < 1 {
 		dateSpan = float64(max(1, len(points)-1))
 	}
 	previousX, previousY := 0, 0
+	barWidth := max(3, int(float64(right-left)/math.Max(dateSpan+1, float64(len(points)))*0.72))
 	for index, value := range points {
 		xRatio := value.date.Sub(from).Hours() / 24 / dateSpan
 		if len(points) > 1 && (xRatio < 0 || xRatio > 1) {
@@ -145,16 +149,26 @@ func renderChart(title, unit string, points []point, from, to time.Time, accent 
 		x := left + int(xRatio*float64(right-left))
 		yRatio := (value.value - minimum) / (maximum - minimum)
 		y := bottom - int(yRatio*float64(bottom-top))
-		if index > 0 {
+		if bars {
+			drawBar(canvas, x, y, bottom, barWidth, left, right, accent)
+		} else if index > 0 {
 			drawLine(canvas, previousX, previousY, x, y, accent, 4)
+			drawCircle(canvas, x, y, 7, accent)
+		} else {
+			drawCircle(canvas, x, y, 7, accent)
 		}
-		drawCircle(canvas, x, y, 7, accent)
 		previousX, previousY = x, y
 	}
 	drawLabel(canvas, left, 660, from.Format("02.01"), color.RGBA{140, 150, 170, 255})
 	drawLabel(canvas, right-45, 660, to.Format("02.01"), color.RGBA{140, 150, 170, 255})
 	drawTable(canvas, rows, unit, accent)
 	return encodePNG(canvas)
+}
+
+func drawBar(canvas *image.RGBA, center, top, bottom, width, left, right int, colour color.RGBA) {
+	half := width / 2
+	rect := image.Rect(max(left, center-half), min(top, bottom), min(right+1, center+half+1), bottom+1)
+	draw.Draw(canvas, rect, &image.Uniform{C: colour}, image.Point{}, draw.Src)
 }
 
 func drawTable(canvas *image.RGBA, rows []tableRow, unit string, accent color.RGBA) {
@@ -281,3 +295,10 @@ func encodePNG(canvas image.Image) ([]byte, error) {
 }
 
 func formatValue(value float64) string { return strconv.FormatFloat(value, 'f', 1, 64) }
+
+func formatAxisValue(value float64, integer bool) string {
+	if integer {
+		return formatGroupedInteger(int64(math.Round(value)))
+	}
+	return formatValue(value)
+}
