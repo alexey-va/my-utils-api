@@ -160,6 +160,10 @@ func (t *AgentTurner) Turn(ctx context.Context, chatID int64, content string, im
 		decision, err := t.interpret(ctx, path, messages, protocolTool, catalog, content, readOnly)
 		if err != nil {
 			slog.WarnContext(ctx, "agent decision rejected", "event_type", "agent_decision_rejected", "error", err)
+			var providerErr *modelProviderError
+			if errors.As(err, &providerErr) {
+				return finish(providerErrorReply(providerErr.cause), "provider_error")
+			}
 			return finish("Не удалось надёжно разобрать запрос. Действия не выполнялись; исходное сообщение сохранено.", "interpretation_error")
 		}
 		if step == 0 && decision.Mode == "read" {
@@ -293,7 +297,7 @@ func (t *AgentTurner) interpret(ctx context.Context, path string, messages []ope
 			t.metrics.RecordLLMStep(path, time.Since(started))
 		}
 		if err != nil {
-			return turnDecision{}, err
+			return turnDecision{}, &modelProviderError{cause: err}
 		}
 		decision, err := parseDecision(response.Message, userText, catalog, readOnly)
 		if err == nil {
@@ -320,6 +324,19 @@ func (t *AgentTurner) interpret(ctx context.Context, path string, messages []ope
 		messages = append(append([]openrouter.Message(nil), messages...), openrouter.Message{Role: "system", Content: "Решение не прошло проверку и НЕ выполнялось. Исправь структуру resolve_turn: " + err.Error()})
 	}
 	return turnDecision{}, last
+}
+
+type modelProviderError struct{ cause error }
+
+func (e *modelProviderError) Error() string { return e.cause.Error() }
+func (e *modelProviderError) Unwrap() error { return e.cause }
+
+func providerErrorReply(err error) string {
+	var apiErr *openrouter.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == 402 {
+		return "OpenRouter отклонил запрос из-за недостаточного баланса. Действия не выполнялись; сообщение сохранено."
+	}
+	return "Сервис модели сейчас недоступен. Действия не выполнялись; сообщение сохранено."
 }
 func actionLabel(a plannedAction) string {
 	for _, key := range []string{"exercise_name", "name", "current_name"} {

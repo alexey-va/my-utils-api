@@ -78,6 +78,12 @@ type errTest string
 
 func (e errTest) Error() string { return string(e) }
 
+type failingCompleter struct{ err error }
+
+func (f failingCompleter) Complete(context.Context, openrouter.Request) (openrouter.Response, error) {
+	return openrouter.Response{}, f.err
+}
+
 type fakeTurnStatus struct{ events []string }
 
 func (f *fakeTurnStatus) Thinking(context.Context, int64, int) {
@@ -234,6 +240,13 @@ func TestMalformedPlanNeverExecutesPartialActions(t *testing.T) {
 	_, err := testTurner(llm, &fakeConversation{}, tools).Turn(context.Background(), 1, "запиши", nil, true)
 	if err != nil || len(tools.calls) != 0 {
 		t.Fatalf("executed malformed plan: %v err=%v", tools.calls, err)
+	}
+}
+
+func TestProviderPaymentErrorIsNotReportedAsParsingFailure(t *testing.T) {
+	result, err := testTurner(failingCompleter{err: &openrouter.APIError{StatusCode: 402, Body: "insufficient credits"}}, &fakeConversation{}, &fakeTools{}).Turn(context.Background(), 1, "запиши ноги", nil, true)
+	if err != nil || !strings.Contains(result.Reply, "баланса") || strings.Contains(result.Reply, "разобрать") {
+		t.Fatalf("reply=%q err=%v", result.Reply, err)
 	}
 }
 func TestInvalidRussianReplyIsRepairedWithoutActions(t *testing.T) {

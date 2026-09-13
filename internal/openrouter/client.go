@@ -56,6 +56,18 @@ type Request struct {
 	Messages   []Message `json:"messages"`
 	Tools      []Tool    `json:"tools,omitempty"`
 	ToolChoice any       `json:"tool_choice,omitempty"`
+	MaxTokens  int       `json:"max_tokens,omitempty"`
+}
+
+const DefaultMaxTokens = 4096
+
+type APIError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *APIError) Error() string {
+	return fmt.Sprintf("OpenRouter returned %d: %s", e.StatusCode, e.Body)
 }
 
 type Response struct {
@@ -124,6 +136,9 @@ func New(config Config) (*Client, error) {
 }
 
 func (c *Client) Complete(ctx context.Context, request Request) (Response, error) {
+	if request.MaxTokens <= 0 {
+		request.MaxTokens = DefaultMaxTokens
+	}
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return Response{}, fmt.Errorf("encode OpenRouter request: %w", err)
@@ -285,7 +300,7 @@ func (c *Client) completeOnce(ctx context.Context, payload []byte) (Response, bo
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return Response{}, response.StatusCode == http.StatusTooManyRequests || response.StatusCode >= 500,
-			fmt.Errorf("OpenRouter returned %d: %s", response.StatusCode, strings.TrimSpace(string(body)))
+			&APIError{StatusCode: response.StatusCode, Body: strings.TrimSpace(string(body))}
 	}
 	var decoded apiResponse
 	if err := json.Unmarshal(body, &decoded); err != nil {

@@ -3,6 +3,7 @@ package openrouter
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -38,11 +39,50 @@ func TestClientSendsOpenAICompatibleRequestAndHeaders(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Model != "provider/model" || len(got.Messages) != 1 {
+	if got.Model != "provider/model" || len(got.Messages) != 1 || got.MaxTokens != DefaultMaxTokens {
 		t.Fatalf("request = %#v", got)
 	}
 	if response.Message.Content != "done" || len(response.Message.ToolCalls) != 1 || response.Message.ToolCalls[0].Function.Name != "list_exercises" {
 		t.Fatalf("response = %#v", response)
+	}
+}
+
+func TestClientPreservesExplicitMaxTokens(t *testing.T) {
+	t.Parallel()
+	var got Request
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		_, _ = w.Write([]byte(`{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`))
+	}))
+	defer server.Close()
+	client, err := New(Config{APIKey: "secret", BaseURL: server.URL, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := client.Complete(context.Background(), Request{Model: "p/m", MaxTokens: 512}); err != nil {
+		t.Fatal(err)
+	}
+	if got.MaxTokens != 512 {
+		t.Fatalf("max_tokens = %d", got.MaxTokens)
+	}
+}
+
+func TestClientReturnsTypedAPIError(t *testing.T) {
+	t.Parallel()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "insufficient credits", http.StatusPaymentRequired)
+	}))
+	defer server.Close()
+	client, err := New(Config{APIKey: "secret", BaseURL: server.URL, Timeout: time.Second})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Complete(context.Background(), Request{Model: "p/m"})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusPaymentRequired {
+		t.Fatalf("error = %v", err)
 	}
 }
 
