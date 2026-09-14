@@ -41,7 +41,7 @@ scrape_configs:
             - json:
                 expressions:
                   level: level
-                  message: message
+                  message: msg
                   logger: logger_name
                   ts: '"@timestamp"'
             - timestamp:

@@ -49,6 +49,16 @@ class ObservabilityProvisioningTest(unittest.TestCase):
         self.assertNotIn("My Utils", logs["title"])
         self.assertNotIn("My Utils", metrics["title"])
 
+    def test_api_log_panels_render_slog_message_and_error(self) -> None:
+        dashboard = json.loads((DASHBOARDS / "my-utils" / "my-utils-api-logs.json").read_text())
+        log_panels = [panel for panel in dashboard["panels"] if panel["type"] == "logs"]
+        self.assertEqual(len(log_panels), 2)
+        for panel in log_panels:
+            expression = panel["targets"][0]["expr"]
+            self.assertIn("{{.msg}}", expression)
+            self.assertIn("{{ with .error }}", expression)
+            self.assertNotIn('message="message"', expression)
+
     def test_vpn_rules_have_distinct_panel_links_and_outage_policy(self) -> None:
         rules = load_rules("vpn-alert-rules.yaml")
         self.assertEqual(len(rules), 8)

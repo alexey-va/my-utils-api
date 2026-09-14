@@ -135,7 +135,7 @@
             "type": "loki",
             "uid": "bedlw839mzuo0d"
           },
-          "expr": "{app=\"my-utils-api\"} | json message=\"message\" | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.message}}\"",
+          "expr": "{app=\"my-utils-api\"} | json | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.msg}}{{ with .error }} — {{.}}{{ end }}\"",
           "refId": "A"
         }
       ],
@@ -171,7 +171,7 @@
             "type": "loki",
             "uid": "bedlw839mzuo0d"
           },
-          "expr": "{app=\"my-utils-api\", level=\"ERROR\"} | json message=\"message\" | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.message}}\"",
+          "expr": "{app=\"my-utils-api\", level=\"ERROR\"} | json | line_format \"{{ date \\\"15:04:05\\\" (unixToTime (printf \\\"%d\\\" (add (unixEpoch (__timestamp__)) 10800))) }} | {{.msg}}{{ with .error }} — {{.}}{{ end }}\"",
           "refId": "A"
         }
       ],
