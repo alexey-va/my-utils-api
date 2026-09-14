@@ -88,7 +88,7 @@ func TestControlPlaneProvisionHeartbeatAndCounters(t *testing.T) {
 	if err != nil {
 		t.Fatalf("CreatePeer() error = %v", err)
 	}
-	if peer.Peer.AssignedIP != "10.89.0.2" || peer.FileName != "alex-phone.conf" || !strings.Contains(peer.ClientConfig, "PrivateKey = ") {
+	if peer.Peer.AssignedIP != "10.89.0.2" || peer.FileName != "alex_phone.conf" || !strings.Contains(peer.ClientConfig, "PrivateKey = ") {
 		t.Fatalf("created peer = %#v", peer)
 	}
 	desired, err := service.Desired(ctx, relay.ID)

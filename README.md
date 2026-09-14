@@ -136,12 +136,16 @@ OpenRouter, the workout agent, or free-text tool selection.
 - A new private-chat user submits an access request. Every configured admin is
   notified and must approve or reject it explicitly.
 - Approved users can create, list, rename, reissue and delete only their own tunnels,
-  download protected `.conf` files and QR codes, and view 30-day traffic totals.
+  download forwardable `.conf` files and QR codes, and view 30-day traffic totals.
+  Generated tunnel and `.conf` names use short lowercase `snake_case` compatible
+  with WireGuard for Android.
 - Configured admins are notified after another user creates or deletes a tunnel.
 - The default limit is one tunnel. An admin can set 1, 2, 3 or 5 from the bot;
   the database contract permits up to 10.
 - Configured bot admins also have a personal “My tunnels” area. Their own
   tunnel count is unlimited; user limits and approval checks remain unchanged.
+- Admins can open “Проверить как новичок” to preview the initial application
+  flow without creating a user, access request, notification or tunnel.
 - Blocking a user disables every owned WireGuard peer in the same transaction
   as the access decision. Re-approval enables the same peers again. Access and
   peer mutations commit with their audit event; credential delivery records a

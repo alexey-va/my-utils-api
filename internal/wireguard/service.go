@@ -1525,12 +1525,14 @@ var (
 )
 
 func fileSlug(name, id string) string {
-	value := strings.Trim(slugPattern.ReplaceAllString(strings.ToLower(name), "-"), "-")
-	if len(value) > 80 {
-		value = value[:80]
-	}
+	const maxTunnelNameLength = 15
+	value := strings.Trim(slugPattern.ReplaceAllString(strings.ToLower(name), "_"), "_")
 	if value == "" {
-		value = "wireguard-peer-" + id[:min(8, len(id))]
+		return "wg_" + id[:min(8, len(id))]
+	}
+	if len(value) > maxTunnelNameLength {
+		suffix := id[:min(4, len(id))]
+		value = strings.TrimRight(value[:maxTunnelNameLength-len(suffix)-1], "_") + "_" + suffix
 	}
 	return value
 }

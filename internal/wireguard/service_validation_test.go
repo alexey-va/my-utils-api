@@ -31,6 +31,27 @@ func TestRequiredTextCountsUserVisibleCharacters(t *testing.T) {
 	}
 }
 
+func TestFileSlugIsSafeForWireGuardAndroidTunnelNames(t *testing.T) {
+	t.Parallel()
+
+	const peerID = "abcdef12-0000-0000-0000-000000000000"
+	for name, test := range map[string]struct {
+		input string
+		want  string
+	}{
+		"simple":    {input: "Alex phone", want: "alex_phone"},
+		"long":      {input: "Alex personal phone", want: "alex_perso_abcd"},
+		"non ASCII": {input: "Телефон", want: "wg_abcdef12"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if got := fileSlug(test.input, peerID); got != test.want {
+				t.Fatalf("fileSlug(%q) = %q, want %q", test.input, got, test.want)
+			}
+		})
+	}
+}
+
 func TestMetricRangeContracts(t *testing.T) {
 	t.Parallel()
 	to := time.Date(2026, time.August, 31, 12, 34, 56, 0, time.UTC)

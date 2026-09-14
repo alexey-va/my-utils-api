@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -314,11 +315,11 @@ func (f *fakeMessenger) EditHTMLMessageWithButtons(_ context.Context, chatID int
 	f.edits = append(f.edits, editedMessage{chatID: chatID, messageID: messageID, text: text, buttons: buttons})
 	return nil
 }
-func (f *fakeMessenger) SendProtectedPhoto(context.Context, int64, []byte, string) error {
+func (f *fakeMessenger) SendPhoto(context.Context, int64, []byte, string) error {
 	f.photos++
 	return f.photoErr
 }
-func (f *fakeMessenger) SendProtectedDocument(context.Context, int64, []byte, string, string, string) error {
+func (f *fakeMessenger) SendDocument(context.Context, int64, []byte, string, string, string) error {
 	f.documents++
 	return f.documentErr
 }
@@ -380,11 +381,61 @@ func TestAdminStartOpensAdminMenuWithoutCreatingApplication(t *testing.T) {
 	if len(repo.users) != 0 || len(bot.messages) != 1 || !strings.Contains(bot.messages[0], "администрирование") {
 		t.Fatalf("users=%#v messages=%#v", repo.users, bot.messages)
 	}
-	if len(bot.chatCommands[7]) != 4 || bot.chatCommands[7][1].Command != "admin" || bot.chatCommands[7][2].Command != "tunnels" {
+	if len(bot.chatCommands[7]) != 5 || bot.chatCommands[7][1].Command != "admin" || bot.chatCommands[7][2].Command != "preview" || bot.chatCommands[7][3].Command != "tunnels" {
 		t.Fatalf("admin commands=%#v", bot.chatCommands)
 	}
 	if !strings.Contains(bot.buttons[0], "vpn:home") {
 		t.Fatalf("admin home buttons=%#v", bot.buttons)
+	}
+}
+
+func TestAdminCanPreviewNewUserStartWithoutChangingPersistentState(t *testing.T) {
+	t.Parallel()
+	repo := &fakeRepository{}
+	wg := &fakeWireGuard{}
+	bot := &fakeMessenger{}
+	service := NewService(Config{RelayID: "relay", AdminUserIDs: []int64{7}}, repo, wg, bot)
+	message := telegram.InboundMessage{ChatID: 7, UserID: 7, ChatType: "private", FirstName: "Admin", Text: "/preview"}
+
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.users) != 0 || len(bot.messages) != 1 || !strings.Contains(bot.messages[0], "Данные не изменяются") {
+		t.Fatalf("users=%#v messages=%#v", repo.users, bot.messages)
+	}
+
+	message.Text = "vpn:preview:start"
+	message.Callback = true
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.users) != 0 || len(repo.events) != 0 || wg.created != 0 || !strings.Contains(bot.messages[len(bot.messages)-1], "Заявка отправлена") {
+		t.Fatalf("users=%#v events=%#v created=%d messages=%#v", repo.users, repo.events, wg.created, bot.messages)
+	}
+
+	message.Text = "vpn:home"
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(bot.messages[len(bot.messages)-1], "Заявка отправлена") {
+		t.Fatalf("messages=%#v", bot.messages)
+	}
+
+	message.Text = "/admin"
+	message.Callback = false
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if len(repo.users) != 0 || len(repo.events) != 0 || wg.created != 0 || !strings.Contains(bot.messages[len(bot.messages)-1], "администрирование") {
+		t.Fatalf("users=%#v events=%#v created=%d messages=%#v", repo.users, repo.events, wg.created, bot.messages)
+	}
+
+	message.Text = "/start"
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(bot.messages[len(bot.messages)-1], "администрирование") {
+		t.Fatalf("preview did not end: messages=%#v", bot.messages)
 	}
 }
 
@@ -437,7 +488,7 @@ func TestGroupChatCannotCreateApplication(t *testing.T) {
 	}
 }
 
-func TestApprovedUserCreatesAtMostConfiguredLimitAndReceivesProtectedCredentials(t *testing.T) {
+func TestApprovedUserCreatesAtMostConfiguredLimitAndReceivesCredentials(t *testing.T) {
 	t.Parallel()
 	repo := &fakeRepository{users: map[int64]User{42: {Identity: Identity{TelegramUserID: 42, ChatID: 42, DisplayName: "Bob"}, Status: StatusApproved, PeerLimit: 1}}, owners: map[int64][]PeerOwnership{}}
 	wg := &fakeWireGuard{}
@@ -609,6 +660,11 @@ func TestTunnelNamesStayUniqueAfterDeletingANonLastTunnel(t *testing.T) {
 	}
 	if len(wg.createdNames) != 3 || wg.createdNames[1] == wg.createdNames[2] {
 		t.Fatalf("created tunnel names = %#v", wg.createdNames)
+	}
+	for _, name := range wg.createdNames {
+		if !regexp.MustCompile(`^[a-z0-9_]{1,15}$`).MatchString(name) {
+			t.Fatalf("Android-incompatible tunnel name = %q", name)
+		}
 	}
 }
 
