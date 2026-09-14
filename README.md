@@ -144,8 +144,9 @@ OpenRouter, the workout agent, or free-text tool selection.
   the database contract permits up to 10.
 - Configured bot admins also have a personal “My tunnels” area. Their own
   tunnel count is unlimited; user limits and approval checks remain unchanged.
-- Admins can open “Проверить как новичок” to preview the initial application
-  flow without creating a user, access request, notification or tunnel.
+- Admins can open “Проверить как новичок” to run the complete application,
+  approval and tunnel-delivery flow in their own chat. The isolated test user
+  and its tunnels are reset when the admin starts or exits the check.
 - Blocking a user disables every owned WireGuard peer in the same transaction
   as the access decision. Re-approval enables the same peers again. Access and
   peer mutations commit with their audit event; credential delivery records a

@@ -68,6 +68,15 @@ func (f *fakeRepository) RequestAccess(_ context.Context, identity Identity) (Us
 	}
 	return user, notify, nil
 }
+func (f *fakeRepository) DeletePreviewUser(_ context.Context, id, adminChatID int64) error {
+	user, ok := f.users[id]
+	if !ok || user.ChatID != adminChatID || !isPreviewUserID(id) {
+		return errors.New("preview user not found")
+	}
+	delete(f.users, id)
+	delete(f.owners, id)
+	return nil
+}
 func (f *fakeRepository) TouchIdentity(_ context.Context, identity Identity) error {
 	user := f.users[identity.TelegramUserID]
 	user.Identity = identity
@@ -306,12 +315,18 @@ type editedMessage struct {
 }
 
 func (f *fakeMessenger) SendHTMLMessage(_ context.Context, chatID int64, text, buttons string) (int, error) {
+	if _, err := telegram.ParseButtons(buttons); err != nil {
+		return 0, err
+	}
 	f.messages = append(f.messages, text)
 	f.chatIDs = append(f.chatIDs, chatID)
 	f.buttons = append(f.buttons, buttons)
 	return len(f.messages), nil
 }
 func (f *fakeMessenger) EditHTMLMessageWithButtons(_ context.Context, chatID int64, messageID int, text, buttons string) error {
+	if _, err := telegram.ParseButtons(buttons); err != nil {
+		return err
+	}
 	f.edits = append(f.edits, editedMessage{chatID: chatID, messageID: messageID, text: text, buttons: buttons})
 	return nil
 }
@@ -389,18 +404,23 @@ func TestAdminStartOpensAdminMenuWithoutCreatingApplication(t *testing.T) {
 	}
 }
 
-func TestAdminCanPreviewNewUserStartWithoutChangingPersistentState(t *testing.T) {
+func TestAdminCanRunTheCompleteNewUserFlowInOneChat(t *testing.T) {
 	t.Parallel()
 	repo := &fakeRepository{}
 	wg := &fakeWireGuard{}
 	bot := &fakeMessenger{}
-	service := NewService(Config{RelayID: "relay", AdminUserIDs: []int64{7}}, repo, wg, bot)
+	service := NewService(Config{RelayID: "relay", AdminUserIDs: []int64{7, 8}}, repo, wg, bot)
+	service.newTunnelSuffix = func() (string, error) { return "abcdef0123456789", nil }
+	testUserID, err := previewUserID(7)
+	if err != nil {
+		t.Fatal(err)
+	}
 	message := telegram.InboundMessage{ChatID: 7, UserID: 7, ChatType: "private", FirstName: "Admin", Text: "/preview"}
 
 	if err := service.Dispatch(context.Background(), message); err != nil {
 		t.Fatal(err)
 	}
-	if len(repo.users) != 0 || len(bot.messages) != 1 || !strings.Contains(bot.messages[0], "Данные не изменяются") {
+	if len(repo.users) != 0 || len(bot.messages) != 1 || !strings.Contains(bot.messages[0], "настоящий цикл") {
 		t.Fatalf("users=%#v messages=%#v", repo.users, bot.messages)
 	}
 
@@ -409,16 +429,66 @@ func TestAdminCanPreviewNewUserStartWithoutChangingPersistentState(t *testing.T)
 	if err := service.Dispatch(context.Background(), message); err != nil {
 		t.Fatal(err)
 	}
-	if len(repo.users) != 0 || len(repo.events) != 0 || wg.created != 0 || !strings.Contains(bot.messages[len(bot.messages)-1], "Заявка отправлена") {
+	if user := repo.users[testUserID]; user.Status != StatusPending || user.ChatID != 7 || user.DisplayName != "Тестовый новичок" {
+		t.Fatalf("preview user=%#v", user)
+	}
+	if len(repo.events) != 1 || repo.events[0] != "ACCESS_REQUESTED" || wg.created != 0 || len(bot.messages) != 3 {
 		t.Fatalf("users=%#v events=%#v created=%d messages=%#v", repo.users, repo.events, wg.created, bot.messages)
 	}
+	if !strings.Contains(bot.messages[1], "Новая заявка") || !strings.Contains(bot.messages[2], "Заявка отправлена") {
+		t.Fatalf("full request messages=%#v", bot.messages)
+	}
 
+	message.MessageID = 2
+	message.Text = adminDecisionCallback("approve", testUserID, StatusPending, 1)
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if user := repo.users[testUserID]; user.Status != StatusApproved {
+		t.Fatalf("approved preview user=%#v", user)
+	}
+	if !strings.Contains(bot.messages[len(bot.messages)-1], "Доступ к VPN одобрен") || len(bot.edits) != 1 {
+		t.Fatalf("approval messages=%#v edits=%#v", bot.messages, bot.edits)
+	}
+
+	message.MessageID = 3
 	message.Text = "vpn:home"
 	if err := service.Dispatch(context.Background(), message); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(bot.messages[len(bot.messages)-1], "Заявка отправлена") {
-		t.Fatalf("messages=%#v", bot.messages)
+	if !strings.Contains(bot.messages[len(bot.messages)-1], "Туннелей") {
+		t.Fatalf("home messages=%#v", bot.messages)
+	}
+
+	message.Text = "vpn:create"
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if wg.created != 1 || len(repo.owners[testUserID]) != 1 || bot.photos != 1 || bot.documents != 1 {
+		t.Fatalf("created=%d owners=%#v photos=%d documents=%d", wg.created, repo.owners, bot.photos, bot.documents)
+	}
+	if !strings.Contains(strings.Join(bot.messages, "\n"), "Туннель создан") {
+		t.Fatalf("tunnel messages=%#v", bot.messages)
+	}
+	peerID := repo.owners[testUserID][0].PeerID
+	message.MessageID = 4
+	message.Callback = true
+	message.Text = "vpn:rename:" + peerID
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	message.Callback = false
+	message.Text = "test_phone"
+	if err := service.Dispatch(context.Background(), message); err != nil {
+		t.Fatal(err)
+	}
+	if len(wg.renamed) != 1 || wg.renamed[0] != "test_phone" || wg.renameUsers[0] != testUserID {
+		t.Fatalf("preview rename=%#v users=%#v", wg.renamed, wg.renameUsers)
+	}
+	for _, chatID := range bot.chatIDs {
+		if chatID == 8 {
+			t.Fatalf("preview notifications leaked to another admin: chatIDs=%#v", bot.chatIDs)
+		}
 	}
 
 	message.Text = "/admin"
@@ -426,8 +496,8 @@ func TestAdminCanPreviewNewUserStartWithoutChangingPersistentState(t *testing.T)
 	if err := service.Dispatch(context.Background(), message); err != nil {
 		t.Fatal(err)
 	}
-	if len(repo.users) != 0 || len(repo.events) != 0 || wg.created != 0 || !strings.Contains(bot.messages[len(bot.messages)-1], "администрирование") {
-		t.Fatalf("users=%#v events=%#v created=%d messages=%#v", repo.users, repo.events, wg.created, bot.messages)
+	if _, exists := repo.users[testUserID]; wg.deleted != 1 || exists || !strings.Contains(bot.messages[len(bot.messages)-1], "администрирование") {
+		t.Fatalf("deleted=%d userExists=%v messages=%#v", wg.deleted, exists, bot.messages)
 	}
 
 	message.Text = "/start"

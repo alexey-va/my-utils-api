@@ -134,6 +134,41 @@ func TestStoreApprovalAndOwnershipIsolation(t *testing.T) {
 	}
 }
 
+func TestDeletePreviewUserRemovesOnlyTheIsolatedTestAccountAndAudit(t *testing.T) {
+	t.Parallel()
+	pool, ctx := vpnBotTestPool(t)
+	store := NewStore(pool)
+	adminID := time.Now().UnixNano() % maxPreviewAdminID
+	if adminID <= 0 {
+		adminID = 1
+	}
+	userID, err := previewUserID(adminID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.RequestAccess(ctx, Identity{TelegramUserID: userID, ChatID: adminID, DisplayName: "Preview"}); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_vpn_bot_audit_events WHERE actor_telegram_user_id=$1 OR target_telegram_user_id=$1`, userID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM wireguard_vpn_bot_users WHERE telegram_user_id=$1`, userID)
+	})
+
+	if err := store.DeletePreviewUser(ctx, userID, adminID+1); err == nil {
+		t.Fatal("DeletePreviewUser() accepted another admin chat")
+	}
+	if err := store.DeletePreviewUser(ctx, userID, adminID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.User(ctx, userID); !errors.Is(err, pgx.ErrNoRows) {
+		t.Fatalf("preview user still exists: %v", err)
+	}
+	var auditCount int
+	if err := pool.QueryRow(ctx, `SELECT count(*) FROM wireguard_vpn_bot_audit_events WHERE actor_telegram_user_id=$1 OR target_telegram_user_id=$1`, userID).Scan(&auditCount); err != nil || auditCount != 0 {
+		t.Fatalf("preview audit count=%d error=%v", auditCount, err)
+	}
+}
+
 func TestBlockUserSerializesWithOwnershipAndRejectsTheLatePeer(t *testing.T) {
 	databaseURL := os.Getenv("TEST_POSTGRES_URL")
 	if databaseURL == "" {

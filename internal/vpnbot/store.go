@@ -74,6 +74,28 @@ func (s *Store) User(ctx context.Context, telegramUserID int64) (User, error) {
 	return scanUser(s.pool.QueryRow(ctx, `SELECT `+userColumns+` FROM wireguard_vpn_bot_users WHERE telegram_user_id=$1`, telegramUserID))
 }
 
+func (s *Store) DeletePreviewUser(ctx context.Context, telegramUserID, adminChatID int64) error {
+	if !isPreviewUserID(telegramUserID) || adminChatID <= 0 {
+		return errors.New("invalid VPN bot preview user")
+	}
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(context.WithoutCancel(ctx)) }()
+	if _, err := tx.Exec(ctx, `DELETE FROM wireguard_vpn_bot_audit_events WHERE actor_telegram_user_id=$1 OR target_telegram_user_id=$1`, telegramUserID); err != nil {
+		return err
+	}
+	result, err := tx.Exec(ctx, `DELETE FROM wireguard_vpn_bot_users WHERE telegram_user_id=$1 AND chat_id=$2`, telegramUserID, adminChatID)
+	if err != nil {
+		return err
+	}
+	if result.RowsAffected() != 1 {
+		return errors.New("VPN bot preview user not found")
+	}
+	return tx.Commit(ctx)
+}
+
 // EnsureAdmin provisions a configured bot administrator as an approved VPN
 // owner through the same audited access transition as regular approvals.
 // Configured admin IDs are already the service's trust boundary, so they can

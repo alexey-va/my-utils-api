@@ -45,6 +45,7 @@ type Repository interface {
 	User(context.Context, int64) (User, error)
 	EnsureAdmin(context.Context, Identity) (User, error)
 	RequestAccess(context.Context, Identity) (User, bool, error)
+	DeletePreviewUser(context.Context, int64, int64) error
 	TouchIdentity(context.Context, Identity) error
 	ListUsers(context.Context, int) ([]User, error)
 	SetStatusIf(context.Context, int64, int64, Status, int64, Status) (User, error)
@@ -70,7 +71,7 @@ type Service struct {
 	commandMu               sync.Mutex
 	adminCommandsConfigured map[int64]bool
 	previewMu               sync.Mutex
-	newUserPreviews         map[int64]newUserPreviewState
+	newUserPreviews         map[int64]int64
 	renameMu                sync.Mutex
 	pendingRenames          map[int64]pendingRename
 	newTunnelSuffix         func() (string, error)
@@ -82,11 +83,9 @@ type pendingRename struct {
 	MessageID int
 }
 
-type newUserPreviewState uint8
-
 const (
-	newUserPreviewStart newUserPreviewState = iota + 1
-	newUserPreviewPending
+	previewUserIDBase int64 = 8_000_000_000_000_000_000
+	maxPreviewAdminID int64 = 1_000_000_000_000_000_000
 )
 
 var errTelegramDeliveryUnknown = errors.New("Telegram credential delivery result is unknown")
@@ -102,7 +101,7 @@ func NewService(config Config, store Repository, wg WireGuard, bot Messenger) *S
 	return &Service{
 		config: config, store: store, wg: wg, bot: bot, admins: admins,
 		adminCommandsConfigured: make(map[int64]bool, len(admins)),
-		newUserPreviews:         make(map[int64]newUserPreviewState, len(admins)),
+		newUserPreviews:         make(map[int64]int64, len(admins)),
 		pendingRenames:          make(map[int64]pendingRename),
 		newTunnelSuffix:         randomTunnelSuffix,
 	}
@@ -133,12 +132,26 @@ func (s *Service) Dispatch(ctx context.Context, message telegram.InboundMessage)
 	text := normalizeCommand(message.Text)
 	if s.admins[message.UserID] {
 		s.ensureAdminCommands(ctx, message.UserID)
-		if _, previewing := s.newUserPreview(message.UserID); previewing {
+		if previewUserID, previewing := s.newUserPreview(message.UserID); previewing {
 			if text == "/admin" || text == "vpn:preview:exit" {
+				if err := s.resetPreviewUser(ctx, message.UserID, previewUserID); err != nil {
+					return err
+				}
 				s.endNewUserPreview(message.UserID)
 				return s.dispatchAdmin(ctx, message, "/admin")
 			}
-			return s.dispatchNewUserPreview(ctx, message, text)
+			if strings.HasPrefix(text, "vpn:admin:") {
+				return s.dispatchAdmin(ctx, message, text)
+			}
+			if text == "vpn:preview:start" {
+				text = "/start"
+			}
+			previewMessage := message
+			previewMessage.UserID = previewUserID
+			previewMessage.Username = ""
+			previewMessage.FirstName = "Тестовый новичок"
+			previewMessage.LastName = ""
+			return s.dispatchUser(ctx, previewMessage, text)
 		}
 		if text == "/start" {
 			text = "/admin"
@@ -158,7 +171,7 @@ func (s *Service) ensureAdminCommands(ctx context.Context, adminID int64) {
 	commands := []telegram.BotCommand{
 		{Command: "start", Description: "Открыть админ-меню VPN"},
 		{Command: "admin", Description: "Администрирование доступа"},
-		{Command: "preview", Description: "Проверить путь нового пользователя"},
+		{Command: "preview", Description: "Пройти полный цикл нового пользователя"},
 		{Command: "tunnels", Description: "Мои туннели без лимита"},
 		{Command: "help", Description: "Инструкция по установке"},
 	}
@@ -171,31 +184,16 @@ func (s *Service) ensureAdminCommands(ctx context.Context, adminID int64) {
 	s.commandMu.Unlock()
 }
 
-func (s *Service) dispatchNewUserPreview(ctx context.Context, message telegram.InboundMessage, text string) error {
-	state, ok := s.newUserPreview(message.UserID)
-	if !ok {
-		return nil
-	}
-	if state == newUserPreviewStart {
-		if text != "/start" && text != "vpn:request" && text != "vpn:preview:start" {
-			_, err := s.bot.SendHTMLMessage(ctx, message.ChatID, "Нажми /start, чтобы отправить заявку на VPN.", "Выйти из проверки:vpn:preview:exit")
-			return err
-		}
-		s.setNewUserPreview(message.UserID, newUserPreviewPending)
-	}
-	return s.sendPending(ctx, message.ChatID)
-}
-
-func (s *Service) newUserPreview(userID int64) (newUserPreviewState, bool) {
+func (s *Service) newUserPreview(userID int64) (int64, bool) {
 	s.previewMu.Lock()
 	defer s.previewMu.Unlock()
-	state, ok := s.newUserPreviews[userID]
-	return state, ok
+	previewUserID, ok := s.newUserPreviews[userID]
+	return previewUserID, ok
 }
 
-func (s *Service) setNewUserPreview(userID int64, state newUserPreviewState) {
+func (s *Service) setNewUserPreview(adminID, previewUserID int64) {
 	s.previewMu.Lock()
-	s.newUserPreviews[userID] = state
+	s.newUserPreviews[adminID] = previewUserID
 	s.previewMu.Unlock()
 }
 
@@ -203,6 +201,51 @@ func (s *Service) endNewUserPreview(userID int64) {
 	s.previewMu.Lock()
 	delete(s.newUserPreviews, userID)
 	s.previewMu.Unlock()
+}
+
+func previewUserID(adminID int64) (int64, error) {
+	if adminID <= 0 || adminID > maxPreviewAdminID {
+		return 0, fmt.Errorf("Telegram admin ID is outside the preview range")
+	}
+	return previewUserIDBase + adminID, nil
+}
+
+func isPreviewUserID(userID int64) bool {
+	return userID > previewUserIDBase && userID <= previewUserIDBase+maxPreviewAdminID
+}
+
+func (s *Service) resetPreviewUser(ctx context.Context, adminID, userID int64) error {
+	user, err := s.store.User(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if user.ChatID != adminID {
+		return fmt.Errorf("preview user belongs to another chat")
+	}
+	owned, err := s.store.OwnedPeers(ctx, userID)
+	if err != nil {
+		return err
+	}
+	for _, owner := range owned {
+		if err := s.wg.DeletePeer(ctx, owner.RelayID, owner.PeerID); err != nil {
+			return fmt.Errorf("delete preview WireGuard peer %s: %w", owner.PeerID, err)
+		}
+	}
+	return s.store.DeletePreviewUser(ctx, userID, adminID)
+}
+
+func (s *Service) previewAdmin(userID int64) (int64, bool) {
+	s.previewMu.Lock()
+	defer s.previewMu.Unlock()
+	for adminID, previewUserID := range s.newUserPreviews {
+		if previewUserID == userID {
+			return adminID, true
+		}
+	}
+	return 0, false
 }
 
 func (s *Service) dispatchUser(ctx context.Context, message telegram.InboundMessage, text string) error {
@@ -251,7 +294,7 @@ func (s *Service) requestAccess(ctx context.Context, identity Identity) error {
 		return err
 	}
 	if notify {
-		for adminID := range s.admins {
+		for _, adminID := range s.adminRecipients(user.TelegramUserID) {
 			text := fmt.Sprintf("<b>Новая заявка на VPN</b>\n%s\n<code>%d</code>", userLabel(user), user.TelegramUserID)
 			buttons := fmt.Sprintf("✅ Одобрить:%s,❌ Отклонить:%s", adminDecisionCallback("approve", user.TelegramUserID, StatusPending, user.AccessRevision), adminDecisionCallback("reject", user.TelegramUserID, StatusPending, user.AccessRevision))
 			if _, sendErr := s.bot.SendHTMLMessage(ctx, adminID, text, buttons); sendErr != nil {
@@ -619,7 +662,7 @@ func (s *Service) confirmReissue(ctx context.Context, user User, peerID string) 
 		return s.notOwned(ctx, user.ChatID)
 	}
 	text := "<b>Перевыпустить туннель?</b>\nСтарый QR и файл перестанут работать после синхронизации сервера."
-	buttons := fmt.Sprintf("Да, перевыпустить:vpn:reissue:%s;Отмена:vpn:peer:%s", peerID, peerID)
+	buttons := fmt.Sprintf("♻️ Перевыпустить:vpn:reissue:%s;Отмена:vpn:peer:%s", peerID, peerID)
 	_, err := s.bot.SendHTMLMessage(ctx, user.ChatID, text, buttons)
 	return err
 }
@@ -644,7 +687,7 @@ func (s *Service) confirmDelete(ctx context.Context, user User, peerID string) e
 		return s.notOwned(ctx, user.ChatID)
 	}
 	text := "<b>Удалить туннель?</b>\nПодключение перестанет работать. Это действие нельзя отменить."
-	buttons := fmt.Sprintf("Да, удалить:vpn:delete:%s;Отмена:vpn:peer:%s", peerID, peerID)
+	buttons := fmt.Sprintf("🗑 Удалить:vpn:delete:%s;Отмена:vpn:peer:%s", peerID, peerID)
 	_, err := s.bot.SendHTMLMessage(ctx, user.ChatID, text, buttons)
 	return err
 }
@@ -672,7 +715,7 @@ func (s *Service) notifyAdminsOfTunnelMutation(ctx context.Context, user User, p
 	}
 	text := fmt.Sprintf("<b>Туннель %s</b>\nПользователь: %s\nTelegram ID: <code>%d</code>\nТуннель: %s\nID: <code>%s</code>", action, userLabel(user), user.TelegramUserID, html.EscapeString(name), html.EscapeString(peer.ID))
 	buttons := fmt.Sprintf("Открыть пользователя:vpn:admin:user:%d", user.TelegramUserID)
-	for adminID := range s.admins {
+	for _, adminID := range s.adminRecipients(user.TelegramUserID) {
 		if adminID == user.TelegramUserID {
 			continue
 		}
@@ -680,6 +723,17 @@ func (s *Service) notifyAdminsOfTunnelMutation(ctx context.Context, user User, p
 			slog.WarnContext(ctx, "VPN bot tunnel mutation notification failed", "admin_id", adminID, "peer_id", peer.ID, "action", action, "error", err)
 		}
 	}
+}
+
+func (s *Service) adminRecipients(userID int64) []int64 {
+	if adminID, ok := s.previewAdmin(userID); ok {
+		return []int64{adminID}
+	}
+	result := make([]int64, 0, len(s.admins))
+	for adminID := range s.admins {
+		result = append(result, adminID)
+	}
+	return result
 }
 
 func (s *Service) deliverCredentials(ctx context.Context, user User, credentials wireguard.PeerCredentials) error {
@@ -813,8 +867,15 @@ func (s *Service) dispatchAdmin(ctx context.Context, message telegram.InboundMes
 		return err
 	case text == "/preview", text == "vpn:admin:preview":
 		s.clearPendingRename(message.UserID)
-		s.setNewUserPreview(message.UserID, newUserPreviewStart)
-		_, err := s.bot.SendHTMLMessage(ctx, message.ChatID, "<b>Проверка нового пользователя</b>\nДанные не изменяются, заявка и уведомления администраторам не создаются. Нажми кнопку ниже или отправь /start.", "Начать как новичок:vpn:preview:start;Выйти из проверки:vpn:preview:exit")
+		previewUserID, err := previewUserID(message.UserID)
+		if err != nil {
+			return err
+		}
+		if err := s.resetPreviewUser(ctx, message.UserID, previewUserID); err != nil {
+			return err
+		}
+		s.setNewUserPreview(message.UserID, previewUserID)
+		_, err = s.bot.SendHTMLMessage(ctx, message.ChatID, "<b>Полная проверка нового пользователя</b>\nПройди настоящий цикл: заявка → админское одобрение → создание туннеля → QR и файл. Все сообщения придут в этот чат.\n\nКоманда /admin выйдет из проверки и удалит созданные в ней тестовые туннели.", "Начать как новичок:vpn:preview:start;Выйти из проверки:vpn:preview:exit")
 		return err
 	case text == "vpn:admin:pending":
 		return s.sendAdminUsers(ctx, message.ChatID, true)
@@ -859,6 +920,9 @@ func (s *Service) sendAdminUsers(ctx context.Context, chatID int64, pendingOnly 
 	}
 	rows := make([]string, 0)
 	for _, user := range users {
+		if isPreviewUserID(user.TelegramUserID) {
+			continue
+		}
 		if pendingOnly && user.Status != StatusPending {
 			continue
 		}
