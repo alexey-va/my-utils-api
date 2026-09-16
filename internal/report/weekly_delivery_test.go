@@ -26,10 +26,14 @@ func (h *recordingHealthHistory) WeightHistory(_ context.Context, days int, toda
 type recordingWeeklyRenderer struct {
 	stepsFrom, stepsTo   time.Time
 	weightFrom, weightTo time.Time
+	emptySteps           bool
 }
 
 func (r *recordingWeeklyRenderer) RenderSteps(_ []health.StepDay, from, to time.Time) ([]byte, error) {
 	r.stepsFrom, r.stepsTo = from, to
+	if r.emptySteps {
+		return nil, nil
+	}
 	return []byte("steps"), nil
 }
 
@@ -75,5 +79,25 @@ func TestSendWeeklyHealthReportRendersAndSendsTheSaturdayPair(t *testing.T) {
 	}
 	if messenger.captions[0] != "<b>Шаги · еженедельный отчёт</b>\nДо 17.09.2026 · последние 90 дней" || messenger.captions[1] != "<b>Вес · еженедельный отчёт</b>\nДо 17.09.2026 · последние 90 дней" {
 		t.Fatalf("captions = %#v", messenger.captions)
+	}
+}
+
+func TestSendWeeklyHealthReportRejectsEmptyChart(t *testing.T) {
+	t.Parallel()
+	messenger := &recordingWeeklyMessenger{}
+	err := SendWeeklyHealthReport(
+		context.Background(),
+		&recordingHealthHistory{},
+		&recordingWeeklyRenderer{emptySteps: true},
+		messenger,
+		42,
+		time.Date(2026, 9, 17, 0, 0, 0, 0, time.UTC),
+		90,
+	)
+	if err == nil {
+		t.Fatal("expected empty chart error")
+	}
+	if len(messenger.photos) != 0 {
+		t.Fatalf("sent %d photos after empty render", len(messenger.photos))
 	}
 }

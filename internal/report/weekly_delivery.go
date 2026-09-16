@@ -3,6 +3,7 @@ package report
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/alexey-va/my-utils-api/internal/health"
@@ -33,13 +34,29 @@ func SendWeeklyHealthReport(ctx context.Context, history HealthHistory, renderer
 	if err != nil {
 		return err
 	}
+	if len(stepsPNG) == 0 {
+		return fmt.Errorf("render weekly steps chart: empty PNG")
+	}
 	weightPNG, err := renderer.RenderWeight(weights.Days, from, reportDate)
 	if err != nil {
 		return err
+	}
+	if len(weightPNG) == 0 {
+		return fmt.Errorf("render weekly weight chart: empty PNG")
 	}
 	captionDate := reportDate.Format("02.01.2006")
 	if err := messenger.SendPhoto(ctx, chatID, stepsPNG, fmt.Sprintf("<b>Шаги · еженедельный отчёт</b>\nДо %s · последние %d дней", captionDate, lookback)); err != nil {
 		return err
 	}
-	return messenger.SendPhoto(ctx, chatID, weightPNG, fmt.Sprintf("<b>Вес · еженедельный отчёт</b>\nДо %s · последние %d дней", captionDate, lookback))
+	if err := messenger.SendPhoto(ctx, chatID, weightPNG, fmt.Sprintf("<b>Вес · еженедельный отчёт</b>\nДо %s · последние %d дней", captionDate, lookback)); err != nil {
+		return err
+	}
+	slog.InfoContext(ctx, "weekly health report delivered",
+		"event", "weekly_health_report",
+		"steps_png_bytes", len(stepsPNG),
+		"weight_png_bytes", len(weightPNG),
+		"telegram_photos_sent", 2,
+		"telegram_failures", 0,
+	)
+	return nil
 }
