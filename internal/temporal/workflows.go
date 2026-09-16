@@ -121,6 +121,10 @@ func WeeklyReportWorkflow(ctx workflow.Context, input WeeklyReportInput) error {
 	return workflow.NewContinueAsNewError(ctx, WeeklyReportWorkflow, input)
 }
 
+func WeeklyReportNowWorkflow(ctx workflow.Context, input WeeklyReportActivityInput) error {
+	return workflow.ExecuteActivity(withActivityOptions(ctx, 5*time.Minute, 3), SendWeeklyReportActivity, input).Get(ctx, nil)
+}
+
 func AgentTurnWorkflow(ctx workflow.Context, input AgentTurnInput) error {
 	// A whole turn may already have persisted tool mutations before delivery
 	// fails. Do not replay it automatically and duplicate user data.
@@ -186,6 +190,9 @@ func EveningReminderWorkflowID(chatID int64) string {
 }
 func WeeklyReportWorkflowID(chatID int64) string {
 	return fmt.Sprintf("go-v1-weekly-health-report-%d", chatID)
+}
+func WeeklyReportNowWorkflowID(chatID int64) string {
+	return fmt.Sprintf("go-v1-weekly-health-report-now-%d-%s", chatID, randomSuffix())
 }
 func NotificationWorkflowID(chatID int64) string {
 	return fmt.Sprintf("go-v1-tg-notify-%d-%s", chatID, randomSuffix())

@@ -100,7 +100,10 @@ then queued with text messages in one durable FIFO per chat. The shared agent
 interprets each request as a typed plan, checks it before execution, and returns
 actual service receipts for writes. Complete recent user turns stay verbatim;
 older exact calls and failures remain retrievable from the archive after
-compaction. See [the agent contract](docs/ARCHITECTURE.md#telegram-and-agent).
+compaction. A direct request for the Saturday charts starts a disposable
+Temporal workflow through `send_weekly_health_report`; it invokes the same
+weekly-report activity as the recurring schedule and sends the same steps and
+body-weight PNGs. See [the agent contract](docs/ARCHITECTURE.md#telegram-and-agent).
 
 All Go workers poll task queue `myutils-go-v1`. Workflow IDs use the `go-v1-`
 generation marker. Startup deliberately does not query, terminate, signal or

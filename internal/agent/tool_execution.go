@@ -88,7 +88,7 @@ func (s *ToolService) ExecutePlanRecorded(ctx context.Context, chatID int64, cal
 
 func isExternalTool(name string) bool {
 	switch NormalizeToolName(name) {
-	case "send_notification", "schedule_notification", "cancel_notification", "send_rich_message", "send_progress_chart", "estimate_1rm":
+	case "send_notification", "schedule_notification", "cancel_notification", "send_rich_message", "send_progress_chart", "send_weekly_health_report", "estimate_1rm":
 		return true
 	default:
 		return false

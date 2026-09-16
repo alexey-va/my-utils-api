@@ -20,10 +20,29 @@ func TestWorkflowIDsUseFreshGoNamespace(t *testing.T) {
 	if got := WeeklyReportWorkflowID(42); got != "go-v1-weekly-health-report-42" {
 		t.Fatalf("weekly id = %q", got)
 	}
-	for _, id := range []string{NotificationWorkflowID(42), AgentTurnWorkflowID(42)} {
+	for _, id := range []string{NotificationWorkflowID(42), AgentTurnWorkflowID(42), WeeklyReportNowWorkflowID(42)} {
 		if len(id) < len("go-v1-") || id[:len("go-v1-")] != "go-v1-" {
 			t.Fatalf("fresh id = %q", id)
 		}
+	}
+}
+
+func TestWeeklyReportNowWorkflowUsesTheScheduledReportActivity(t *testing.T) {
+	t.Parallel()
+	var suite testsuite.WorkflowTestSuite
+	environment := suite.NewTestWorkflowEnvironment()
+	want := WeeklyReportActivityInput{ChatID: 42, ReportDate: "2026-09-17", LookbackDays: 90}
+	var got WeeklyReportActivityInput
+	environment.RegisterActivityWithOptions(func(_ context.Context, input WeeklyReportActivityInput) error {
+		got = input
+		return nil
+	}, activity.RegisterOptions{Name: SendWeeklyReportActivity})
+	environment.ExecuteWorkflow(WeeklyReportNowWorkflow, want)
+	if !environment.IsWorkflowCompleted() || environment.GetWorkflowError() != nil {
+		t.Fatalf("workflow error = %v", environment.GetWorkflowError())
+	}
+	if got != want {
+		t.Fatalf("activity input = %#v, want %#v", got, want)
 	}
 }
 

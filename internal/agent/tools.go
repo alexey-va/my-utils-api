@@ -24,6 +24,7 @@ const sandboxIDMaximum int64 = -8_000_000_000_000_000
 
 type NotificationScheduler interface {
 	SendNow(context.Context, int64, string) (string, error)
+	SendWeeklyReportNow(context.Context, int64) (string, error)
 	Schedule(context.Context, int64, string, string) (string, error)
 	Cancel(context.Context, string) (bool, error)
 }
@@ -302,6 +303,11 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 			return "Workflow не найден: " + workflowID, nil
 		}
 		return "Напоминание отменено (" + workflowID + ").", nil
+	case "send_weekly_health_report":
+		if s.scheduler == nil {
+			return "", errors.New("Temporal выключен — графики не отправлены")
+		}
+		return s.scheduler.SendWeeklyReportNow(ctx, chatID)
 	case "send_rich_message":
 		if s.delivery == nil {
 			return "", errors.New("Telegram недоступен")
@@ -684,6 +690,8 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 			return "", err
 		}
 		return "SANDBOX: график не отправлялся наружу.\n" + progress, nil
+	case "send_weekly_health_report":
+		return "SANDBOX: субботние графики смоделированы локально; в Telegram ничего не отправлено.", nil
 	case "estimate_1rm":
 		exercise, err := sandboxExerciseByName(state, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {

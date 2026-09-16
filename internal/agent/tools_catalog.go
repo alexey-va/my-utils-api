@@ -36,6 +36,7 @@ func ToolDefinitions(temporalEnabled bool) []openrouter.Tool {
 	}
 	if temporalEnabled {
 		tools = append(tools,
+			definition("send_weekly_health_report", "Отправить в текущий чат те же два PNG шагов и веса, что приходят по субботам.", property{}),
 			definition("send_notification", "Сразу отправить сообщение в чат.", property{"message": text("Сообщение")}, "message"),
 			definition("schedule_notification", "Напоминание на время deliver_at в ISO datetime.", property{"message": text("Сообщение"), "deliver_at": text("ISO datetime")}, "message", "deliver_at"),
 			definition("cancel_notification", "Отменить напоминание по workflow_id.", property{"workflow_id": text("Workflow ID")}, "workflow_id"),
@@ -53,7 +54,7 @@ func ToolDefinitions(temporalEnabled bool) []openrouter.Tool {
 
 func isImmediateReturn(name string) bool {
 	switch NormalizeToolName(name) {
-	case "send_rich_message", "send_progress_chart", "estimate_1rm":
+	case "send_rich_message", "send_progress_chart", "send_weekly_health_report", "estimate_1rm":
 		return true
 	default:
 		return false

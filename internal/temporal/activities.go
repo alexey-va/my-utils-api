@@ -3,11 +3,11 @@ package temporal
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/alexey-va/my-utils-api/internal/agent"
 	"github.com/alexey-va/my-utils-api/internal/health"
+	"github.com/alexey-va/my-utils-api/internal/report"
 	"github.com/alexey-va/my-utils-api/internal/telegram"
 	"github.com/alexey-va/my-utils-api/internal/workout"
 )
@@ -71,29 +71,7 @@ func (a *Activities) SendWeeklyReport(ctx context.Context, input WeeklyReportAct
 	if err != nil {
 		return err
 	}
-	lookback := min(max(input.LookbackDays, 7), 366)
-	from := reportDate.AddDate(0, 0, -(lookback - 1))
-	steps, err := a.Health.StepsHistory(ctx, lookback, reportDate)
-	if err != nil {
-		return err
-	}
-	weights, err := a.Health.WeightHistory(ctx, lookback, reportDate)
-	if err != nil {
-		return err
-	}
-	stepsPNG, err := a.Renderer.RenderSteps(steps.Days, from, reportDate)
-	if err != nil {
-		return err
-	}
-	weightPNG, err := a.Renderer.RenderWeight(weights.Days, from, reportDate)
-	if err != nil {
-		return err
-	}
-	captionDate := reportDate.Format("02.01.2006")
-	if err := a.Messenger.SendPhoto(ctx, input.ChatID, stepsPNG, fmt.Sprintf("<b>Шаги · еженедельный отчёт</b>\nДо %s · последние %d дней", captionDate, lookback)); err != nil {
-		return err
-	}
-	return a.Messenger.SendPhoto(ctx, input.ChatID, weightPNG, fmt.Sprintf("<b>Вес · еженедельный отчёт</b>\nДо %s · последние %d дней", captionDate, lookback))
+	return report.SendWeeklyHealthReport(ctx, a.Health, a.Renderer, a.Messenger, input.ChatID, reportDate, input.LookbackDays)
 }
 
 func (a *Activities) RunAgentTurn(ctx context.Context, input AgentTurnInput) error {

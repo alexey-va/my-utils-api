@@ -31,13 +31,14 @@ type ServiceConfig struct {
 type Service struct {
 	config     ServiceConfig
 	activities *Activities
+	now        func() time.Time
 	mu         sync.RWMutex
 	client     client.Client
 	worker     worker.Worker
 }
 
 func NewService(config ServiceConfig, activities *Activities) *Service {
-	return &Service{config: config, activities: activities}
+	return &Service{config: config, activities: activities, now: time.Now}
 }
 
 func (s *Service) Name() string { return "temporal-worker" }
@@ -51,6 +52,7 @@ func (s *Service) Warm(ctx context.Context) error {
 	workerInstance.RegisterWorkflowWithOptions(NotificationWorkflow, workflow.RegisterOptions{Name: "GoV1NotificationWorkflow"})
 	workerInstance.RegisterWorkflowWithOptions(EveningReminderWorkflow, workflow.RegisterOptions{Name: "GoV1EveningReminderWorkflow"})
 	workerInstance.RegisterWorkflowWithOptions(WeeklyReportWorkflow, workflow.RegisterOptions{Name: "GoV1WeeklyReportWorkflow"})
+	workerInstance.RegisterWorkflowWithOptions(WeeklyReportNowWorkflow, workflow.RegisterOptions{Name: "GoV1WeeklyReportNowWorkflow"})
 	workerInstance.RegisterWorkflowWithOptions(AgentTurnWorkflow, workflow.RegisterOptions{Name: "GoV1AgentTurnWorkflow"})
 	workerInstance.RegisterWorkflowWithOptions(AgentTurnQueueWorkflow, workflow.RegisterOptions{Name: "GoV1AgentTurnQueueWorkflow"})
 	workerInstance.RegisterActivityWithOptions(s.activities.SendTelegramMessage, activity.RegisterOptions{Name: SendTelegramMessageActivity})
@@ -141,6 +143,23 @@ func (s *Service) SendNow(ctx context.Context, chatID int64, message string) (st
 		return "", err
 	}
 	return "Уведомление отправляется сейчас (workflow " + id + ").", nil
+}
+
+func (s *Service) SendWeeklyReportNow(ctx context.Context, chatID int64) (string, error) {
+	location, err := time.LoadLocation(s.config.ZoneID())
+	if err != nil {
+		return "", fmt.Errorf("load report zone: %w", err)
+	}
+	now := time.Now
+	if s.now != nil {
+		now = s.now
+	}
+	id := WeeklyReportNowWorkflowID(chatID)
+	input := WeeklyReportActivityInput{ChatID: chatID, ReportDate: now().In(location).Format(time.DateOnly), LookbackDays: 90}
+	if _, err := s.start(ctx, client.StartWorkflowOptions{ID: id, TaskQueue: s.config.TaskQueue}, WeeklyReportNowWorkflow, input); err != nil {
+		return "", err
+	}
+	return "Субботние графики шагов и веса отправляются сейчас (workflow " + id + ").", nil
 }
 
 func (s *Service) Schedule(ctx context.Context, chatID int64, message, deliverAtRaw string) (string, error) {
