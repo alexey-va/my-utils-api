@@ -36,6 +36,16 @@ func TestParseNotation(t *testing.T) {
 	}
 }
 
+func TestParseClassicNotationPreservesWorkingSetCount(t *testing.T) {
+	parsed, err := ParseNotation("86 3*10/10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.SetCount != 3 || parsed.RepsPerSet != 10 || parsed.MaxReps != 10 || !reflect.DeepEqual(parsed.Reps, []int{10, 10, 10, 10}) {
+		t.Fatalf("parsed = %#v", parsed)
+	}
+}
+
 func TestParseNotationRejectsMismatchedWeights(t *testing.T) {
 	t.Parallel()
 	if _, err := ParseNotation("70/75 10/10/10"); err == nil {

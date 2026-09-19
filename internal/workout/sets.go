@@ -29,9 +29,26 @@ func NormalizeSets(setCount, repsPerSet, maxReps int, setReps, setWeights []int)
 		if len(weights) > 0 && len(weights) != len(setReps) {
 			return NormalizedSets{}, errors.New("setWeights must match setReps length")
 		}
+		storedSetCount := len(setReps)
+		storedRepsPerSet := slices.Min(setReps)
+		storedMaxReps := slices.Max(setReps)
+		if len(weights) == 0 && len(setReps) == setCount+1 && setCount > 0 && maxReps == setReps[len(setReps)-1] {
+			workingMatch := true
+			for _, reps := range setReps[:setCount] {
+				if reps != repsPerSet {
+					workingMatch = false
+					break
+				}
+			}
+			if workingMatch {
+				storedSetCount = setCount
+				storedRepsPerSet = repsPerSet
+				storedMaxReps = maxReps
+			}
+		}
 		return NormalizedSets{
 			RepsStorage: joinInts(setReps), WeightsStorage: joinInts(weights),
-			SetCount: len(setReps), RepsPerSet: slices.Min(setReps), MaxReps: slices.Max(setReps),
+			SetCount: storedSetCount, RepsPerSet: storedRepsPerSet, MaxReps: storedMaxReps,
 			Reps: append([]int(nil), setReps...), Weights: append([]int(nil), weights...),
 		}, nil
 	}
@@ -82,7 +99,7 @@ func EffectiveReps(setCount, repsPerSet, maxReps int, storage string) []int {
 	return result
 }
 
-func Display(weight float64, reps, weights []int) string {
+func Display(weight float64, reps, weights []int, setCount ...int) string {
 	if len(weights) > 0 && len(weights) == len(reps) {
 		return joinSlash(weights) + "  " + joinSlash(reps)
 	}
@@ -100,7 +117,8 @@ func Display(weight float64, reps, weights []int) string {
 				break
 			}
 		}
-		if uniform && maximum != working[0] {
+		explicitMax := len(setCount) > 0 && setCount[0] == len(working)
+		if uniform && (explicitMax || maximum != working[0]) {
 			return fmt.Sprintf("%s  %d×%d  (%d)", formattedWeight, len(working), working[0], maximum)
 		}
 	}

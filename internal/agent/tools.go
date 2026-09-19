@@ -105,7 +105,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Записано: %s, %s — %s (кг; как %s).", exercise.Name, request.PerformedOn, workout.Display(request.WeightKg, request.SetReps, request.SetWeights), sourceDate), nil
+		return fmt.Sprintf("Записано: %s, %s — %s (кг; как %s).", exercise.Name, request.PerformedOn, workout.Display(request.WeightKg, request.SetReps, request.SetWeights, request.SetCount), sourceDate), nil
 	case "list_exercises":
 		exercises, err := s.workout.ListExercises(ctx)
 		if err != nil {
@@ -165,7 +165,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Записано: %s, %s — %s.", exercise.Name, date, workout.Display(parsed.WeightKg, parsed.Reps, parsed.Weights)), nil
+		return fmt.Sprintf("Записано: %s, %s — %s.", exercise.Name, date, workout.Display(parsed.WeightKg, parsed.Reps, parsed.Weights, parsed.SetCount)), nil
 	case "delete_workout":
 		exercise, err := s.findExercise(ctx, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
@@ -205,7 +205,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		}
 		lines := []string{fmt.Sprintf("«%s» — прогресс:", exercise.Name)}
 		for _, point := range points {
-			lines = append(lines, fmt.Sprintf("• %s: %s", point.Date, workout.Display(point.WeightKg, point.SetReps, nil)))
+			lines = append(lines, fmt.Sprintf("• %s: %s", point.Date, workout.Display(point.WeightKg, point.SetReps, nil, point.SetCount)))
 		}
 		return strings.Join(lines, "\n"), nil
 	case "get_days", "get_day_summaries":
@@ -376,6 +376,7 @@ type sandboxWorkout struct {
 	ExerciseName string  `json:"exerciseName"`
 	PerformedOn  string  `json:"performedOn"`
 	WeightKg     float64 `json:"weightKg"`
+	SetCount     int     `json:"setCount,omitempty"`
 	Reps         []int   `json:"reps"`
 	Weights      []int   `json:"weights"`
 }
@@ -480,7 +481,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 			}
 		}
 		state.Workouts = append(filtered, *previous)
-		return fmt.Sprintf("SANDBOX: записано %s, %s — %s (как %s).", exercise.Name, date, workout.Display(previous.WeightKg, previous.Reps, previous.Weights), sourceDate), nil
+		return fmt.Sprintf("SANDBOX: записано %s, %s — %s (как %s).", exercise.Name, date, workout.Display(previous.WeightKg, previous.Reps, previous.Weights, previous.SetCount), sourceDate), nil
 	case "list_exercises":
 		if len(state.Exercises) == 0 {
 			return "В SANDBOX упражнений пока нет.", nil
@@ -542,8 +543,8 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 				filtered = append(filtered, row)
 			}
 		}
-		state.Workouts = append(filtered, sandboxWorkout{ExerciseID: exercise.ID, ExerciseName: exercise.Name, PerformedOn: date, WeightKg: parsed.WeightKg, Reps: parsed.Reps, Weights: parsed.Weights})
-		return fmt.Sprintf("SANDBOX: записано %s, %s — %s", exercise.Name, date, workout.Display(parsed.WeightKg, parsed.Reps, parsed.Weights)), nil
+		state.Workouts = append(filtered, sandboxWorkout{ExerciseID: exercise.ID, ExerciseName: exercise.Name, PerformedOn: date, WeightKg: parsed.WeightKg, SetCount: parsed.SetCount, Reps: parsed.Reps, Weights: parsed.Weights})
+		return fmt.Sprintf("SANDBOX: записано %s, %s — %s", exercise.Name, date, workout.Display(parsed.WeightKg, parsed.Reps, parsed.Weights, parsed.SetCount)), nil
 	case "delete_workout":
 		exercise, err := sandboxExerciseByName(state, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
@@ -582,7 +583,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 		lines := []string{fmt.Sprintf("«%s» — SANDBOX-прогресс:", exercise.Name)}
 		for _, row := range state.Workouts {
 			if row.ExerciseID == exercise.ID {
-				lines = append(lines, fmt.Sprintf("• %s: %s", row.PerformedOn, workout.Display(row.WeightKg, row.Reps, row.Weights)))
+				lines = append(lines, fmt.Sprintf("• %s: %s", row.PerformedOn, workout.Display(row.WeightKg, row.Reps, row.Weights, row.SetCount)))
 			}
 		}
 		if len(lines) == 1 {
@@ -599,7 +600,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 			lines := []string{"SANDBOX-тренировка за " + date + ":"}
 			for _, row := range state.Workouts {
 				if row.PerformedOn == date {
-					lines = append(lines, fmt.Sprintf("• %s: %s", row.ExerciseName, workout.Display(row.WeightKg, row.Reps, row.Weights)))
+					lines = append(lines, fmt.Sprintf("• %s: %s", row.ExerciseName, workout.Display(row.WeightKg, row.Reps, row.Weights, row.SetCount)))
 				}
 			}
 			if len(lines) == 1 {

@@ -37,3 +37,35 @@ func TestNormalizeExplicitSetsAndPerSetWeights(t *testing.T) {
 		t.Errorf("Display() = %q", got)
 	}
 }
+
+func TestDisplayShowsEqualFourthSetAsMax(t *testing.T) {
+	if got := Display(86, []int{10, 10, 10, 10}, nil, 3); got != "86  3×10  (10)" {
+		t.Fatalf("Display() = %q, want %q", got, "86  3×10  (10)")
+	}
+}
+
+func TestDisplayKeepsExplicitFourEqualSets(t *testing.T) {
+	if got := Display(86, []int{10, 10, 10, 10}, nil, 4); got != "86  10/10/10/10" {
+		t.Fatalf("Display() = %q, want explicit four-set list", got)
+	}
+}
+
+func TestNormalizeClassicNotationPreservesWorkingSetCount(t *testing.T) {
+	normalized, err := NormalizeSets(3, 10, 10, []int{10, 10, 10, 10}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalized.SetCount != 3 {
+		t.Fatalf("SetCount = %d, want 3", normalized.SetCount)
+	}
+}
+
+func TestNormalizePerSetWeightsRemainExplicitSets(t *testing.T) {
+	normalized, err := NormalizeSets(3, 10, 10, []int{10, 10, 10, 10}, []int{80, 82, 84, 86})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalized.SetCount != 4 {
+		t.Fatalf("SetCount = %d, want 4 explicit weighted sets", normalized.SetCount)
+	}
+}

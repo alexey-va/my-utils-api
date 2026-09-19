@@ -15,6 +15,21 @@
     ]
   },
   {
+    "name": "equal-pair-defaults-to-working-sets-and-max",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Жим лёжа",
+          "muscle_group": "chest"
+        }
+      }
+    ],
+    "turns": [
+      "На 2026-09-19 жим лёжа 86 10/10"
+    ]
+  },
+  {
     "name": "copy-last-strictly-before-target",
     "fixture": [
       {

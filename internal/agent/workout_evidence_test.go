@@ -21,6 +21,27 @@ func TestValidateWorkoutEvidence(t *testing.T) {
 			userTexts: []string{"Плечи 22,5 10/10"},
 		},
 		{
+			name:      "bare pair supports default working sets plus max",
+			action:    workoutEvidenceAction("86 3*10/10", "Пулл даун 86 10/10", ""),
+			userTexts: []string{"Пулл даун 86 10/10"},
+		},
+		{
+			name:      "weight after po remains evidence",
+			action:    workoutEvidenceAction("86 3*10/10", "Жим по 86 кг 10/10", ""),
+			userTexts: []string{"Жим по 86 кг 10/10"},
+		},
+		{
+			name:      "weight unit wins over nearby set descriptor",
+			action:    workoutEvidenceAction("86 3*10/10", "Жим: 3 подхода по 86 кг 10/10", ""),
+			userTexts: []string{"Жим: 3 подхода по 86 кг 10/10"},
+		},
+		{
+			name:      "bare pair cannot justify different max",
+			action:    workoutEvidenceAction("86 3*10/11", "Пулл даун 86 10/10", ""),
+			userTexts: []string{"Пулл даун 86 10/10"},
+			wantErr:   true,
+		},
+		{
 			name:      "literal weight mismatch",
 			action:    workoutEvidenceAction("23 10/10", "Жим 22,5 кг — 10/10", ""),
 			userTexts: []string{"Жим 22,5 кг — 10/10"},

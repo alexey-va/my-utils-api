@@ -210,12 +210,37 @@ func workoutEvidenceNumbers(text string, groups []workoutEvidenceGroup) []workou
 	numbers := workoutEvidenceNumberPattern.FindAllStringIndex(text, -1)
 	result := make([]workoutEvidenceNumber, 0, len(numbers))
 	for _, match := range numbers {
-		if evidenceSpanInAny(match, dates) || evidenceSpanInRegularGroup(match, groups) {
+		if evidenceSpanInAny(match, dates) || evidenceSpanInRegularGroup(match, groups) || evidenceSetDescriptorNumber(text, match) {
 			continue
 		}
 		result = append(result, workoutEvidenceNumber{raw: text[match[0]:match[1]], start: match[0], end: match[1]})
 	}
 	return result
+}
+
+func evidenceSetDescriptorNumber(text string, span []int) bool {
+	if evidenceUnitAt(text, span[1]) != "" {
+		return false
+	}
+	before := strings.ToLower(strings.TrimSpace(text[:span[0]]))
+	after := strings.ToLower(strings.TrimSpace(text[span[1]:]))
+	for _, prefix := range []string{"подход", "сет", "повтор"} {
+		if strings.HasPrefix(after, prefix) {
+			return true
+		}
+	}
+	if strings.HasSuffix(before, "по") {
+		words := strings.Fields(strings.TrimSpace(strings.TrimSuffix(before, "по")))
+		for index := len(words) - 1; index >= 0 && index >= len(words)-3; index-- {
+			word := strings.Trim(words[index], " ,.:;!?()[]{}")
+			for _, prefix := range []string{"подход", "сет", "повтор"} {
+				if strings.HasPrefix(word, prefix) {
+					return true
+				}
+			}
+		}
+	}
+	return false
 }
 
 func evidenceSpanInAny(span []int, ranges [][]int) bool {
@@ -286,7 +311,7 @@ func workoutEvidenceWeight(raw, unit string) (workoutEvidenceValue, error) {
 }
 
 func matchWorkoutEvidence(expected workout.ParsedNotation, actual workoutEvidenceValue, requestWeights []workoutEvidenceValue) error {
-	if !slices.Equal(expected.Reps, actual.reps) {
+	if !workoutEvidenceRepsMatch(expected, actual.reps) {
 		return fmt.Errorf("repetition data does not match data_quote")
 	}
 	if len(expected.Weights) > 0 {
@@ -311,6 +336,19 @@ func matchWorkoutEvidence(expected workout.ParsedNotation, actual workoutEvidenc
 		return fmt.Errorf("scalar weight does not match data_quote")
 	}
 	return nil
+}
+
+func workoutEvidenceRepsMatch(expected workout.ParsedNotation, actual []int) bool {
+	if slices.Equal(expected.Reps, actual) {
+		return true
+	}
+	if expected.SetCount != 3 || len(expected.Reps) != 4 || len(actual) != 2 {
+		return false
+	}
+	return expected.Reps[0] == actual[0] &&
+		expected.Reps[1] == actual[0] &&
+		expected.Reps[2] == actual[0] &&
+		expected.Reps[3] == actual[1]
 }
 
 func evidenceWeightGap(raw string) bool {

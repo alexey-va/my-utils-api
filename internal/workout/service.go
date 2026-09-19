@@ -234,7 +234,7 @@ func buildGrid(exercises []Exercise, entries []entry) Grid {
 		}
 		cells[item.ExerciseID][item.Date] = Cell{
 			WeightKg: item.Weight, SetCount: item.SetCount, RepsPerSet: item.RepsPerSet,
-			MaxReps: item.MaxReps, SetReps: exposed, Display: Display(item.Weight, reps, weights),
+			MaxReps: item.MaxReps, SetReps: exposed, Display: Display(item.Weight, reps, weights, item.SetCount),
 		}
 	}
 	rows := make([]GridRow, 0, len(exercises))

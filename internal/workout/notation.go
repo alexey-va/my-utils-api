@@ -53,7 +53,9 @@ func ParseNotation(raw string) (ParsedNotation, error) {
 		for index := 0; index < working; index++ {
 			sets[index] = reps
 		}
-		return notationResult(weight, nil, sets), nil
+		return ParsedNotation{
+			WeightKg: weight, Reps: sets, SetCount: working, RepsPerSet: reps, MaxReps: maximum,
+		}, nil
 	}
 	parts := strings.Fields(notation)
 	if len(parts) != 2 {

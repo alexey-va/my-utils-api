@@ -309,7 +309,7 @@ func FormatSandboxSnapshot(state sandboxState) string {
 		builder.WriteString("— записей нет\n")
 	} else {
 		for _, row := range workouts[:min(20, len(workouts))] {
-			fmt.Fprintf(&builder, "• %s: %s — %s\n", row.PerformedOn, row.ExerciseName, workout.Display(row.WeightKg, row.Reps, row.Weights))
+			fmt.Fprintf(&builder, "• %s: %s — %s\n", row.PerformedOn, row.ExerciseName, workout.Display(row.WeightKg, row.Reps, row.Weights, row.SetCount))
 		}
 	}
 	builder.WriteString("\n### Вес тела\n")

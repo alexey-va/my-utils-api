@@ -158,6 +158,51 @@ func TestTurnerWritesCorrectJSONDespiteInterveningWords(t *testing.T) {
 		t.Fatalf("receipt=%v err=%v", receipt, err)
 	}
 }
+
+func TestTurnerPromptDefaultsEqualPairToThreeWorkingSetsAndMax(t *testing.T) {
+	llm := &fakeCompleter{responses: []openrouter.Response{decisionResponse("clarify", "Какое упражнение?")}}
+	_, err := testTurner(llm, &fakeConversation{}, &fakeTools{}).Turn(context.Background(), 1, "86 10/10", nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(llm.requests) != 1 {
+		t.Fatalf("requests = %d, want 1", len(llm.requests))
+	}
+	system, _ := llm.requests[0].Messages[0].Content.(string)
+	if !strings.Contains(system, "A/A по умолчанию означает 3*A/A") {
+		t.Fatalf("system prompt does not define equal-pair shorthand: %q", system)
+	}
+	if strings.Contains(system, "одинаковые A/A — два явно перечисленных сета") {
+		t.Fatalf("system prompt still contains the conflicting equal-pair rule: %q", system)
+	}
+}
+
+func TestTurnerExecutesDefaultEqualPairExpansion(t *testing.T) {
+	text := "Пулл даун 86 10/10"
+	llm := &fakeCompleter{responses: []openrouter.Response{decisionResponse("write", "", plannedAction{
+		Tool: "log_workout", RequestQuote: text, DataQuote: text,
+		Arguments: map[string]any{"exercise_name": "Пулл даун", "notation": "86 3*10/10"},
+	})}}
+	tools := &fakeTools{}
+	result, err := testTurner(llm, &fakeConversation{}, tools).Turn(context.Background(), 1, text, nil, true)
+	if err != nil || len(tools.calls) != 1 || tools.args[0]["notation"] != "86 3*10/10" {
+		t.Fatalf("result=%+v calls=%v err=%v", result, tools.args, err)
+	}
+}
+
+func TestTurnerExecutesExplicitTwoSetOverride(t *testing.T) {
+	text := "Пулл даун 86, ровно 2 подхода по 10, без max: 10/10"
+	llm := &fakeCompleter{responses: []openrouter.Response{decisionResponse("write", "", plannedAction{
+		Tool: "log_workout", RequestQuote: text, DataQuote: text,
+		Arguments: map[string]any{"exercise_name": "Пулл даун", "notation": "86 10/10"},
+	})}}
+	tools := &fakeTools{}
+	result, err := testTurner(llm, &fakeConversation{}, tools).Turn(context.Background(), 1, text, nil, true)
+	if err != nil || len(tools.calls) != 1 || tools.args[0]["notation"] != "86 10/10" {
+		t.Fatalf("result=%+v calls=%v err=%v", result, tools.args, err)
+	}
+}
+
 func TestTurnerAllowsContinuationWithoutMagicVerb(t *testing.T) {
 	for _, text := range []string{"Да", "Бабочка на грудь", "22 тогда"} {
 		t.Run(text, func(t *testing.T) {
