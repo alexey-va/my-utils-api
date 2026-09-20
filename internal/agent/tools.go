@@ -465,11 +465,33 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 			}
 			return "", fmt.Errorf("Нет предыдущей записи до %s; нужны вес и подходы.", date)
 		}
-		if options.WeightKg != nil {
-			previous.WeightKg = *options.WeightKg
-			previous.Weights = nil
-		}
 		sourceDate := previous.PerformedOn
+		sourceReps := append([]int(nil), previous.Reps...)
+		setCount := previous.SetCount
+		if setCount < 1 {
+			setCount = len(sourceReps)
+		}
+		repsPerSet, maxReps := 0, 0
+		for _, repetitions := range sourceReps {
+			if repsPerSet == 0 || repetitions < repsPerSet {
+				repsPerSet = repetitions
+			}
+			if repetitions > maxReps {
+				maxReps = repetitions
+			}
+		}
+		request, err := workout.ApplyCopyOptions(workout.EntryRequest{
+			ExerciseID: previous.ExerciseID, PerformedOn: date, WeightKg: previous.WeightKg,
+			SetCount: setCount, RepsPerSet: repsPerSet, MaxReps: maxReps,
+			SetReps: sourceReps, SetWeights: append([]int(nil), previous.Weights...),
+		}, options)
+		if err != nil {
+			return "", err
+		}
+		previous.WeightKg = request.WeightKg
+		previous.SetCount = request.SetCount
+		previous.Reps = append([]int(nil), request.SetReps...)
+		previous.Weights = append([]int(nil), request.SetWeights...)
 		previous.PerformedOn = date
 		if _, err := time.Parse(time.DateOnly, date); err != nil {
 			return "", errors.New("date должна быть YYYY-MM-DD")
@@ -757,6 +779,23 @@ func copyOptions(args map[string]any) (*workout.CopyOptions, error) {
 			return nil, errors.New("weight_kg должен быть от 0.25 до 10000 кг")
 		}
 		options.WeightKg = &weight
+	}
+	if _, present := args["weight_delta_kg"]; present {
+		if options.WeightKg != nil {
+			return nil, errors.New("weight_kg и weight_delta_kg нельзя указывать одновременно")
+		}
+		delta, err := requiredFloat(args, "weight_delta_kg")
+		if err != nil || math.IsNaN(delta) || math.IsInf(delta, 0) || math.Abs(delta) > 10000 {
+			return nil, errors.New("weight_delta_kg должен быть конечным числом не больше 10000 кг по модулю")
+		}
+		options.WeightDeltaKg = &delta
+	}
+	if raw, present := args["repetitions"]; present {
+		repetitions, ok := raw.(string)
+		if !ok || strings.TrimSpace(repetitions) == "" {
+			return nil, errors.New("repetitions должен быть строкой notation без веса")
+		}
+		options.Repetitions = strings.TrimSpace(repetitions)
 	}
 	return options, nil
 }

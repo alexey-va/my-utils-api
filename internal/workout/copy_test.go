@@ -5,8 +5,64 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"math"
 	"os"
+	"reflect"
 	"testing"
 )
+
+func TestApplyCopyOptionsRelativeWeightAndRepetitions(t *testing.T) {
+	weightDelta := 4.0
+	request, err := ApplyCopyOptions(EntryRequest{
+		ExerciseID: "press", WeightKg: 68, SetCount: 2, RepsPerSet: 10, MaxReps: 10,
+		SetReps: []int{10, 10},
+	}, &CopyOptions{WeightDeltaKg: &weightDelta, Repetitions: "3*10/12"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.WeightKg != 72 || request.SetCount != 3 || request.RepsPerSet != 10 || request.MaxReps != 12 || !reflect.DeepEqual(request.SetReps, []int{10, 10, 10, 12}) {
+		t.Fatalf("request=%+v", request)
+	}
+}
+
+func TestParseCopyRepetitionsPreservesExplicitPairAndClassicNotation(t *testing.T) {
+	pair, err := ParseCopyRepetitions("10/10")
+	if err != nil || pair.SetCount != 2 || !reflect.DeepEqual(pair.Reps, []int{10, 10}) {
+		t.Fatalf("pair=%+v err=%v", pair, err)
+	}
+	classic, err := ParseCopyRepetitions("3*10/12")
+	if err != nil || classic.SetCount != 3 || !reflect.DeepEqual(classic.Reps, []int{10, 10, 10, 12}) {
+		t.Fatalf("classic=%+v err=%v", classic, err)
+	}
+	if _, err := ParseCopyRepetitions("50 10/10"); err == nil {
+		t.Fatal("repetition-only notation must reject an extra weight")
+	}
+}
+
+func TestApplyCopyOptionsRejectsAmbiguousPerSetWeightChanges(t *testing.T) {
+	weightDelta := 4.0
+	for _, options := range []*CopyOptions{
+		{WeightDeltaKg: &weightDelta},
+		{Repetitions: "3*10/12"},
+	} {
+		_, err := ApplyCopyOptions(EntryRequest{WeightKg: 68, SetCount: 2, RepsPerSet: 10, MaxReps: 10, SetReps: []int{10, 10}, SetWeights: []int{65, 68}}, options)
+		if err == nil {
+			t.Fatalf("options=%+v unexpectedly accepted", options)
+		}
+	}
+}
+
+func TestApplyCopyOptionsScalarOverrideCanReplacePerSetWeightsAndRepetitions(t *testing.T) {
+	weight := 72.0
+	request, err := ApplyCopyOptions(EntryRequest{
+		WeightKg: 68, SetCount: 2, RepsPerSet: 10, MaxReps: 10,
+		SetReps: []int{10, 10}, SetWeights: []int{65, 68},
+	}, &CopyOptions{WeightKg: &weight, Repetitions: "3*10/12"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if request.WeightKg != 72 || len(request.SetWeights) != 0 || request.SetCount != 3 || !reflect.DeepEqual(request.SetReps, []int{10, 10, 10, 12}) {
+		t.Fatalf("request=%+v", request)
+	}
+}
 
 func TestCopyPreviousEntryPreservesExactSetsAndIgnoresFuture(t *testing.T) {
 	if os.Getenv("TEST_POSTGRES_URL") == "" {

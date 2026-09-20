@@ -21,3 +21,18 @@ success sentence alone never proves a mutation.
 The last model scenario tests truthful handling of incomplete data, not a forced
 database failure. Transaction rollback and receipt-insert failure are tested
 separately by `internal/agent/tool_execution_test.go` against PostgreSQL.
+
+`relative-scenarios.json` adds synthetic relative-weight regressions; run it with
+`cmd/agent-eval` using the same local-only environment contract:
+
+| Scenario | Required outcome |
+| --- | --- |
+| relative-scalar-delta-and-new-reps | Source 47.5 kg + 2.5 kg gives 50 kg on 2026-10-02, three working sets of 8 plus max 10; source unchanged. |
+| clarify-copy-second-and-naming-fact | Clarify the arm exercise, then resolve 31 + 3 = 34 kg with 3*9/11 and the second exercise at its stored 28 kg with 3*6/8 on 2026-10-08; save the requested exercise-name preference in the same plan. |
+| negative-decimal-delta | Source 41.75 kg - 1.75 kg gives 40 kg with 3*12/14 on 2026-10-11; source unchanged. |
+| hypothetical-no-write-and-latest-per-set-source | Hypothetical turn does not mutate. The later real request cannot skip the latest varied-weight source to reuse an older scalar source; clarify or fail without a target entry. |
+
+Equivalent notation/tool plans are allowed when stored set modes, weights,
+dates, facts and receipts match. For relative copies the service resolves the source and applies the delta.
+A correctly resolved absolute weight is also valid; it need not occur literally
+in user text.

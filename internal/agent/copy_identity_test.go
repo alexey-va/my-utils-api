@@ -51,3 +51,35 @@ func TestSandboxExplicitCopySourceSurvivesMovingToEarlierDate(t *testing.T) {
 		t.Fatalf("move=%+v", state.Workouts)
 	}
 }
+
+func TestSandboxRelativeCopyAppliesWeightDeltaAndRepetitions(t *testing.T) {
+	state := sandboxState{
+		Exercises: []sandboxExercise{{ID: "chest", Name: "Бабочка"}},
+		Workouts:  []sandboxWorkout{{ExerciseID: "chest", ExerciseName: "Бабочка", PerformedOn: "2026-09-18", WeightKg: 68, SetCount: 2, Reps: []int{10, 10}}},
+	}
+	tools := &ToolService{now: time.Now}
+	args := map[string]any{
+		"exercise_name": "Бабочка", "exercise_id": "chest", "date": "2026-09-20",
+		"weight_delta_kg": 4.0, "repetitions": "3*10/12",
+	}
+	if _, err := tools.runSandboxTool(&state, "copy_workout", args); err != nil {
+		t.Fatal(err)
+	}
+	if len(state.Workouts) != 2 {
+		t.Fatalf("workouts=%+v", state.Workouts)
+	}
+	got := state.Workouts[1]
+	if got.PerformedOn != "2026-09-20" || got.WeightKg != 72 || got.SetCount != 3 || !reflect.DeepEqual(got.Reps, []int{10, 10, 10, 12}) {
+		t.Fatalf("copy=%+v", got)
+	}
+}
+
+func TestCopyOptionsRejectsConflictingWeightModes(t *testing.T) {
+	if _, err := copyOptions(map[string]any{"weight_kg": 72.0, "weight_delta_kg": 4.0}); err == nil {
+		t.Fatal("weight_kg and weight_delta_kg must be mutually exclusive")
+	}
+	options, err := copyOptions(map[string]any{"weight_delta_kg": -4.0, "repetitions": "10/12"})
+	if err != nil || options.WeightDeltaKg == nil || *options.WeightDeltaKg != -4 || options.Repetitions != "10/12" {
+		t.Fatalf("options=%+v err=%v", options, err)
+	}
+}

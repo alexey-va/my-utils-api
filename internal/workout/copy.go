@@ -2,16 +2,70 @@ package workout
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
+	"strings"
 	"time"
+	"unicode"
 )
 
-// CopyOptions selects an optional source row and/or replaces its scalar
-// weight. Reps always come from the selected source row.
+// CopyOptions selects an optional source row and/or changes its scalar weight
+// and repetitions.
 type CopyOptions struct {
-	SourceDate string   `json:"source_date,omitempty"`
-	WeightKg   *float64 `json:"weight_kg,omitempty"`
+	SourceDate    string   `json:"source_date,omitempty"`
+	WeightKg      *float64 `json:"weight_kg,omitempty"`
+	WeightDeltaKg *float64 `json:"weight_delta_kg,omitempty"`
+	Repetitions   string   `json:"repetitions,omitempty"`
+}
+
+// ApplyCopyOptions applies the user-requested changes to a copied entry. It
+// does not persist the result; callers use the same transformation for the
+// real journal and the sandbox fixture.
+func ApplyCopyOptions(source EntryRequest, options *CopyOptions) (EntryRequest, error) {
+	result := source
+	result.SetReps = append([]int(nil), source.SetReps...)
+	result.SetWeights = append([]int(nil), source.SetWeights...)
+	if options == nil {
+		return result, nil
+	}
+	if options.WeightKg != nil && options.WeightDeltaKg != nil {
+		return EntryRequest{}, badRequest("weight_kg и weight_delta_kg нельзя указывать одновременно")
+	}
+	if options.WeightDeltaKg != nil {
+		if len(source.SetWeights) > 0 {
+			return EntryRequest{}, errors.New("нельзя применить weight_delta_kg к записи с разными весами по подходам")
+		}
+		if err := validateCopyDelta(*options.WeightDeltaKg); err != nil {
+			return EntryRequest{}, err
+		}
+		result.WeightKg += *options.WeightDeltaKg
+		if err := validateCopyWeight(result.WeightKg); err != nil {
+			return EntryRequest{}, err
+		}
+	}
+	if options.WeightKg != nil {
+		if err := validateCopyWeight(*options.WeightKg); err != nil {
+			return EntryRequest{}, err
+		}
+		result.WeightKg = *options.WeightKg
+		// A scalar override intentionally replaces any per-set source weights.
+		result.SetWeights = nil
+	}
+	if strings.TrimSpace(options.Repetitions) != "" {
+		if len(source.SetWeights) > 0 && options.WeightKg == nil {
+			return EntryRequest{}, errors.New("нельзя заменить подходы у записи с разными весами по подходам")
+		}
+		parsed, err := ParseCopyRepetitions(options.Repetitions)
+		if err != nil {
+			return EntryRequest{}, err
+		}
+		result.SetReps = append([]int(nil), parsed.Reps...)
+		result.SetCount = parsed.SetCount
+		result.RepsPerSet = parsed.RepsPerSet
+		result.MaxReps = parsed.MaxReps
+	}
+	return result, nil
 }
 
 // CopyPreviousEntry resolves "same as last time" against the journal, never
@@ -64,16 +118,13 @@ func (s *Service) CopyPreviousEntry(ctx context.Context, exerciseID, date string
 		return EntryRequest{}, "", notFound(fmt.Sprintf("Нет предыдущей записи до %s; нужны вес и подходы.", date))
 	}
 
-	weight := source.Weight
-	setWeights := ParseStorage(source.SetWeights)
-	if option != nil && option.WeightKg != nil {
-		weight = *option.WeightKg
-		// An override supplies one scalar weight for every retained repetition.
-		setWeights = nil
-	}
-	request := EntryRequest{ExerciseID: exerciseID, PerformedOn: date, WeightKg: weight,
+	request := EntryRequest{ExerciseID: exerciseID, PerformedOn: date, WeightKg: source.Weight,
 		SetCount: source.SetCount, RepsPerSet: source.RepsPerSet, MaxReps: source.MaxReps,
-		SetReps: source.reps(), SetWeights: setWeights}
+		SetReps: source.reps(), SetWeights: ParseStorage(source.SetWeights)}
+	request, err = ApplyCopyOptions(request, option)
+	if err != nil {
+		return EntryRequest{}, "", err
+	}
 	return request, source.Date, s.UpsertEntry(ctx, request)
 }
 
@@ -100,4 +151,28 @@ func validateCopyWeight(weight float64) error {
 		return badRequest("weightKg must be finite and between 0.25 and 10000")
 	}
 	return nil
+}
+
+func validateCopyDelta(delta float64) error {
+	if math.IsNaN(delta) || math.IsInf(delta, 0) || math.Abs(delta) > maxNotationWeight {
+		return badRequest("weight_delta_kg должен быть конечным числом не больше 10000 кг по модулю")
+	}
+	return nil
+}
+
+// ParseCopyRepetitions parses repetition-only notation using the diary's
+// existing notation semantics. A weight is deliberately not accepted here.
+func ParseCopyRepetitions(raw string) (ParsedNotation, error) {
+	notation := strings.TrimSpace(raw)
+	if notation == "" || !strings.ContainsAny(notation, "/,") {
+		return ParsedNotation{}, badRequest("repetitions должны быть в формате 10/10, 3*10/12 или 8/8/8")
+	}
+	if strings.IndexFunc(notation, unicode.IsSpace) >= 0 {
+		return ParsedNotation{}, badRequest("repetitions не должны содержать пробелы или вес")
+	}
+	parsed, err := ParseNotation("1 " + notation)
+	if err != nil {
+		return ParsedNotation{}, badRequest("некорректные repetitions: " + err.Error())
+	}
+	return parsed, nil
 }

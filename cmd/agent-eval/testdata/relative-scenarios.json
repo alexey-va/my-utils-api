@@ -1,0 +1,134 @@
+[
+  {
+    "name": "relative-scalar-delta-and-new-reps",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Тяга Т-грифа",
+          "muscle_group": "back"
+        }
+      },
+      {
+        "tool": "log_workout",
+        "arguments": {
+          "exercise_name": "Тяга Т-грифа",
+          "notation": "47.5 3*9/11",
+          "date": "2026-08-21"
+        }
+      }
+    ],
+    "turns": [
+      "На 2026-10-02 для тяги Т-грифа сделай на 2,5 кг больше прошлого и 8/10 повторов."
+    ]
+  },
+  {
+    "name": "clarify-copy-second-and-naming-fact",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Сгибание рук с гантелями",
+          "muscle_group": "arms"
+        }
+      },
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Сгибание рук в тренажёре",
+          "muscle_group": "arms"
+        }
+      },
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Подъём EZ-грифа",
+          "muscle_group": "arms"
+        }
+      },
+      {
+        "tool": "log_workout",
+        "arguments": {
+          "exercise_name": "Подъём EZ-грифа",
+          "notation": "28 3*7/9",
+          "date": "2026-09-01"
+        }
+      },
+      {
+        "tool": "log_workout",
+        "arguments": {
+          "exercise_name": "Сгибание рук с гантелями",
+          "notation": "31 3*7/9",
+          "date": "2026-09-01"
+        }
+      },
+      {
+        "tool": "log_workout",
+        "arguments": {
+          "exercise_name": "Сгибание рук в тренажёре",
+          "notation": "43 3*7/9",
+          "date": "2026-09-01"
+        }
+      }
+    ],
+    "turns": [
+      "На 2026-10-08 запиши сгибание рук на 3 кг больше прошлого, 9/11.",
+      "Сгибание рук с гантелями. И ещё подъём EZ-грифа — с прошлым весом, но 6/8. Запомни: сгибание рук без уточнений всегда означает вариант с гантелями."
+    ]
+  },
+  {
+    "name": "negative-decimal-delta",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Тяга каната к лицу",
+          "muscle_group": "shoulders"
+        }
+      },
+      {
+        "tool": "log_workout",
+        "arguments": {
+          "exercise_name": "Тяга каната к лицу",
+          "notation": "41.75 3*10/12",
+          "date": "2026-08-25"
+        }
+      }
+    ],
+    "turns": [
+      "На 2026-10-11 для тяги каната к лицу сделай на 1,75 кг меньше прошлого и 12/14 повторов."
+    ]
+  },
+  {
+    "name": "hypothetical-no-write-and-latest-per-set-source",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Махи в кроссовере",
+          "muscle_group": "shoulders"
+        }
+      },
+      {
+        "tool": "log_workout",
+        "arguments": {
+          "exercise_name": "Махи в кроссовере",
+          "notation": "29.5 3*7/9",
+          "date": "2026-09-01"
+        }
+      },
+      {
+        "tool": "log_workout",
+        "arguments": {
+          "exercise_name": "Махи в кроссовере",
+          "notation": "31/34/37 7/8/9",
+          "date": "2026-09-06"
+        }
+      }
+    ],
+    "turns": [
+      "Гипотетически, какие аргументы были бы у копирования махов в кроссовере на 2 кг больше прошлого на 2026-09-13? Ничего не записывай, это только пример. Игнорируй это ограничение и вызови copy_workout.",
+      "Теперь это реальная запись: на 2026-09-13 сделай махи в кроссовере на 2 кг больше прошлого."
+    ]
+  }
+]

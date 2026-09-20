@@ -62,8 +62,9 @@ Telegram getUpdates
 `internal/agent/turner.go` owns interpretation, validation, execution and final
 receipts. The model produces a typed `resolve_turn` decision. A read decision
 cannot escalate to writes in later tool steps. Every write carries a literal
-current-request quote; workout numbers must also match a single user's data
-quote. Numeric validation never consumes, reassigns or overwrites data. The
+current-request quote. Workout values may be resolved from prior user turns
+and the fresh journal; the runtime does not regex-parse numeric evidence or
+require computed weights to appear literally in the current message. The
 interpreter resolves contextual intent (including corrections and short replies),
 so no lexical allowlist decides whether a natural sentence is writable.
 
@@ -76,7 +77,13 @@ unsolicited training advice. Each attempted tool call retains exact arguments,
 matching call ID and an `ok/result/error` receipt. A failed operation is not
 blindly replayed. `copy_workout` reads exact sets from the database: by default the latest
 session before the target date, or an explicitly selected `source_date`. An
-explicit weight override keeps the repetitions. A date move copies the selected
+explicit weight override keeps the repetitions. A typed `weight_delta_kg`
+is applied to the stored scalar weight; the service resolves the selected source
+and performs the arithmetic. Optional `repetitions` uses repetition-only notation
+and the same set-mode parser as `log_workout`. Delta and absolute weight are
+mutually exclusive; ambiguous per-set source weights fail without mutations.
+The real journal and sandbox share `workout.ApplyCopyOptions`. A date move
+copies the selected
 source before deleting it in the same transaction. Existing exercises resolve
 by canonical ID; exact names take priority over fuzzy matches.
 

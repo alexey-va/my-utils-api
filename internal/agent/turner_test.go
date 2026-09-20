@@ -310,3 +310,19 @@ func TestUserImagesBecomeMultimodalContent(t *testing.T) {
 		t.Fatalf("parts=%v err=%v", parts, err)
 	}
 }
+
+func TestTurnerAcceptsResolvedWeightAbsentFromUserText(t *testing.T) {
+	for _, text := range []string{"Жим на 3 кг больше прошлого 10/10", "Как раньше, но на три килограмма больше, десять на десять"} {
+		t.Run(text, func(t *testing.T) {
+			llm := &fakeCompleter{responses: []openrouter.Response{decisionResponse("write", "", plannedAction{
+				Tool: "log_workout", RequestQuote: text, Arguments: map[string]any{"exercise_name": "Жим", "notation": "45 3*10/10"},
+			})}}
+			conversation := &fakeConversation{messages: []openrouter.Message{{Role: "assistant", Content: "Последний подтверждённый вес жима: 42 кг."}}}
+			tools := &fakeTools{}
+			result, err := testTurner(llm, conversation, tools).Turn(context.Background(), 1, text, nil, true)
+			if err != nil || len(tools.calls) != 1 || tools.args[0]["notation"] != "45 3*10/10" || len(llm.requests) != 1 {
+				t.Fatalf("result=%+v calls=%v err=%v", result, tools.calls, err)
+			}
+		})
+	}
+}

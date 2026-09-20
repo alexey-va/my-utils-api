@@ -20,7 +20,8 @@ type plannedAction struct {
 	Tool         string         `json:"tool"`
 	Arguments    map[string]any `json:"arguments"`
 	RequestQuote string         `json:"request_quote"`
-	DataQuote    string         `json:"data_quote,omitempty"`
+	// DataQuote is accepted for compatibility with older saved/model decisions; it is not validated.
+	DataQuote string `json:"data_quote,omitempty"`
 }
 
 func NormalizeToolName(value string) string {
@@ -46,7 +47,6 @@ func decisionTool(catalog []openrouter.Tool) openrouter.Tool {
 		variants = append(variants, map[string]any{"type": "object", "additionalProperties": false, "required": []string{"tool", "arguments", "request_quote"}, "properties": map[string]any{
 			"tool":          map[string]any{"type": "string", "enum": []string{tool.Function.Name}, "description": tool.Function.Description},
 			"arguments":     tool.Function.Parameters,
-			"data_quote":    map[string]any{"type": "string", "description": "Для log_workout: дословный фрагмент пользовательской реплики с числами РОВНО ОДНОГО упражнения. Можно из предыдущего незавершённого запроса. Обязателен для log_workout. Для copy_workout с новым weight_kg — точная фраза пользователя с одним новым весом. Не цитируй модель или снимок."},
 			"request_quote": map[string]any{"type": "string", "description": "Дословный фрагмент ТЕКУЩЕГО сообщения пользователя, запрашивающий действие. Для чтения пустая строка."},
 		}})
 	}
