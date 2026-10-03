@@ -24,9 +24,15 @@ func TestApplyCopyOptionsRelativeWeightAndRepetitions(t *testing.T) {
 }
 
 func TestParseCopyRepetitionsPreservesExplicitPairAndClassicNotation(t *testing.T) {
-	pair, err := ParseCopyRepetitions("10/10")
-	if err != nil || pair.SetCount != 2 || !reflect.DeepEqual(pair.Reps, []int{10, 10}) {
-		t.Fatalf("pair=%+v err=%v", pair, err)
+	for _, raw := range []string{"10/10", "12/10"} {
+		pair, err := ParseCopyRepetitions(raw)
+		want := []int{10, 10}
+		if raw == "12/10" {
+			want[0] = 12
+		}
+		if err != nil || pair.SetCount != 2 || !reflect.DeepEqual(pair.Reps, want) {
+			t.Fatalf("%s: pair=%+v err=%v", raw, pair, err)
+		}
 	}
 	classic, err := ParseCopyRepetitions("3*10/12")
 	if err != nil || classic.SetCount != 3 || !reflect.DeepEqual(classic.Reps, []int{10, 10, 10, 12}) {

@@ -82,9 +82,6 @@ func ParseNotation(raw string) (ParsedNotation, error) {
 	if err != nil {
 		return ParsedNotation{}, err
 	}
-	if len(weights) == 0 && len(right) == 2 && right[0] != right[1] {
-		right = []int{right[0], right[0], right[0], right[1]}
-	}
 	if len(weights) == 0 {
 		return notationResult(weight, nil, right), nil
 	}

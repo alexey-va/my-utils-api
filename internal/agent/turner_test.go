@@ -169,8 +169,10 @@ func TestTurnerPromptDefaultsEqualPairToThreeWorkingSetsAndMax(t *testing.T) {
 		t.Fatalf("requests = %d, want 1", len(llm.requests))
 	}
 	system, _ := llm.requests[0].Messages[0].Content.(string)
-	if !strings.Contains(system, "A/A по умолчанию означает 3*A/A") {
-		t.Fatalf("system prompt does not define equal-pair shorthand: %q", system)
+	for _, rule := range []string{"сокращение пользователя A/B, включая A/A", "70 3*10/10", "70 12/10 = два разных", "«тоже/так же»"} {
+		if !strings.Contains(system, rule) {
+			t.Fatalf("system prompt does not define set semantics %q", rule)
+		}
 	}
 	if strings.Contains(system, "одинаковые A/A — два явно перечисленных сета") {
 		t.Fatalf("system prompt still contains the conflicting equal-pair rule: %q", system)

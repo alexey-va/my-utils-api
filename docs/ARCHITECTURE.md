@@ -80,7 +80,12 @@ session before the target date, or an explicitly selected `source_date`. An
 explicit weight override keeps the repetitions. A typed `weight_delta_kg`
 is applied to the stored scalar weight; the service resolves the selected source
 and performs the arithmetic. Optional `repetitions` uses repetition-only notation
-and the same set-mode parser as `log_workout`. Delta and absolute weight are
+and the same parser as `log_workout`. Tool notation without a multiplier is an
+exact set list, including unequal pairs; only `3*A/B` expands to three working
+sets plus a final max set. The model resolves user shorthand `A/B` to that
+standard scheme, while explicit enumeration such as “10 и 10” and the current
+dialogue's selected mode remain literal. No free-text regex decides set counts.
+Delta and absolute weight are
 mutually exclusive; ambiguous per-set source weights fail without mutations.
 The real journal and sandbox share `workout.ApplyCopyOptions`. A date move
 copies the selected

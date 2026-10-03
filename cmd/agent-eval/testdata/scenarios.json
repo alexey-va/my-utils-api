@@ -285,5 +285,49 @@
     "turns": [
       "Скопируй всю тренировку с 2026-09-02 на 2026-09-12: тягу нижнего блока, разгибание ног и подъём на носки."
     ]
+  },
+  {
+    "name": "butterfly-identity-delete-known-alias",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Бабочка на грудь",
+          "muscle_group": "chest"
+        }
+      },
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Обратная бабочка на плечи",
+          "muscle_group": "shoulders"
+        }
+      },
+      {
+        "tool": "log_workout",
+        "arguments": {
+          "exercise_name": "Бабочка на грудь",
+          "notation": "40 3*10/10",
+          "date": "2026-09-03"
+        }
+      },
+      {
+        "tool": "log_workout",
+        "arguments": {
+          "exercise_name": "Обратная бабочка на плечи",
+          "notation": "25 3*12/11",
+          "date": "2026-09-03"
+        }
+      },
+      {
+        "tool": "remember_fact",
+        "arguments": {
+          "content": "Бабочка без уточнения означает Бабочка на грудь; обратную на плечи пользователь называет явно."
+        }
+      }
+    ],
+    "turns": [
+      "Удалить запись за 2026-09-03 по бабочке."
+    ]
   }
 ]

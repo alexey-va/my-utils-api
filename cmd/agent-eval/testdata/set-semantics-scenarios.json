@@ -1,0 +1,124 @@
+[
+  {
+    "name": "standard-shorthand-equal-and-unequal",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Жим в тренажёре"
+        }
+      },
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Тяга горизонтального блока"
+        }
+      }
+    ],
+    "turns": [
+      "За 2026-09-28 записываю жим в тренажёре 63 кг 9/9 и тягу горизонтального блока 51 кг 8/11."
+    ]
+  },
+  {
+    "name": "enumerated-pairs-equal-and-unequal",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Сгибание рук"
+        }
+      },
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Разгибание рук"
+        }
+      }
+    ],
+    "turns": [
+      "За 2026-09-28 сгибание рук 27 кг 9 и 9. Разгибание рук 31 кг: первый подход 11, второй 8."
+    ]
+  },
+  {
+    "name": "two-sets-followup-and-return-to-standard",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Жим в тренажёре"
+        }
+      },
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Тяга горизонтального блока"
+        }
+      }
+    ],
+    "turns": [
+      "За 2026-09-28 жим в тренажёре 63 кг 11 и 11, всего 2 подхода.",
+      "За ту же дату тяга горизонтального блока тоже 51 кг 9 и 9.",
+      "На 2026-09-29 жим в тренажёре 63 кг 9/9 по стандартной схеме."
+    ]
+  },
+  {
+    "name": "relative-copy-with-enumerated-unequal-pair",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Тяга каната"
+        }
+      },
+      {
+        "tool": "log_workout",
+        "arguments": {
+          "exercise_name": "Тяга каната",
+          "notation": "38 3*8/11",
+          "date": "2026-09-25"
+        }
+      }
+    ],
+    "turns": [
+      "За 2026-09-28 тяга каната с прошлым весом плюс 2 кг, первый подход 11, второй 8. Всего два."
+    ]
+  },
+  {
+    "name": "correction-keeps-weight-and-date",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Жим в тренажёре"
+        }
+      },
+      {
+        "tool": "log_workout",
+        "arguments": {
+          "exercise_name": "Жим в тренажёре",
+          "notation": "63 3*9/9",
+          "date": "2026-09-28"
+        }
+      }
+    ],
+    "turns": [
+      "Исправь жим в тренажёре за 2026-09-28: на самом деле сделал только два подхода, 9 и 9. Вес тот же."
+    ]
+  },
+  {
+    "name": "ambiguous-read-and-missing-data",
+    "fixture": [
+      {
+        "tool": "create_exercise",
+        "arguments": {
+          "name": "Сгибание рук"
+        }
+      }
+    ],
+    "turns": [
+      "Как ты записал бы сгибание рук 27 кг 9 и 9? Это только пример, ничего не сохраняй.",
+      "Запиши сгибание рук за 2026-09-28, сделал два подхода. Вес и повторы не помню.",
+      "Отменяю запись. На следующей тренировке только планирую сгибание рук 27 кг, 9 и 9. Пока ничего не выполнял и не записывай."
+    ]
+  }
+]
