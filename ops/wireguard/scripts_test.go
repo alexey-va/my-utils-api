@@ -637,7 +637,6 @@ func TestVPNAlertProvisioningCoversRelayAndBothExits(t *testing.T) {
 	validator := readFile(t, "../../observability/scripts/validate-vpn-alerts.py")
 	for _, want := range []string{
 		"VPN metrics unavailable",
-		"VPN relay unavailable",
 		"VPN agent stale",
 		"VPN routing unhealthy",
 		"VPN all exits down",

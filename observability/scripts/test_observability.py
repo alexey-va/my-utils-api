@@ -61,8 +61,11 @@ class ObservabilityProvisioningTest(unittest.TestCase):
 
     def test_vpn_rules_have_distinct_panel_links_and_outage_policy(self) -> None:
         rules = load_rules("vpn-alert-rules.yaml")
-        self.assertEqual(len(rules), 8)
-        self.assertEqual({rule["panelId"] for rule in rules}, set(range(1, 9)))
+        self.assertEqual(len(rules), 7)
+        self.assertEqual({rule["panelId"] for rule in rules}, {1, 3, 4, 5, 6, 7, 8})
+        document = yaml.safe_load((ALERTING / "vpn-alert-rules.yaml").read_text())
+        self.assertIn({"orgId": 1, "uid": "vpnrelay02"}, document["deleteRules"])
+        self.assertNotIn("vpnrelay02", {rule["uid"] for rule in rules})
         for rule in rules:
             annotations = rule["annotations"]
             self.assertEqual(rule["dashboardUid"], "myutils-vpn-health")
@@ -75,8 +78,7 @@ class ObservabilityProvisioningTest(unittest.TestCase):
             self.assertEqual(annotations["panel_url"], annotations["runbook_url"])
             self.assertEqual(rule["execErrState"], "KeepLast")
         self.assertEqual(rules[0]["noDataState"], "Alerting")
-        self.assertEqual(rules[1]["noDataState"], "KeepLast")
-        self.assertTrue(all(rule["noDataState"] == "OK" for rule in rules[2:]))
+        self.assertTrue(all(rule["noDataState"] == "OK" for rule in rules[1:]))
 
     def test_metal_rules_link_to_semantic_panels(self) -> None:
         rules = load_rules("metal-alert-rules.yaml")

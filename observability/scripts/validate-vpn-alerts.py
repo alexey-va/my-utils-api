@@ -15,7 +15,6 @@ ROOT = Path(__file__).resolve().parent.parent
 RULES_FILE = ROOT / "config" / "grafana" / "provisioning" / "alerting" / "vpn-alert-rules.yaml"
 EXPECTED_ALERTS = {
     "VPN metrics unavailable": ("myutils_wireguard_collection_success", "2m"),
-    "VPN relay unavailable": ("myutils_wireguard_relay_ready", "1m"),
     "VPN agent stale": ("myutils_wireguard_agent_last_seen_timestamp_seconds", "1m"),
     "VPN routing unhealthy": ("myutils_wireguard_routing_healthy", "1m"),
     "VPN all exits down": ("myutils_wireguard_exit_healthy", "30s"),
@@ -38,6 +37,8 @@ def validate(path: Path) -> None:
     groups = document.get("groups", []) if isinstance(document, dict) else []
     rules = [rule for group in groups for rule in group.get("rules", [])]
     by_title = {rule.get("title"): rule for rule in rules}
+    if {"orgId": 1, "uid": "vpnrelay02"} not in document.get("deleteRules", []):
+        raise ValueError("retired relay alert must be deleted from existing Grafana instances")
     if set(by_title) != set(EXPECTED_ALERTS):
         missing = sorted(set(EXPECTED_ALERTS) - set(by_title))
         extra = sorted(set(by_title) - set(EXPECTED_ALERTS))
@@ -64,15 +65,12 @@ def validate(path: Path) -> None:
             raise ValueError(f"{title} uses the wrong receiver")
         if duration_seconds(str(notifications.get("repeat_interval", ""))) < 4 * 3600:
             raise ValueError(f"{title} repeat_interval is too short")
-        # The collector sentinel owns telemetry loss. A relay no-data result is
-        # kept stable so it does not duplicate the outage notification.
+        # The collector sentinel owns telemetry loss.
         no_data_alerts = {"VPN metrics unavailable"}
         if title in no_data_alerts and rule.get("noDataState") != "Alerting":
             raise ValueError(f"{title} must alert on no data")
-        if title == "VPN relay unavailable" and rule.get("noDataState") != "KeepLast":
-            raise ValueError(f"{title} must keep its last state on no data")
-        if title not in no_data_alerts and title != "VPN relay unavailable" and rule.get("noDataState") != "OK":
-            raise ValueError(f"{title} must defer missing-series handling to the collector or relay alert")
+        if title not in no_data_alerts and rule.get("noDataState") != "OK":
+            raise ValueError(f"{title} must defer missing-series handling to the collector alert")
 
 
 def main() -> int:
