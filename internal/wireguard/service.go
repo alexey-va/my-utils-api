@@ -1471,7 +1471,7 @@ func validateExitHealth(value *ExitHealth, now time.Time) error {
 				return err
 			}
 		}
-		if probe.HandshakeAtEpoch < 0 || probe.HandshakeAgeSeconds != nil && (*probe.HandshakeAgeSeconds < 0 || *probe.HandshakeAgeSeconds > 86400) {
+		if probe.HandshakeAtEpoch < 0 || probe.HandshakeAgeSeconds != nil && *probe.HandshakeAgeSeconds < 0 {
 			return badRequest("Exit health is invalid")
 		}
 		if probe.LatencyMs != nil && (math.IsNaN(*probe.LatencyMs) || math.IsInf(*probe.LatencyMs, 0) || *probe.LatencyMs < 0 || *probe.LatencyMs > 60000) {

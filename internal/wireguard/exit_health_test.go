@@ -24,6 +24,49 @@ func TestValidateExitHealthAcceptsHealthyExitWithoutOptionalLatency(t *testing.T
 	}
 }
 
+func TestValidateExitHealthAcceptsLongAgeForUnhealthyExit(t *testing.T) {
+	now := time.Date(2026, time.August, 20, 14, 0, 0, 0, time.UTC)
+	health := healthyExitHealth(now)
+	health.OverallStatus = "DEGRADED"
+
+	staleAgeSeconds := int64(20 * 24 * 60 * 60)
+	reason := "handshake_stale"
+	secondary := health.Exits["secondary"]
+	secondary.Healthy = false
+	secondary.Reason = &reason
+	secondary.ObservedEgressIP = nil
+	secondary.HandshakeAtEpoch = now.Unix() - staleAgeSeconds
+	secondary.HandshakeAgeSeconds = &staleAgeSeconds
+	health.Exits["secondary"] = secondary
+	health.Counters["secondary"] = ExitHealthCounter{Failures: 4}
+
+	if err := validateExitHealth(&health, now); err != nil {
+		t.Fatalf("validateExitHealth() rejected an unhealthy exit with a stale handshake: %v", err)
+	}
+
+	revision := int64(3)
+	lastSeen := now.Add(-10 * time.Second)
+	routingHealthy := true
+	routingCheckedAt := now.Add(-5 * time.Second)
+	relay := Relay{
+		ServerPublicKey:  stringPointer("server"),
+		AppliedRevision:  &revision,
+		DesiredRevision:  revision,
+		LastSeenAt:       &lastSeen,
+		RoutingHealthy:   &routingHealthy,
+		RoutingCheckedAt: &routingCheckedAt,
+		ExitHealth:       &health,
+	}
+	if got := relayStatus(relay, now); got != "DEGRADED" {
+		t.Fatalf("relayStatus() with one stale unhealthy exit = %q, want DEGRADED", got)
+	}
+
+	staleAgeSeconds = -1
+	if err := validateExitHealth(&health, now); err == nil {
+		t.Fatal("validateExitHealth() accepted a negative handshake age")
+	}
+}
+
 func TestValidateExitHealthRejectsContradictoryOverallStatus(t *testing.T) {
 	now := time.Date(2026, time.August, 20, 14, 0, 0, 0, time.UTC)
 	health := healthyExitHealth(now)
