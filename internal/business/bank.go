@@ -210,10 +210,145 @@ func addCoverage(current *state, from, to string) {
 	current.Bank.CoverageStart, current.Bank.CoverageEnd = latest.From, latest.To
 }
 
-// Only this explicit invoice-reference grammar can auto-allocate a bank credit.
-// Equal amounts, payer names and monthly coincidence never establish a match.
-var explicitInvoiceReference = regexp.MustCompile(`(?i)сч[её]т(?:у|а)?\s*(?:№|N(?:o)?\.?)\s*([0-9A-Za-zА-Яа-я./-]+)`)
-var explicitYear = regexp.MustCompile(`\b20[0-9]{2}\b`)
+// This is a document-reference grammar, not payer/purpose keyword inference.
+var invoiceNumberReference = regexp.MustCompile(`(?i)(?:^|[^\pL\pN])сч(?:[её]т(?:у|а|ом)?)?\.?\s*(?:№|N(?:o)?\.?)?\s*([0-9][0-9A-Za-zА-Яа-я./_-]*)`)
+var datedInvoiceReference = regexp.MustCompile(`(?i)(?:^|[^\pL\pN])сч(?:[её]т(?:у|а|ом)?)?\.?\s*(?:№|N(?:o)?\.?)?\s*([0-9][0-9A-Za-zА-Яа-я./_-]*)\s*от\s*([0-9]{1,2}\.[0-9]{1,2}\.[0-9]{4}|[0-9]{4}-[0-9]{2}-[0-9]{2})`)
+
+type receiptScope struct{ partyID, templateID, start, end string }
+type paymentMatch struct {
+	classification string
+	scope          receiptScope
+	targets        []Invoice
+	canAdvance     bool
+}
+
+func ownPayment(s state, p Payment) bool {
+	return s.Seller.INN != "" && p.PayerINN != "" && p.PayerINN == s.Seller.INN
+}
+func accountingPeriods(s state) []string {
+	set := map[string]bool{}
+	for _, i := range s.Invoices {
+		if i.IsCurrent {
+			set[i.Period] = true
+		}
+	}
+	result := []string{}
+	for p := range set {
+		result = append(result, p)
+	}
+	sort.Strings(result)
+	return result
+}
+func nextMonth(period string) string {
+	date, _ := time.Parse("2006-01", period)
+	return date.AddDate(0, 1, 0).Format("2006-01")
+}
+
+func matchPayment(s state, p Payment) paymentMatch {
+	for _, id := range s.HistoricalPaymentIDs {
+		if id == p.ID {
+			return paymentMatch{classification: "historical"}
+		}
+	}
+	unknown := paymentMatch{classification: "unclassified"}
+	periods := accountingPeriods(s)
+	if len(periods) > 0 && p.Date < periods[0]+"-01" {
+		unknown.classification = "outside_period"
+	}
+	refs := datedInvoiceReference.FindAllStringSubmatch(p.Description, -1)
+	if len(refs) != 1 || len(invoiceNumberReference.FindAllStringSubmatch(p.Description, -1)) != 1 || p.PayerINN == "" {
+		return unknown
+	}
+	issued, err := time.Parse("2.1.2006", refs[0][2])
+	if err != nil {
+		issued, err = time.Parse(time.DateOnly, refs[0][2])
+	}
+	if err != nil {
+		return unknown
+	}
+	scopes := map[receiptScope]bool{}
+	for _, invoice := range s.Invoices {
+		party, ok := findParty(s, invoice.CounterpartyID)
+		if ok && party.INN == p.PayerINN && invoice.Number == refs[0][1] && invoice.IssueDate == issued.Format(time.DateOnly) {
+			scopes[receiptScope{invoice.CounterpartyID, invoice.TemplateID, invoice.PeriodStart, invoice.PeriodEnd}] = true
+		}
+	}
+	if len(scopes) == 0 {
+		return unknown
+	}
+	if len(periods) == 0 {
+		return unknown
+	}
+	allPast := true
+	for scope := range scopes {
+		if scope.end >= periods[0]+"-01" {
+			allPast = false
+		}
+	}
+	if allPast {
+		return paymentMatch{classification: "historical"}
+	}
+	if len(scopes) != 1 {
+		return unknown
+	}
+	var scope receiptScope
+	for candidate := range scopes {
+		scope = candidate
+	}
+	if p.CounterpartyID != "" && p.CounterpartyID != scope.partyID {
+		return unknown
+	}
+	if !validDate(scope.start) || !validDate(scope.end) {
+		return unknown
+	}
+	start, _, err := periodDates(scope.start[:7])
+	if err != nil || scope.start != start {
+		return unknown
+	}
+	_, end, err := periodDates(scope.end[:7])
+	if err != nil || scope.end != end {
+		return unknown
+	}
+	current := []Invoice{}
+	for _, invoice := range s.Invoices {
+		if !invoice.IsCurrent || invoice.CounterpartyID != scope.partyID || invoice.TemplateID != scope.templateID {
+			continue
+		}
+		start, end, err := periodDates(invoice.Period)
+		if err != nil || invoice.PeriodStart != start || invoice.PeriodEnd != end {
+			return unknown
+		}
+		current = append(current, invoice)
+	}
+	sort.Slice(current, func(i, j int) bool { return current[i].Period < current[j].Period })
+	if len(current) == 0 || scope.start[:7] < current[0].Period {
+		return unknown
+	}
+	matched := paymentMatch{classification: "rental", scope: scope, targets: []Invoice{}, canAdvance: true}
+	expected := scope.start[:7]
+	cumulative := scope.start[:7] != scope.end[:7]
+	for _, invoice := range current {
+		if invoice.Period < scope.start[:7] {
+			continue
+		}
+		if cumulative && invoice.Period > scope.end[:7] {
+			break
+		}
+		if invoice.Period != expected {
+			matched.canAdvance = false
+			break
+		}
+		matched.targets = append(matched.targets, invoice)
+		expected = nextMonth(expected)
+	}
+	if expected <= current[len(current)-1].Period && (!cumulative || expected <= scope.end[:7]) {
+		matched.canAdvance = false
+	}
+	if len(matched.targets) == 0 && !matched.canAdvance {
+		return unknown
+	}
+	return matched
+}
 
 func automaticAllocations(current *state, newPayments []Payment) {
 	// A repeated sync must not undo a user's explicit allocation reversal.
@@ -224,7 +359,7 @@ func automaticAllocations(current *state, newPayments []Payment) {
 		return newPayments[i].Date < newPayments[j].Date
 	})
 	for _, payment := range newPayments {
-		if payment.Source != "tochka" || payment.PayerINN == "" {
+		if payment.Source != "tochka" || ownPayment(*current, payment) {
 			continue
 		}
 		already := false
@@ -236,53 +371,19 @@ func automaticAllocations(current *state, newPayments []Payment) {
 		if already {
 			continue
 		}
-		references := explicitInvoiceReference.FindAllStringSubmatch(payment.Description, -1)
-		if len(references) != 1 {
+		matched := matchPayment(*current, payment)
+		if matched.classification != "rental" {
 			continue
 		}
-		years := explicitYear.FindAllString(payment.Description, -1)
-		yearSet := map[string]bool{}
-		for _, year := range years {
-			yearSet[year] = true
-		}
-		if len(yearSet) != 1 {
-			continue
-		}
-		var matched *Invoice
-		for i := range current.Invoices {
-			invoice := &current.Invoices[i]
-			party, ok := findParty(*current, invoice.CounterpartyID)
-			if !ok || !invoice.IsCurrent || party.INN != payment.PayerINN || invoice.Number != references[0][1] || !yearSet[invoice.IssueDate[:4]] {
+		remaining := payment.AmountMinor
+		for _, invoice := range matched.targets {
+			amount := min(remaining, viewInvoice(*current, invoice).OutstandingMinor)
+			if amount <= 0 {
 				continue
 			}
-			if matched != nil {
-				matched = nil
-				break
-			}
-			matched = invoice
+			current.Allocations = append(current.Allocations, Allocation{ID: uuid.NewString(), InvoiceID: invoice.ID, PaymentID: payment.ID, AmountMinor: amount, Automatic: true})
+			remaining -= amount
 		}
-		if matched == nil {
-			continue
-		}
-		ambiguous := false
-		for _, historical := range current.Invoices {
-			party, ok := findParty(*current, historical.CounterpartyID)
-			if !ok || historical.IsCurrent || party.INN != payment.PayerINN || historical.Number != matched.Number || historical.IssueDate[:4] != matched.IssueDate[:4] {
-				continue
-			}
-			if historical.TemplateID != matched.TemplateID || historical.PeriodStart != matched.PeriodStart || historical.PeriodEnd != matched.PeriodEnd {
-				ambiguous = true
-				break
-			}
-		}
-		if ambiguous {
-			continue
-		}
-		view := viewInvoice(*current, *matched)
-		if payment.AmountMinor > view.OutstandingMinor {
-			continue
-		}
-		current.Allocations = append(current.Allocations, Allocation{ID: uuid.NewString(), InvoiceID: matched.ID, PaymentID: payment.ID, AmountMinor: payment.AmountMinor, Automatic: true})
 	}
 }
 

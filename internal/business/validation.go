@@ -2,6 +2,7 @@ package business
 
 import (
 	"net/mail"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -192,15 +193,63 @@ func validateState(s state) error {
 		paymentTotal += p.AmountMinor
 	}
 	invoiced, paid := map[string]int64{}, map[string]int64{}
+	historical := map[string]bool{}
+	for _, id := range s.HistoricalPaymentIDs {
+		if !validID(id) || historical[id] {
+			return invalid("Неверный список архивных платежей")
+		}
+		if _, exists := payments[id]; !exists {
+			return invalid("Архивный платёж не найден в этом реестре")
+		}
+		historical[id] = true
+	}
 	for _, a := range s.Allocations {
+		if historical[a.PaymentID] {
+			return conflict("Архивный платёж не может оплачивать текущие начисления")
+		}
 		invoice, iok := invoices[a.InvoiceID]
 		payment, pok := payments[a.PaymentID]
-		if !validID(a.ID) || allocationIDs[a.ID] || !iok || !pok || !invoice.IsCurrent || a.AmountMinor <= 0 || a.AmountMinor > invoice.AmountMinor-invoiced[a.InvoiceID] || a.AmountMinor > payment.AmountMinor-paid[a.PaymentID] {
+		own := ownPayment(s, payment)
+		if !validID(a.ID) || allocationIDs[a.ID] || !iok || !pok || !invoice.IsCurrent || a.AmountMinor <= 0 || !own && a.AmountMinor > invoice.AmountMinor-invoiced[a.InvoiceID] || a.AmountMinor > payment.AmountMinor-paid[a.PaymentID] {
 			return conflict("Распределение превышает остаток счёта или платежа")
 		}
 		allocationIDs[a.ID] = true
-		invoiced[a.InvoiceID] += a.AmountMinor
+		// Retain own-transfer audit allocations and their payment cap, while
+		// using the same business invoice capacity as the public paid view.
+		if !own {
+			invoiced[a.InvoiceID] += a.AmountMinor
+		}
 		paid[a.PaymentID] += a.AmountMinor
 	}
+	return nil
+}
+
+func markHistoricalPayments(current *state, ids []string) error {
+	if len(ids) > 10000 {
+		return invalid("Слишком много архивных платежей")
+	}
+	marked := map[string]bool{}
+	for _, id := range current.HistoricalPaymentIDs {
+		marked[id] = true
+	}
+	for _, id := range ids {
+		if !validID(id) {
+			return invalid("Неверный идентификатор архивного платежа")
+		}
+		if _, exists := findPayment(*current, id); !exists {
+			return invalid("Архивный платёж не найден в этом реестре")
+		}
+		for _, allocation := range current.Allocations {
+			if allocation.PaymentID == id {
+				return conflict("Сначала отмените распределения платежа по текущим начислениям")
+			}
+		}
+		marked[id] = true
+	}
+	current.HistoricalPaymentIDs = []string{}
+	for id := range marked {
+		current.HistoricalPaymentIDs = append(current.HistoricalPaymentIDs, id)
+	}
+	sort.Strings(current.HistoricalPaymentIDs)
 	return nil
 }

@@ -132,6 +132,9 @@ func (s *Service) Import(ctx context.Context, owner string, request ImportReques
 			current.Payments = append(current.Payments, payment)
 			newPayments = append(newPayments, payment)
 		}
+		if err := markHistoricalPayments(current, request.HistoricalPaymentIDs); err != nil {
+			return err
+		}
 		automaticAllocations(current, newPayments)
 		if request.Bank != nil && (request.Bank.CoverageStart != "" || request.Bank.CoverageEnd != "") {
 			if !validDate(request.Bank.CoverageStart) || !validDate(request.Bank.CoverageEnd) || request.Bank.CoverageStart > request.Bank.CoverageEnd {

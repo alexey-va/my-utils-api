@@ -63,8 +63,11 @@ func TestBusinessArchiveAndPaymentDateHaveSeparateTotals(t *testing.T) {
 		t.Fatal("cross-month payment disappeared from allocation controls")
 	}
 	all := workspaceView(s, "all", "")
-	if all.Summary.ReceivedMinor != 10000 || all.Payments[0].UnallocatedMinor != 0 {
+	if all.Summary.ReceivedMinor != 0 || all.Payments[0].UnallocatedMinor != 0 {
 		t.Fatalf("all = %#v", all.Summary)
+	}
+	if october := workspaceView(s, "2026-10", ""); october.Summary.ReceivedMinor != 10000 {
+		t.Fatal("explicit calendar month lost its posted receipt")
 	}
 }
 func TestBusinessCoverageDoesNotInventMatchesOrFillGaps(t *testing.T) {
@@ -99,7 +102,7 @@ func TestBusinessConservativeAutomaticAllocation(t *testing.T) {
 		{"no reference", "Аренда за сентябрь 2026", "7701234567", 10000, false},
 		{"third party", "Оплата по счёту № 17 от 01.09.2026", "7711111111", 10000, false},
 		{"no year", "Оплата по счёту № 17", "7701234567", 10000, false},
-		{"overpayment", "Оплата по счёту № 17 от 01.09.2026", "7701234567", 10001, false},
+		{"overpayment", "Оплата по счёту № 17 от 01.09.2026", "7701234567", 10001, true},
 		{"two references", "Счёт № 17 и счёт № 18 от 01.09.2026", "7701234567", 10000, false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -162,17 +165,17 @@ func TestBusinessCumulativeHistoryPreventsReferenceGuessing(t *testing.T) {
 func TestBusinessSplitOverpaymentUsesPostingOrder(t *testing.T) {
 	s := emptyState()
 	invoice := fixtureInvoice("invoice", "2026-09", true)
-	invoice.AmountMinor = 17887800
+	invoice.AmountMinor = 17000
 	s.Invoices = []Invoice{invoice}
 	s.Counterparties = []Counterparty{fixtureParty()}
-	later := Payment{ID: "later", Date: "2026-10-28", PayerINN: "7701234567", AmountMinor: 9887800, Description: "Оплата по счёту № 17 от 01.09.2026", Source: "tochka"}
+	later := Payment{ID: "later", Date: "2026-10-28", PayerINN: "7701234567", AmountMinor: 9000, Description: "Оплата по счёту № 17 от 01.09.2026", Source: "tochka"}
 	earlier := later
 	earlier.ID = "earlier"
 	earlier.Date = "2026-10-23"
-	earlier.AmountMinor = 10000000
+	earlier.AmountMinor = 10000
 	s.Payments = []Payment{later, earlier}
 	automaticAllocations(&s, []Payment{later, earlier})
-	if len(s.Allocations) != 1 || s.Allocations[0].PaymentID != "earlier" || s.Allocations[0].AmountMinor != 10000000 {
+	if len(s.Allocations) != 2 || s.Allocations[0].PaymentID != "earlier" || s.Allocations[0].AmountMinor != 10000 || s.Allocations[1].PaymentID != "later" || s.Allocations[1].AmountMinor != 7000 {
 		t.Fatalf("split overpayment = %#v", s.Allocations)
 	}
 }

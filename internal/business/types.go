@@ -114,6 +114,8 @@ type InvoiceView struct {
 }
 type PaymentView struct {
 	Payment
+	Classification   string       `json:"classification"`
+	AdvanceMinor     int64        `json:"advanceMinor"`
 	AllocatedMinor   int64        `json:"allocatedMinor"`
 	UnallocatedMinor int64        `json:"unallocatedMinor"`
 	Allocations      []Allocation `json:"allocations"`
@@ -124,22 +126,25 @@ type CounterpartyView struct {
 	PaidMinor        int64  `json:"paidMinor"`
 	OutstandingMinor int64  `json:"outstandingMinor"`
 	ReceivedMinor    int64  `json:"receivedMinor"`
+	AdvanceMinor     int64  `json:"advanceMinor"`
 	InvoiceCount     int    `json:"invoiceCount"`
 	UnreviewedCount  int    `json:"unreviewedCount"`
 	LastPaymentAt    string `json:"lastPaymentAt"`
 }
 type Summary struct {
-	InvoicedMinor          int64 `json:"invoicedMinor"`
-	PaidMinor              int64 `json:"paidMinor"`
-	OutstandingMinor       int64 `json:"outstandingMinor"`
-	ReceivedMinor          int64 `json:"receivedMinor"`
-	UnallocatedMinor       int64 `json:"unallocatedMinor"`
-	InvoiceCount           int   `json:"invoiceCount"`
-	CounterpartyCount      int   `json:"counterpartyCount"`
-	PaidInvoiceCount       int   `json:"paidInvoiceCount"`
-	PartialInvoiceCount    int   `json:"partialInvoiceCount"`
-	UnreviewedInvoiceCount int   `json:"unreviewedInvoiceCount"`
-	ReconciliationComplete bool  `json:"reconciliationComplete"`
+	InvoicedMinor           int64 `json:"invoicedMinor"`
+	PaidMinor               int64 `json:"paidMinor"`
+	OutstandingMinor        int64 `json:"outstandingMinor"`
+	ReceivedMinor           int64 `json:"receivedMinor"`
+	HistoricalReceivedMinor int64 `json:"historicalReceivedMinor"`
+	AdvanceMinor            int64 `json:"advanceMinor"`
+	UnallocatedMinor        int64 `json:"unallocatedMinor"`
+	InvoiceCount            int   `json:"invoiceCount"`
+	CounterpartyCount       int   `json:"counterpartyCount"`
+	PaidInvoiceCount        int   `json:"paidInvoiceCount"`
+	PartialInvoiceCount     int   `json:"partialInvoiceCount"`
+	UnreviewedInvoiceCount  int   `json:"unreviewedInvoiceCount"`
+	ReconciliationComplete  bool  `json:"reconciliationComplete"`
 }
 type Workspace struct {
 	Seller            Seller             `json:"seller"`
@@ -149,6 +154,7 @@ type Workspace struct {
 	Summary           Summary            `json:"summary"`
 	Bank              Bank               `json:"bank"`
 	Periods           []string           `json:"periods"`
+	AccountingPeriods []string           `json:"accountingPeriods"`
 	NextInvoiceNumber string             `json:"nextInvoiceNumber"`
 }
 type CreateInvoiceRequest struct {
@@ -174,12 +180,13 @@ type ImportDocument struct {
 	DataBase64 string `json:"dataBase64"`
 }
 type ImportRequest struct {
-	Seller         Seller           `json:"seller"`
-	Counterparties []Counterparty   `json:"counterparties"`
-	Invoices       []Invoice        `json:"invoices"`
-	Payments       []Payment        `json:"payments"`
-	Bank           *Bank            `json:"bank"`
-	Documents      []ImportDocument `json:"documents"`
+	HistoricalPaymentIDs []string         `json:"historicalPaymentIds,omitempty"`
+	Seller               Seller           `json:"seller"`
+	Counterparties       []Counterparty   `json:"counterparties"`
+	Invoices             []Invoice        `json:"invoices"`
+	Payments             []Payment        `json:"payments"`
+	Bank                 *Bank            `json:"bank"`
+	Documents            []ImportDocument `json:"documents"`
 }
 type ImportResult struct {
 	CounterpartyCount int `json:"counterpartyCount"`
@@ -196,13 +203,14 @@ type Coverage struct {
 	To   string `json:"to"`
 }
 type state struct {
-	Seller         Seller         `json:"seller"`
-	Counterparties []Counterparty `json:"counterparties"`
-	Invoices       []Invoice      `json:"invoices"`
-	Payments       []Payment      `json:"payments"`
-	Allocations    []Allocation   `json:"allocations"`
-	Bank           Bank           `json:"bank"`
-	Coverage       []Coverage     `json:"coverage"`
+	HistoricalPaymentIDs []string       `json:"historicalPaymentIds,omitempty"`
+	Seller               Seller         `json:"seller"`
+	Counterparties       []Counterparty `json:"counterparties"`
+	Invoices             []Invoice      `json:"invoices"`
+	Payments             []Payment      `json:"payments"`
+	Allocations          []Allocation   `json:"allocations"`
+	Bank                 Bank           `json:"bank"`
+	Coverage             []Coverage     `json:"coverage"`
 }
 
 func emptyState() state {

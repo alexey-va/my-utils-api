@@ -24,11 +24,34 @@ Their stable ID is `tochka-` plus the full lowercase SHA-256 hex digest of
 is absent). Private initial imports use the same identity as later bank sync.
 An allocation applies an amount from one payment to one current invoice. Its
 amount cannot exceed either remainder. Allocations, not coincident equal
-monthly sums, establish invoice payment. Conservative automatic matching may
-use a single explicit invoice-number reference AND exact payer INN AND invoice
-year; ambiguous, third-party, overpaid or conflicting payments stay unallocated.
-Manual allocation and reversal are available. No balance is called confirmed
-debt when bank coverage or allocation is incomplete.
+monthly sums, establish invoice payment. Several payments may close one invoice,
+and one payment may close several invoices. Automatic matching uses the exact
+payer INN and a formal invoice-number/date reference. It closes the referenced
+invoice first, then existing later invoices for the same template/contract.
+Archived cumulative invoices can establish the intended period without adding
+another charge: fund only a contiguous known monthly prefix of that range.
+Never skip unknown old obligations or guess between conflicting ranges.
+
+Own-account credits with the seller's exact nonempty INN remain in raw bank
+history for deduplication but never appear as rental receipts or allocations.
+Confirmed past-period references are historical cash, not current advances.
+An earlier receipt without a known current reference is explicitly outside the
+accounting period; this does not claim that older invoices were reconciled.
+Unknown current receipts remain reviewable. Recognized surplus is an advance
+after reserving each eligible invoice remainder once across all payments.
+Advances stay separate from receivables; do not net them across contracts.
+
+The owner's explicit accounting baseline takes precedence over a document's
+apparent payment period. Persist `historicalPaymentIds` as an owner-scoped set
+of reviewed stable bank-credit IDs. Such credits remain historical cash and
+cannot fund current invoices or create an advance, even when their descriptions
+refer to overlapping archived invoices. Validate that each ID exists and has no
+current allocations before marking it. This is per payment, never a blanket
+rule that makes the payer's future receipts historical.
+
+Automatic matching processes only new bank credits, so repeated sync cannot
+restore a reversed allocation. Corrections to already imported credits must be
+explicit and idempotent. Manual allocation and reversal remain available.
 
 ## Persistence and files
 
@@ -46,8 +69,9 @@ PDF/DOCX/XLSX are preserved. No new facsimile signature is added by the service.
 The optional bank token is AES-GCM encrypted at rest with a domain-separated
 key derived from the existing high-entropy JWT secret, and owner-specific AAD.
 Only connected/error metadata is returned. Tokens never enter logs, URLs or UI
-storage. Changing a production secret/connection remains a separate owner
-action; the feature works with imported documents/payments while disconnected.
+storage. An owner-authorized connection uses the existing validated Connect
+operation and persists the encrypted credential for future refreshes. Imported
+documents/payments also remain available when a connection is disconnected.
 
 ## Shared JSON shapes
 
@@ -81,23 +105,47 @@ type Bank = { connected: boolean; lastSyncedAt: string; coverageStart: string;
 type InvoiceView = Invoice & { paidMinor: number; outstandingMinor: number;
   status: 'paid'|'partial'|'unmatched'|'unreviewed'|'archived'; allocations: Allocation[] };
 type PaymentView = Payment & { allocatedMinor: number; unallocatedMinor: number;
+  advanceMinor: number; classification: 'rental'|'historical'|'outside_period'|'unclassified';
   allocations: Allocation[] };
 type CounterpartyView = Counterparty & { invoicedMinor: number; paidMinor: number;
-  outstandingMinor: number; receivedMinor: number; invoiceCount: number;
+  outstandingMinor: number; receivedMinor: number; advanceMinor: number; invoiceCount: number;
   unreviewedCount: number; lastPaymentAt: string };
 type Summary = { invoicedMinor: number; paidMinor: number; outstandingMinor: number;
-  receivedMinor: number; unallocatedMinor: number; invoiceCount: number;
+  receivedMinor: number; historicalReceivedMinor: number; unallocatedMinor: number;
+  advanceMinor: number; invoiceCount: number;
   counterpartyCount: number; paidInvoiceCount: number; partialInvoiceCount: number;
   unreviewedInvoiceCount: number; reconciliationComplete: boolean };
 type Workspace = { seller: Seller; counterparties: CounterpartyView[];
   invoices: InvoiceView[]; payments: PaymentView[]; summary: Summary;
-  bank: Bank; periods: string[]; nextInvoiceNumber: string };
+  bank: Bank; periods: string[]; accountingPeriods: string[]; nextInvoiceNumber: string };
 ```
 
 `paidMinor` is allocated to the selected invoice period, regardless of payment
-date. `receivedMinor` is credits posted during the selected calendar period.
-They must not be presented as interchangeable. `outstandingMinor` is the
+date. `receivedMinor` is current-ledger external credits posted during the
+selected calendar period. Exclude internal, historical and outside-period
+credits, including the owner's reviewed pre-ledger baseline. For `all`, use the
+calendar months of all current invoices in
+`accountingPeriods`, independently of a payer filter. `periods` also includes
+archived document months for history browsing. `historicalReceivedMinor` is
+separate excluded historical cash in those dates, not part of `receivedMinor`.
+The payer's `lastPaymentAt` also ignores historical/outside/internal credits.
+Cash, invoice payments
+and advances must not be presented as interchangeable. `outstandingMinor` is the
 unallocated invoice remainder, not automatically confirmed overdue debt.
+
+`unallocatedMinor` includes recognized advances but excludes internal,
+historical and outside-period receipts. Always `0 <= advanceMinor <=
+unallocatedMinor`; the amount requiring review is their difference. The UI
+labels advances separately and never offers historical/outside cash as an
+unreviewed current receipt. Reconciliation can be complete with an advance when
+coverage is adequate and no unresolved cash remains; this is independent of
+whether every invoice has been paid. The initial UI scope is all accounting
+periods, with monthly filtering as an explicit visible choice.
+Advance totals consider all current accounting periods even in a monthly view;
+an optional payer filter still applies. Monthly captions must distinguish this
+global credit from month-scoped charges, invoice payments and calendar receipts.
+The receipt ledger initially shows current receipts; a history disclosure keeps
+pre-ledger rows accessible without treating them as new income or open cash.
 
 `unreviewed` means no usable statement coverage yet. `unmatched` means coverage
 exists but no allocated payment was found; it does not claim legally overdue
@@ -128,11 +176,14 @@ archived rows while keeping them visibly distinct.
   partial retrieval must not mark complete coverage. Never call outgoing payment
   APIs. No automatic background schedule is created.
 * `POST /import` -> `{counterpartyCount,invoiceCount,paymentCount,documentCount}`.
-  Protected bounded JSON body `{seller,counterparties,invoices,payments?,bank?,
+  Protected bounded JSON body `{seller?,counterparties?,invoices?,payments?,bank?,
+  historicalPaymentIds?,
   documents:[{id,filename,mimeType,dataBase64}]}`. Idempotent merge by stable IDs;
   do not erase existing payments, allocations or bank token. Recompute document
   hashes/size and all money totals; validate every reference. This endpoint is
   for initial private archive import, not a public uploader.
+  A standalone `{historicalPaymentIds:[...]}` reviews existing credits without
+  replacing their raw bank data, invoices, allocations or the bank connection.
 
 Errors: `{message:string}` with 400 validation, 404 owner-scoped unknown ID,
 409 duplicates/allocation conflicts, 413 limits, 502 uncertain bank failure and 503 bank

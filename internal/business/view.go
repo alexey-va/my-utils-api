@@ -29,6 +29,9 @@ func viewInvoice(s state, invoice Invoice) InvoiceView {
 	v := InvoiceView{Invoice: invoice, Allocations: []Allocation{}}
 	for _, allocation := range s.Allocations {
 		if allocation.InvoiceID == invoice.ID {
+			if payment, ok := findPayment(s, allocation.PaymentID); ok && ownPayment(s, payment) {
+				continue
+			}
 			v.PaidMinor += allocation.AmountMinor
 			v.Allocations = append(v.Allocations, allocation)
 		}
@@ -48,9 +51,60 @@ func viewInvoice(s state, invoice Invoice) InvoiceView {
 	}
 	return v
 }
+
+func paymentViews(s state) []PaymentView {
+	payments := append([]Payment{}, s.Payments...)
+	sort.SliceStable(payments, func(i, j int) bool {
+		if payments[i].Date == payments[j].Date {
+			return payments[i].ID < payments[j].ID
+		}
+		return payments[i].Date < payments[j].Date
+	})
+	remainingNeed := map[string]int64{}
+	for _, invoice := range s.Invoices {
+		if invoice.IsCurrent {
+			remainingNeed[invoice.ID] = viewInvoice(s, invoice).OutstandingMinor
+		}
+	}
+	views := []PaymentView{}
+	for _, payment := range payments {
+		if ownPayment(s, payment) {
+			continue
+		}
+		matched := matchPayment(s, payment)
+		pv := PaymentView{Payment: payment, Classification: matched.classification, Allocations: []Allocation{}}
+		for _, allocation := range s.Allocations {
+			if allocation.PaymentID == payment.ID {
+				pv.AllocatedMinor += allocation.AmountMinor
+				pv.Allocations = append(pv.Allocations, allocation)
+			}
+		}
+		if pv.Classification != "historical" && pv.Classification != "outside_period" {
+			pv.UnallocatedMinor = payment.AmountMinor - pv.AllocatedMinor
+		}
+		if pv.Classification == "rental" {
+			available := pv.UnallocatedMinor
+			for _, invoice := range matched.targets {
+				reserved := min(available, remainingNeed[invoice.ID])
+				available -= reserved
+				remainingNeed[invoice.ID] -= reserved
+			}
+			if matched.canAdvance {
+				pv.AdvanceMinor = available
+			}
+		}
+		views = append(views, pv)
+	}
+	return views
+}
+
 func workspaceView(s state, period, counterpartyID string) Workspace {
-	v := Workspace{Seller: s.Seller, Counterparties: []CounterpartyView{}, Invoices: []InvoiceView{}, Payments: []PaymentView{}, Bank: s.Bank, Periods: []string{}, NextInvoiceNumber: nextNumber(s)}
+	v := Workspace{Seller: s.Seller, Counterparties: []CounterpartyView{}, Invoices: []InvoiceView{}, Payments: []PaymentView{}, Bank: s.Bank, Periods: []string{}, AccountingPeriods: accountingPeriods(s), NextInvoiceNumber: nextNumber(s)}
 	periods := map[string]bool{}
+	accountingMonths := map[string]bool{}
+	for _, p := range v.AccountingPeriods {
+		accountingMonths[p] = true
+	}
 	parties := map[string]int{}
 	for _, party := range s.Counterparties {
 		parties[party.ID] = len(v.Counterparties)
@@ -93,30 +147,33 @@ func workspaceView(s state, period, counterpartyID string) Workspace {
 			}
 		}
 	}
-	for _, payment := range s.Payments {
+	for _, pv := range paymentViews(s) {
+		payment := pv.Payment
 		if counterpartyID != "" && payment.CounterpartyID != counterpartyID {
 			continue
 		}
-		pv := PaymentView{Payment: payment, Allocations: []Allocation{}}
-		for _, allocation := range s.Allocations {
-			if allocation.PaymentID == payment.ID {
-				pv.AllocatedMinor += allocation.AmountMinor
-				pv.Allocations = append(pv.Allocations, allocation)
-			}
-		}
-		pv.UnallocatedMinor = payment.AmountMinor - pv.AllocatedMinor
 		v.Payments = append(v.Payments, pv)
-		inCalendarPeriod := period == "" || period == "all" || payment.Date[:7] == period
+		inCalendarPeriod := accountingMonths[payment.Date[:7]]
+		if period != "" && period != "all" {
+			inCalendarPeriod = payment.Date[:7] == period
+		}
 		if inCalendarPeriod {
-			v.Summary.ReceivedMinor += payment.AmountMinor
+			if pv.Classification == "historical" || pv.Classification == "outside_period" {
+				v.Summary.HistoricalReceivedMinor += payment.AmountMinor
+			} else {
+				v.Summary.ReceivedMinor += payment.AmountMinor
+			}
 		}
 		v.Summary.UnallocatedMinor += pv.UnallocatedMinor
+		v.Summary.AdvanceMinor += pv.AdvanceMinor
 		if index, ok := parties[payment.CounterpartyID]; ok {
 			p := &v.Counterparties[index]
-			if inCalendarPeriod {
+			p.AdvanceMinor += pv.AdvanceMinor
+			currentReceipt := pv.Classification != "historical" && pv.Classification != "outside_period"
+			if inCalendarPeriod && currentReceipt {
 				p.ReceivedMinor += payment.AmountMinor
 			}
-			if payment.Date > p.LastPaymentAt {
+			if currentReceipt && payment.Date > p.LastPaymentAt {
 				p.LastPaymentAt = payment.Date
 			}
 		}
@@ -126,7 +183,7 @@ func workspaceView(s state, period, counterpartyID string) Workspace {
 			v.Summary.CounterpartyCount++
 		}
 	}
-	v.Summary.ReconciliationComplete = covered && v.Summary.InvoiceCount > 0 && v.Summary.UnallocatedMinor == 0
+	v.Summary.ReconciliationComplete = covered && v.Summary.InvoiceCount > 0 && v.Summary.UnallocatedMinor-v.Summary.AdvanceMinor == 0
 	for period := range periods {
 		v.Periods = append(v.Periods, period)
 	}

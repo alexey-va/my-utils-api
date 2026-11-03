@@ -155,8 +155,13 @@ func (s *Service) Allocate(ctx context.Context, owner string, request AllocateRe
 		if !invoice.IsCurrent {
 			return conflict("Архивный счёт не создаёт отдельную задолженность")
 		}
-		if _, ok := findPayment(*current, request.PaymentID); !ok {
+		payment, ok := findPayment(*current, request.PaymentID)
+		if !ok {
 			return missing("Платёж не найден")
+		}
+		classification := matchPayment(*current, payment).classification
+		if ownPayment(*current, payment) || classification == "historical" || classification == "outside_period" {
+			return conflict("Этот платёж не доступен для текущих начислений")
 		}
 		current.Allocations = append(current.Allocations, allocation)
 		return nil
