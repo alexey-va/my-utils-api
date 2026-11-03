@@ -18,6 +18,7 @@ import (
 
 	"github.com/alexey-va/my-utils-api/internal/agent"
 	"github.com/alexey-va/my-utils-api/internal/auth"
+	"github.com/alexey-va/my-utils-api/internal/business"
 	"github.com/alexey-va/my-utils-api/internal/config"
 	"github.com/alexey-va/my-utils-api/internal/health"
 	"github.com/alexey-va/my-utils-api/internal/httpapi"
@@ -133,6 +134,14 @@ func run(ctx context.Context) error {
 	}), store.NewSettingsStore(pool))
 	workoutService := workout.NewService(pool)
 	healthService := health.NewService(pool)
+	bankClient, err := business.NewBankClient(nil)
+	if err != nil {
+		return err
+	}
+	businessService, err := business.NewService(pool, cfg.JWT.Secret, bankClient)
+	if err != nil {
+		return err
+	}
 	wireGuardCipher, err := wireguard.NewCredentialsCipher(cfg.WireGuard.CredentialsEncryptionKey)
 	if err != nil {
 		return err
@@ -310,7 +319,8 @@ func run(ctx context.Context) error {
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Auth: authService, Settings: runtimeSettings, Workout: workoutService, Health: healthService,
 		WireGuard: wireGuardService, AgentMemory: agentMemory, TelegramFiles: telegramFiles, Network: networkProxy,
-		Metrics: metrics, CORS: cfg.CORS.AllowedOrigins,
+		Business: businessService,
+		Metrics:  metrics, CORS: cfg.CORS.AllowedOrigins,
 		RefreshCookie: httpapi.RefreshCookieConfig{
 			Name: cfg.Session.RefreshCookieName, TTL: cfg.Session.RefreshTTL, Secure: cfg.Session.RefreshCookieSecure,
 		},

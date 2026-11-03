@@ -15,6 +15,7 @@ Git-репозиториях. Этот документ описывает гр�
 | Workout UI/data fetching | `src/features/workout/` | `WorkoutController`, `WorkoutService` |
 | Runtime settings UI | `src/features/properties/` | `AdminSettingsController` |
 | Agent-memory UI | `src/features/agents/` | `AdminAgentMemoryController` |
+| Business invoices/payments/files | `src/features/business/` | `internal/business/`, `internal/httpapi/business.go` ([contract](BUSINESS.md)) |
 | Grafana/Temporal embeds | `src/config/grafana.ts`, `temporal.ts` | production infrastructure |
 
 ## Stable production paths
@@ -26,6 +27,7 @@ Git-репозиториях. Этот документ описывает гр�
 | `/grafana/**` | Grafana |
 | `/temporal/**` | Temporal UI |
 | `/workflows` | SPA page embedding `/temporal/` |
+| `/business` | administrator-only SPA accounting workspace; `/api/admin/business/**` uses ready-ADMIN and owner checks |
 
 Frontend endpoint constants already begin with `/api/`. In production use an
 empty `VITE_API_BASE_URL`; a value ending in `/api` produces duplicated

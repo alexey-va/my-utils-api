@@ -117,6 +117,7 @@ type Dependencies struct {
 	Health        HealthService
 	WireGuard     WireGuardService
 	AgentMemory   AgentMemoryService
+	Business      BusinessService
 	TelegramFiles TelegramFileService
 	Network       *NetworkProxy
 	Metrics       *observability.Metrics
@@ -133,7 +134,7 @@ type RefreshCookieConfig struct {
 type principalKey struct{}
 
 func NewRouter(dependencies Dependencies) http.Handler {
-	api := &API{auth: dependencies.Auth, settings: dependencies.Settings, workout: dependencies.Workout, health: dependencies.Health, wireGuard: dependencies.WireGuard, agentMemory: dependencies.AgentMemory, telegramFiles: dependencies.TelegramFiles, network: dependencies.Network, refreshCookie: dependencies.RefreshCookie}
+	api := &API{auth: dependencies.Auth, settings: dependencies.Settings, workout: dependencies.Workout, health: dependencies.Health, wireGuard: dependencies.WireGuard, agentMemory: dependencies.AgentMemory, business: dependencies.Business, telegramFiles: dependencies.TelegramFiles, network: dependencies.Network, refreshCookie: dependencies.RefreshCookie}
 	router := chi.NewRouter()
 	router.Use(middleware.RequestID)
 	router.Use(middleware.Recoverer)
@@ -179,6 +180,7 @@ func NewRouter(dependencies Dependencies) http.Handler {
 		api.registerNetworkAuditRoute(admin)
 		api.registerWireGuardAdminRoutes(admin)
 		api.registerAgentAdminRoutes(admin)
+		api.registerBusinessRoutes(admin)
 	})
 	api.registerNetworkPublicRoutes(router)
 	router.NotFound(api.notFound)
@@ -194,6 +196,7 @@ type API struct {
 	health        HealthService
 	wireGuard     WireGuardService
 	agentMemory   AgentMemoryService
+	business      BusinessService
 	telegramFiles TelegramFileService
 	network       *NetworkProxy
 	refreshCookie RefreshCookieConfig

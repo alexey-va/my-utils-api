@@ -73,6 +73,16 @@ A failed dependency therefore fails the container before it can report ready.
 
 ## HTTP and telemetry
 
+The private Business workspace at `/api/admin/business/**` manages invoice and
+service-act history, authenticated document downloads, local PDF invoice
+creation and incoming-payment allocation. It is protected by the ready-ADMIN
+middleware and each administrator's owner ID. Imported historical versions do
+not become extra receivables. An optional Tochka connection stores its token
+encrypted, retrieves statements on request and can create a bank invoice only
+through an explicit action. There is no outgoing-payment operation or automatic
+background sync. See [the business contract](docs/BUSINESS.md) for payloads,
+initial private import and money/coverage invariants.
+
 Stable REST paths are unchanged. The detailed access matrix is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Unknown routes are default-deny:
 anonymous requests receive `401`, authenticated requests receive `404`/`405`.
