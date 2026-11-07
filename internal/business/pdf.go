@@ -13,12 +13,29 @@ import (
 func moneyText(minor int64) string { return fmt.Sprintf("%d,%02d", minor/100, minor%100) }
 
 func renderInvoice(seller Seller, buyer Counterparty, invoice Invoice) ([]byte, error) {
+	return renderBillingPDF(seller, buyer, invoice, false)
+}
+
+func renderBillingPDF(seller Seller, buyer Counterparty, invoice Invoice, act bool) ([]byte, error) {
+	title, sellerLabel, buyerLabel, totalLabel := "Счёт на оплату № "+invoice.Number, "Поставщик", "Покупатель", "Итого к оплате: "
+	dateLabel := "от " + invoice.IssueDate
+	if invoice.DueDate != "" {
+		dateLabel += "  ·  Оплатить до " + invoice.DueDate
+	}
+	if act {
+		title, sellerLabel, buyerLabel, totalLabel = "Акт оказанных услуг", "Исполнитель", "Заказчик", "Стоимость услуг: "
+		dateLabel = "К счёту № " + invoice.Number + " от " + invoice.IssueDate
+	}
 	pdf := fpdf.New("P", "mm", "A4", "")
 	pdf.SetMargins(15, 15, 15)
 	pdf.SetAutoPageBreak(true, 18)
 	pdf.AddUTF8FontFromBytes("Go", "", goregular.TTF)
 	pdf.AddUTF8FontFromBytes("Go", "B", gobold.TTF)
-	pdf.SetTitle("Счёт № "+invoice.Number+" от "+invoice.IssueDate, true)
+	if act {
+		pdf.SetTitle(title, true)
+	} else {
+		pdf.SetTitle("Счёт № "+invoice.Number+" от "+invoice.IssueDate, true)
+	}
 	pdf.SetAuthor(seller.Name, true)
 	pdf.SetCreationDate(parseTimestamp(invoice.CreatedAt))
 	pdf.SetCatalogSort(true)
@@ -31,12 +48,8 @@ func renderInvoice(seller Seller, buyer Counterparty, invoice Invoice) ([]byte, 
 	pdf.AddPage()
 	pdf.SetTextColor(25, 25, 25)
 	pdf.SetFont("Go", "B", 17)
-	pdf.MultiCell(180, 8, "Счёт на оплату № "+invoice.Number, "", "L", false)
+	pdf.MultiCell(180, 8, title, "", "L", false)
 	pdf.SetFont("Go", "", 10)
-	dateLabel := "от " + invoice.IssueDate
-	if invoice.DueDate != "" {
-		dateLabel += "  ·  Оплатить до " + invoice.DueDate
-	}
 	pdf.MultiCell(180, 6, dateLabel, "", "L", false)
 	pdf.Ln(5)
 	paragraph := func(label, value string) {
@@ -49,14 +62,16 @@ func renderInvoice(seller Seller, buyer Counterparty, invoice Invoice) ([]byte, 
 		pdf.MultiCell(180, 5, value, "", "L", false)
 		pdf.Ln(3)
 	}
-	paragraph("Поставщик", seller.Name+"\nИНН "+seller.INN+nonemptyLine(seller.Address))
-	paragraph("Банковские реквизиты", seller.BankName+nonemptyLine("БИК "+seller.BankBIK)+nonemptyLine("Расчётный счёт "+seller.BankAccount)+nonemptyLine("Корреспондентский счёт "+seller.BankCorrespondentAccount))
+	paragraph(sellerLabel, seller.Name+"\nИНН "+seller.INN+nonemptyLine(seller.Address))
+	if !act {
+		paragraph("Банковские реквизиты", seller.BankName+nonemptyLine("БИК "+seller.BankBIK)+nonemptyLine("Расчётный счёт "+seller.BankAccount)+nonemptyLine("Корреспондентский счёт "+seller.BankCorrespondentAccount))
+	}
 	buyerText := buyer.Name
 	if buyer.INN != "" {
 		buyerText += "\nИНН " + buyer.INN
 	}
 	buyerText += nonemptyLine(buyer.Address)
-	paragraph("Покупатель", buyerText)
+	paragraph(buyerLabel, buyerText)
 	paragraph("Основание", invoice.Basis)
 	paragraph("Период оказания услуг", invoice.PeriodStart+" - "+invoice.PeriodEnd)
 	widths := []float64{8, 82, 18, 14, 28, 30}
@@ -102,9 +117,16 @@ func renderInvoice(seller Seller, buyer Counterparty, invoice Invoice) ([]byte, 
 	}
 	pdf.Ln(5)
 	pdf.SetFont("Go", "B", 12)
-	pdf.MultiCell(180, 7, "Итого к оплате: "+moneyText(invoice.AmountMinor)+" руб.", "", "R", false)
+	pdf.MultiCell(180, 7, totalLabel+moneyText(invoice.AmountMinor)+" руб.", "", "R", false)
 	pdf.SetFont("Go", "", 10)
 	pdf.MultiCell(180, 6, invoice.VAT, "", "R", false)
+	if act {
+		if pdf.GetY() > 240 {
+			pdf.AddPage()
+		}
+		pdf.Ln(8)
+		pdf.MultiCell(180, 8, "Исполнитель __________________   Заказчик __________________\nДата подписания __________________", "", "L", false)
+	}
 	var output bytes.Buffer
 	if err := pdf.Output(&output); err != nil {
 		return nil, err

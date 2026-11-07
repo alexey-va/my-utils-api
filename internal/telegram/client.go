@@ -91,7 +91,21 @@ func ParseButtons(raw string) ([][]InlineButton, error) {
 }
 
 func (c *Client) SendHTMLMessage(ctx context.Context, chatID int64, text, buttons string) (int, error) {
-	payload := map[string]any{"chat_id": chatID, "text": truncateRunes(text, messageMaxLength), "parse_mode": "HTML"}
+	return c.sendMessage(ctx, chatID, text, buttons, false)
+}
+
+func (c *Client) SendProtectedMessage(ctx context.Context, chatID int64, text, buttons string) (int, error) {
+	return c.sendMessage(ctx, chatID, text, buttons, true)
+}
+
+func (c *Client) sendMessage(ctx context.Context, chatID int64, text, buttons string, protected bool) (int, error) {
+	payload := map[string]any{"chat_id": chatID, "text": truncateRunes(text, messageMaxLength)}
+	if protected {
+		payload["protect_content"] = true
+		payload["link_preview_options"] = map[string]bool{"is_disabled": true}
+	} else {
+		payload["parse_mode"] = "HTML"
+	}
 	if rows, err := ParseButtons(buttons); err != nil {
 		return 0, err
 	} else if len(rows) > 0 {

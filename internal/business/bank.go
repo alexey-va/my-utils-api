@@ -2,7 +2,9 @@ package business
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"errors"
 	"reflect"
 	"regexp"
@@ -61,6 +63,7 @@ func (s *Service) Connect(ctx context.Context, owner, token string) (Bank, error
 		// A new credential can expose different accounts even at the same count.
 		// Old credits remain valid history, but cannot prove this scope's coverage.
 		current.Coverage = []Coverage{}
+		current.BankAccountScope = ""
 		current.Bank.CoverageStart, current.Bank.CoverageEnd, current.Bank.LastSyncedAt = "", "", ""
 		result = current.Bank
 		return nil
@@ -73,10 +76,44 @@ func (s *Service) Disconnect(ctx context.Context, owner string) error {
 			return err
 		}
 		current.Bank.Connected, current.Bank.Error = false, ""
+		current.BankAccountScope = ""
 		return nil
 	})
 }
 func (s *Service) Sync(ctx context.Context, owner, from, to string) (Bank, error) {
+	return s.sync(ctx, owner, from, to, false)
+}
+
+// SyncRecent extends a proven account scope. Manual Sync is still used to
+// choose a new coverage baseline when the credential exposes different accounts.
+func (s *Service) SyncRecent(ctx context.Context, owner string) (Bank, error) {
+	current, err := s.load(ctx, owner)
+	if err != nil {
+		return Bank{}, err
+	}
+	today := s.now().In(time.FixedZone("MSK", 3*3600))
+	from := current.Bank.CoverageStart
+	if from == "" || current.BankAccountScope != "" {
+		from = today.AddDate(0, 0, -7).Format(time.DateOnly)
+		if current.Bank.CoverageEnd != "" {
+			from = min(from, current.Bank.CoverageEnd)
+			from = max(from, today.AddDate(0, 0, -365).Format(time.DateOnly))
+		}
+	}
+	return s.sync(ctx, owner, from, today.Format(time.DateOnly), true)
+}
+
+func bankAccountScope(accounts []BankAccount) string {
+	ids := make([]string, 0, len(accounts))
+	for _, account := range accounts {
+		ids = append(ids, account.ID)
+	}
+	sort.Strings(ids)
+	sum := sha256.Sum256([]byte(strings.Join(ids, "\x00")))
+	return hex.EncodeToString(sum[:])
+}
+
+func (s *Service) sync(ctx context.Context, owner, from, to string, extend bool) (Bank, error) {
 	if s.bank == nil {
 		return Bank{}, unavailable("Банк не настроен")
 	}
@@ -117,6 +154,10 @@ func (s *Service) Sync(ctx context.Context, owner, from, to string) (Bank, error
 		if subtle.ConstantTimeCompare([]byte(currentToken), []byte(token)) != 1 {
 			return conflict("Подключение банка изменилось; запросите выписку заново")
 		}
+		scope := bankAccountScope(accounts)
+		if extend && (current.BankAccountScope != "" && current.BankAccountScope != scope || current.BankAccountScope == "" && current.Bank.CoverageStart != "" && from > current.Bank.CoverageStart) {
+			return conflict("Проверьте счета Точки и обновите выписку вручную")
+		}
 		newPayments := []Payment{}
 		for _, payment := range payments {
 			payment.CounterpartyID = uniquePayerID(*current, payment.PayerINN)
@@ -129,8 +170,11 @@ func (s *Service) Sync(ctx context.Context, owner, from, to string) (Bank, error
 			newPayments = append(newPayments, payment)
 		}
 		automaticAllocations(current, newPayments)
-		// Only this full retrieval proves the current credential's account scope.
-		current.Coverage = []Coverage{}
+		// Only preserve older spans after a successful read on the same accounts.
+		if !extend || current.BankAccountScope == "" {
+			current.Coverage = []Coverage{}
+		}
+		current.BankAccountScope = scope
 		addCoverage(current, from, to)
 		current.Bank.LastSyncedAt, current.Bank.AccountCount, current.Bank.Error = s.now().UTC().Format(time.RFC3339), len(accounts), ""
 		result = current.Bank
@@ -222,6 +266,23 @@ type paymentMatch struct {
 	canAdvance     bool
 }
 
+type invoiceReference struct{ number, date string }
+
+func referenceIn(description string) invoiceReference {
+	refs := datedInvoiceReference.FindAllStringSubmatch(description, -1)
+	if len(refs) != 1 || len(invoiceNumberReference.FindAllStringSubmatch(description, -1)) != 1 {
+		return invoiceReference{}
+	}
+	issued, err := time.Parse("2.1.2006", refs[0][2])
+	if err != nil {
+		issued, err = time.Parse(time.DateOnly, refs[0][2])
+	}
+	if err != nil {
+		return invoiceReference{}
+	}
+	return invoiceReference{refs[0][1], issued.Format(time.DateOnly)}
+}
+
 func ownPayment(s state, p Payment) bool {
 	return s.Seller.INN != "" && p.PayerINN != "" && p.PayerINN == s.Seller.INN
 }
@@ -255,21 +316,14 @@ func matchPayment(s state, p Payment) paymentMatch {
 	if len(periods) > 0 && p.Date < periods[0]+"-01" {
 		unknown.classification = "outside_period"
 	}
-	refs := datedInvoiceReference.FindAllStringSubmatch(p.Description, -1)
-	if len(refs) != 1 || len(invoiceNumberReference.FindAllStringSubmatch(p.Description, -1)) != 1 || p.PayerINN == "" {
-		return unknown
-	}
-	issued, err := time.Parse("2.1.2006", refs[0][2])
-	if err != nil {
-		issued, err = time.Parse(time.DateOnly, refs[0][2])
-	}
-	if err != nil {
+	reference := referenceIn(p.Description)
+	if reference.number == "" || p.PayerINN == "" {
 		return unknown
 	}
 	scopes := map[receiptScope]bool{}
 	for _, invoice := range s.Invoices {
 		party, ok := findParty(s, invoice.CounterpartyID)
-		if ok && party.INN == p.PayerINN && invoice.Number == refs[0][1] && invoice.IssueDate == issued.Format(time.DateOnly) {
+		if ok && party.INN == p.PayerINN && invoice.Number == reference.number && invoice.IssueDate == reference.date {
 			scopes[receiptScope{invoice.CounterpartyID, invoice.TemplateID, invoice.PeriodStart, invoice.PeriodEnd}] = true
 		}
 	}

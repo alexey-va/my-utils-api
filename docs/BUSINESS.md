@@ -106,7 +106,7 @@ type InvoiceView = Invoice & { paidMinor: number; outstandingMinor: number;
   status: 'paid'|'partial'|'unmatched'|'unreviewed'|'archived'; allocations: Allocation[] };
 type PaymentView = Payment & { allocatedMinor: number; unallocatedMinor: number;
   advanceMinor: number; classification: 'rental'|'historical'|'outside_period'|'unclassified';
-  allocations: Allocation[] };
+  allocations: Allocation[]; historicalInvoiceId?: string };
 type CounterpartyView = Counterparty & { invoicedMinor: number; paidMinor: number;
   outstandingMinor: number; receivedMinor: number; advanceMinor: number; invoiceCount: number;
   unreviewedCount: number; lastPaymentAt: string };
@@ -144,8 +144,10 @@ periods, with monthly filtering as an explicit visible choice.
 Advance totals consider all current accounting periods even in a monthly view;
 an optional payer filter still applies. Monthly captions must distinguish this
 global credit from month-scoped charges, invoice payments and calendar receipts.
-The receipt ledger initially shows current receipts; a history disclosure keeps
-pre-ledger rows accessible without treating them as new income or open cash.
+The receipt ledger shows all external receipts, with history and amounts needing
+review visible by default. Historical receipts may reference an archived invoice
+when payer, invoice number and date, and total credited amount identify a unique
+original. The reference does not create a current allocation.
 
 `unreviewed` means no usable statement coverage yet. `unmatched` means coverage
 exists but no allocated payment was found; it does not claim legally overdue
@@ -221,3 +223,35 @@ unknown payment coverage, PDF Cyrillic output, token redaction/encryption, and
 bank-write uncertain-result retry refusal. Bank tests use an injected HTTP
 fake; no tests call real bank services. Run both repository gates and browser
 flows at desktop, tablet and phone before publication.
+
+## Private Telegram business bot
+
+The business bot uses a separate token and accepts messages only from the
+configured user's direct chat. It resolves the configured workspace owner
+against the existing ready-ADMIN policy. Set these in the deployment secret
+profile to enable it:
+
+- `BUSINESS_TELEGRAM_BOT_TOKEN` for the dedicated bot.
+- `BUSINESS_TELEGRAM_USER_ID` for the owner's Telegram numeric user ID.
+- `BUSINESS_WORKSPACE_OWNER_ID` for the existing business workspace owner UUID.
+
+In the bot, `/start` and `/menu` open the menu. OpenRouter uses
+`openai/gpt-6.1-sol` and receives an allowlisted projection of the ledger.
+The bot asks for any missing document parameters, then offers a one-use
+confirmation. A local invoice can be created or its existing PDF returned. A
+service act uses the existing invoice and adds no charge. An act of
+reconciliation uses an explicit inclusive date range and returns an unsigned
+PDF with opening balance, activity and closing balance from the current
+ledger. Older, unmatched and advance receipts are identified separately.
+Lease contract intake is available for discussion; generation requires an
+approved template. PDFs and financial messages are sent only to the owner's
+private chat using Telegram's protected content flag.
+
+A newly enabled bot establishes a baseline without sending old transactions.
+It checks for new external Tochka credits, attempts a bank refresh every 30
+minutes, and sends the weekly open-invoice report on Monday at 10:00 Moscow
+time. Redis stores delivery checkpoints. A lost delivery acknowledgement can
+cause a retry. The bot can deliver direct messages once the owner opens it and
+presses Start. Manual sync establishes a new bank coverage scope; background
+refresh extends coverage only when the accessible accounts match the stored
+scope.

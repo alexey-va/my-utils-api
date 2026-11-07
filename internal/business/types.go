@@ -114,11 +114,12 @@ type InvoiceView struct {
 }
 type PaymentView struct {
 	Payment
-	Classification   string       `json:"classification"`
-	AdvanceMinor     int64        `json:"advanceMinor"`
-	AllocatedMinor   int64        `json:"allocatedMinor"`
-	UnallocatedMinor int64        `json:"unallocatedMinor"`
-	Allocations      []Allocation `json:"allocations"`
+	HistoricalInvoiceID string       `json:"historicalInvoiceId,omitempty"`
+	Classification      string       `json:"classification"`
+	AdvanceMinor        int64        `json:"advanceMinor"`
+	AllocatedMinor      int64        `json:"allocatedMinor"`
+	UnallocatedMinor    int64        `json:"unallocatedMinor"`
+	Allocations         []Allocation `json:"allocations"`
 }
 type CounterpartyView struct {
 	Counterparty
@@ -203,6 +204,7 @@ type Coverage struct {
 	To   string `json:"to"`
 }
 type state struct {
+	BankAccountScope     string         `json:"bankAccountScope,omitempty"`
 	HistoricalPaymentIDs []string       `json:"historicalPaymentIds,omitempty"`
 	Seller               Seller         `json:"seller"`
 	Counterparties       []Counterparty `json:"counterparties"`

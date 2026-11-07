@@ -316,6 +316,15 @@ func run(ctx context.Context) error {
 		vpnTelegramRunner = telegram.NewRunner(vpnTelegramClient, vpnTelegramMenu, cfg.VPNTelegram.PollingEnabled)
 		defer vpnTelegramRunner.Close()
 	}
+	businessRunner, businessNotifications, err := configureBusinessTelegram(
+		cfg, telegramProxy, users, businessService, openRouterClient, redisClient,
+	)
+	if err != nil {
+		return err
+	}
+	if businessRunner != nil {
+		defer businessRunner.Close()
+	}
 	router := httpapi.NewRouter(httpapi.Dependencies{
 		Auth: authService, Settings: runtimeSettings, Workout: workoutService, Health: healthService,
 		WireGuard: wireGuardService, AgentMemory: agentMemory, TelegramFiles: telegramFiles, Network: networkProxy,
@@ -341,12 +350,18 @@ func run(ctx context.Context) error {
 	if vpnTelegramMenu != nil {
 		warmers = append(warmers, vpnTelegramMenu, vpnTelegramRunner)
 	}
+	if businessRunner != nil {
+		warmers = append(warmers, businessRunner)
+	}
 	return startup.Run(ctx, warmers, func(servingContext context.Context) error {
 		refreshContext, cancelRefresh := context.WithCancel(servingContext)
 		defer cancelRefresh()
 		go runtimeSettings.RunRefresh(refreshContext, time.Minute)
 		if autoCompactor != nil {
 			go autoCompactor.Run(servingContext)
+		}
+		if businessNotifications != nil {
+			go businessNotifications.Run(servingContext)
 		}
 		shutdownComplete := make(chan struct{})
 		go func() {

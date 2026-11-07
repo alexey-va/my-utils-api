@@ -95,7 +95,53 @@ func paymentViews(s state) []PaymentView {
 		}
 		views = append(views, pv)
 	}
+	linkHistoricalInvoices(s, views)
 	return views
+}
+
+// Attach evidence to historical credits without creating current allocations.
+// A dated reference and exact total across its payments distinguish, for example,
+// a monthly original from a cumulative document with the same invoice number.
+func linkHistoricalInvoices(s state, payments []PaymentView) {
+	type key struct {
+		inn string
+		invoiceReference
+	}
+	totals := map[key]int64{}
+	groups := map[key][]int{}
+	for i, payment := range payments {
+		if payment.Classification != "historical" || payment.PayerINN == "" {
+			continue
+		}
+		ref := referenceIn(payment.Description)
+		if ref.number != "" {
+			k := key{payment.PayerINN, ref}
+			totals[k] = min(maxMinor+1, totals[k]+payment.AmountMinor)
+			groups[k] = append(groups[k], i)
+		}
+	}
+	matches := map[key][]Invoice{}
+	for _, invoice := range s.Invoices {
+		party, ok := findParty(s, invoice.CounterpartyID)
+		if !ok || party.INN == "" {
+			continue
+		}
+		k := key{party.INN, invoiceReference{invoice.Number, invoice.IssueDate}}
+		if totals[k] == invoice.AmountMinor {
+			matches[k] = append(matches[k], invoice)
+		}
+	}
+	for k, candidates := range matches {
+		if len(candidates) != 1 || candidates[0].IsCurrent {
+			continue
+		}
+		for _, index := range groups[k] {
+			payment := &payments[index]
+			if payment.CounterpartyID == "" || payment.CounterpartyID == candidates[0].CounterpartyID {
+				payment.HistoricalInvoiceID = candidates[0].ID
+			}
+		}
+	}
 }
 
 func workspaceView(s state, period, counterpartyID string) Workspace {
