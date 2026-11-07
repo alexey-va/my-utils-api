@@ -71,9 +71,8 @@ so no lexical allowlist decides whether a natural sentence is writable.
 The entire plan is validated before its first side effect. Duplicate operations
 and delete-then-write replacements are rejected. All database actions and their receipts commit in one transaction; a failed
 action rolls back the plan. External deliveries cannot join a database plan.
-Mutation results become the
-stored final reply directly; no second model completion can invent success or
-unsolicited training advice. Each attempted tool call retains exact arguments,
+The server formats the final write reply from confirmed mutation results.
+Each attempted tool call retains exact arguments,
 matching call ID and an `ok/result/error` receipt. A failed operation is not
 blindly replayed. `copy_workout` reads exact sets from the database: by default the latest
 session before the target date, or an explicitly selected `source_date`. An
@@ -130,13 +129,20 @@ Task queue: `myutils-go-v1`.
 | Workflow | ID pattern | Purpose |
 | --- | --- | --- |
 | Agent turn | `go-v1-agent-turn-{chatId}-{uuid}` | durable LLM/tool turn |
-| Evening reminder | `go-v1-evening-reminder-{chatId}` | daily workout nudge |
+| Evening reminder | `go-v1-evening-reminder-{chatId}` | daily check for gaps in workout or weight history when enabled |
 | Weekly health report | `go-v1-weekly-health-report-{chatId}` | Saturday PNG reports |
 | Notification | `go-v1-tg-notify-{chatId}-{uuid}` | delayed Telegram message |
 
 The Go bootstrap starts only these IDs and never inspects or mutates histories
 from the removed Kotlin task queue. `time/tzdata` is embedded so workflow time
 zones work in the small Alpine image.
+
+The evening check looks at the last 90 days of the diary. It can nudge after a
+week without a recorded workout or weight measurement. An exercise is eligible
+after three weeks away when it appeared at least three times and other
+training is still current. Each chat gets at most one nudge in five days and
+none on Saturdays. The workflow carries the latest gap mentioned for each
+topic into its next run.
 
 ## Runtime settings
 

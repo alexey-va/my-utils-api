@@ -37,8 +37,9 @@ func (f *fakeConversation) Context(_ context.Context, _ int64, _ int) ([]openrou
 func (f *fakeConversation) PromptContext(context.Context, int64) (string, error) { return "", nil }
 
 type fakeTools struct {
-	calls []string
-	args  []map[string]any
+	calls  []string
+	args   []map[string]any
+	result string
 }
 
 func (f *fakeTools) Execute(_ context.Context, _ int64, name string, args map[string]any, _ string, sandbox bool) (string, error) {
@@ -50,6 +51,9 @@ func (f *fakeTools) Execute(_ context.Context, _ int64, name string, args map[st
 	f.args = append(f.args, copyArgs)
 	if !sandbox {
 		return "", errTest("expected sandbox")
+	}
+	if f.result != "" {
+		return f.result, nil
 	}
 	return "Записано: проверенный результат сервиса.", nil
 }
@@ -156,6 +160,25 @@ func TestTurnerWritesCorrectJSONDespiteInterveningWords(t *testing.T) {
 	var receipt map[string]any
 	if err := json.Unmarshal([]byte(contentString(c.messages[2].Content)), &receipt); err != nil || receipt["ok"] != true {
 		t.Fatalf("receipt=%v err=%v", receipt, err)
+	}
+}
+
+func TestTurnerHidesWorkflowReferenceButKeepsItInTheReceipt(t *testing.T) {
+	const workflowID = "go-v1-notification-test"
+	const rawReceipt = "Напоминание запланировано на 08.11.2026 20:00 (workflow " + workflowID + ")."
+	llm := &fakeCompleter{responses: []openrouter.Response{decisionResponse("write", "", plannedAction{
+		Tool: "schedule_notification", RequestQuote: "напомни завтра",
+		Arguments: map[string]any{"message": "Свериться с дневником", "deliver_at": "2026-11-08T20:00:00+03:00"},
+	})}}
+	c := &fakeConversation{}
+	turner := testTurner(llm, c, &fakeTools{result: rawReceipt})
+	turner.config.TemporalEnabled = true
+	result, err := turner.Turn(context.Background(), 1, "напомни завтра", nil, true)
+	if err != nil || result.Reply != "Напоминание запланировано на 08.11.2026 20:00." || len(llm.requests) != 1 {
+		t.Fatalf("result=%+v requests=%d err=%v", result, len(llm.requests), err)
+	}
+	if len(c.messages) != 4 || c.messages[2].Role != "tool" || !strings.Contains(contentString(c.messages[2].Content), workflowID) || c.messages[3].Content != result.Reply {
+		t.Fatalf("conversation=%+v", c.messages)
 	}
 }
 

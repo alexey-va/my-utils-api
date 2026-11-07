@@ -58,6 +58,8 @@ func (s *Service) Warm(ctx context.Context) error {
 	workerInstance.RegisterActivityWithOptions(s.activities.SendTelegramMessage, activity.RegisterOptions{Name: SendTelegramMessageActivity})
 	workerInstance.RegisterActivityWithOptions(s.activities.HasWorkoutToday, activity.RegisterOptions{Name: HasWorkoutTodayActivity})
 	workerInstance.RegisterActivityWithOptions(s.activities.SendEveningReminder, activity.RegisterOptions{Name: SendEveningReminderActivity})
+	workerInstance.RegisterActivityWithOptions(s.activities.ChooseEveningReminder, activity.RegisterOptions{Name: ChooseEveningReminderActivity})
+	workerInstance.RegisterActivityWithOptions(s.activities.DeliverEveningReminder, activity.RegisterOptions{Name: DeliverEveningReminderActivity})
 	workerInstance.RegisterActivityWithOptions(s.activities.SendWeeklyReport, activity.RegisterOptions{Name: SendWeeklyReportActivity})
 	workerInstance.RegisterActivityWithOptions(s.activities.RunAgentTurn, activity.RegisterOptions{Name: RunAgentTurnActivity})
 	if err := workerInstance.Start(); err != nil {
@@ -109,23 +111,20 @@ func (s *Service) ensureRecurring(ctx context.Context) error {
 }
 
 func (s *Service) RefreshEveningReminders(ctx context.Context) error {
+	// Pausing delivery preserves the workflow's cooldown and previous gaps.
+	// The activities check the current switch before reading or sending.
+	if !s.config.ReminderOn() {
+		return nil
+	}
 	clientInstance, err := s.readyClient()
 	if err != nil {
 		return err
 	}
 	for _, chatID := range s.config.AllowedChatIDs {
-		workflowID := EveningReminderWorkflowID(chatID)
-		if s.config.ReminderOn() {
-			_, err := clientInstance.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: workflowID, TaskQueue: s.config.TaskQueue}, EveningReminderWorkflow,
-				ReminderInput{ChatID: chatID, ZoneID: s.config.ZoneID(), Hour: s.config.ReminderHour(), Minute: s.config.ReminderMinute()})
-			if err != nil && !temporal.IsWorkflowExecutionAlreadyStartedError(err) {
-				return err
-			}
-		} else if err := clientInstance.CancelWorkflow(ctx, workflowID, ""); err != nil {
-			var notFound *serviceerror.NotFound
-			if !errors.As(err, &notFound) {
-				return err
-			}
+		_, err := clientInstance.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: EveningReminderWorkflowID(chatID), TaskQueue: s.config.TaskQueue}, EveningReminderWorkflow,
+			ReminderInput{ChatID: chatID, ZoneID: s.config.ZoneID(), Hour: s.config.ReminderHour(), Minute: s.config.ReminderMinute()})
+		if err != nil && !temporal.IsWorkflowExecutionAlreadyStartedError(err) {
+			return err
 		}
 	}
 	return nil

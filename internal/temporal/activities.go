@@ -23,14 +23,15 @@ type WeeklyReportRenderer interface {
 }
 
 type Activities struct {
-	Workout   *workout.Service
-	Health    *health.Service
-	Messenger Messenger
-	Renderer  WeeklyReportRenderer
-	Agent     agent.Turner
-	Status    agent.TurnStatus
-	Metrics   agent.MetricsRecorder
-	Allowed   map[int64]bool
+	Workout    *workout.Service
+	Health     *health.Service
+	Messenger  Messenger
+	Renderer   WeeklyReportRenderer
+	Agent      agent.Turner
+	Status     agent.TurnStatus
+	Metrics    agent.MetricsRecorder
+	Allowed    map[int64]bool
+	ReminderOn func() bool
 }
 
 func (a *Activities) SendTelegramMessage(ctx context.Context, chatID int64, message string) error {
@@ -60,6 +61,9 @@ func (a *Activities) HasWorkoutToday(ctx context.Context, zoneID string) (bool, 
 }
 
 func (a *Activities) SendEveningReminder(ctx context.Context, chatID int64) error {
+	if !a.eveningReminderEnabled(chatID) {
+		return nil
+	}
 	return a.SendTelegramMessage(ctx, chatID, "Сегодня в дневнике пусто. Запиши тренировку или напиши «что на сегодня» — составлю план.")
 }
 

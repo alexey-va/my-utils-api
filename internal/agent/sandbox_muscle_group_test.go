@@ -1,9 +1,6 @@
 package agent
 
-import (
-	"strings"
-	"testing"
-)
+import "testing"
 
 func TestSandboxExerciseUsesCanonicalMuscleGroupNormalization(t *testing.T) {
 	t.Parallel()
@@ -16,7 +13,7 @@ func TestSandboxExerciseUsesCanonicalMuscleGroupNormalization(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(result, "(shoulders)") || len(state.Exercises) != 1 || state.Exercises[0].MuscleGroup != "shoulders" {
+	if result != "Добавил упражнение «Задняя дельта» (плечи)." || len(state.Exercises) != 1 || state.Exercises[0].MuscleGroup != "shoulders" {
 		t.Fatalf("result=%q state=%#v", result, state)
 	}
 }

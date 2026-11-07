@@ -42,7 +42,8 @@ func TestDecisionSandboxCopiesDatabaseHistoryAndArchivesFailures(t *testing.T) {
 	}
 	llm := &fakeCompleter{responses: []openrouter.Response{decisionResponse("write", "", plannedAction{Tool: "copy_workout", RequestQuote: "как в прошлый раз", Arguments: map[string]any{"exercise_name": "Тестовый жим", "date": "2026-08-10"}})}}
 	result, err := testTurner(llm, NewContextualConversation(m, nil, nil, nil, nil, nil, nil), tools).Turn(ctx, chat.MemoryChatID, "Тестовый жим 10 августа как в прошлый раз", nil, true)
-	if err != nil || !strings.Contains(result.Reply, "52.5") || strings.Contains(result.Reply, "90 ") {
+	const wantReply = "Записал за 10 августа 2026 года: Тестовый жим — 52,5 кг, 2×8 (из записи за 1 августа 2026 года)."
+	if err != nil || result.Reply != wantReply || len(llm.requests) != 1 {
 		t.Fatalf("result=%+v err=%v", result, err)
 	}
 	var raw string

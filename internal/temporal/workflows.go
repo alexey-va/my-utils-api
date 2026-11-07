@@ -12,12 +12,14 @@ import (
 )
 
 const (
-	SendTelegramMessageActivity = "SendTelegramMessage"
-	HasWorkoutTodayActivity     = "HasWorkoutToday"
-	SendEveningReminderActivity = "SendEveningReminder"
-	SendWeeklyReportActivity    = "SendWeeklyReport"
-	RunAgentTurnActivity        = "RunAgentTurn"
-	AgentTurnQueueSignal        = "GoV1AgentTurnQueueSignal"
+	SendTelegramMessageActivity    = "SendTelegramMessage"
+	HasWorkoutTodayActivity        = "HasWorkoutToday"
+	SendEveningReminderActivity    = "SendEveningReminder"
+	ChooseEveningReminderActivity  = "ChooseEveningReminder"
+	DeliverEveningReminderActivity = "DeliverEveningReminder"
+	SendWeeklyReportActivity       = "SendWeeklyReport"
+	RunAgentTurnActivity           = "RunAgentTurn"
+	AgentTurnQueueSignal           = "GoV1AgentTurnQueueSignal"
 
 	// Keep the per-chat queue history bounded while retaining every signal that
 	// arrived before the ContinueAsNew command.
@@ -37,10 +39,11 @@ type NotificationInput struct {
 }
 
 type ReminderInput struct {
-	ChatID int64  `json:"chatId"`
-	ZoneID string `json:"zoneId"`
-	Hour   int    `json:"hour"`
-	Minute int    `json:"minute"`
+	ChatID int64         `json:"chatId"`
+	ZoneID string        `json:"zoneId"`
+	Hour   int           `json:"hour"`
+	Minute int           `json:"minute"`
+	State  ReminderState `json:"state,omitempty"`
 }
 
 type WeeklyReportInput struct {
@@ -91,6 +94,32 @@ func EveningReminderWorkflow(ctx workflow.Context, input ReminderInput) error {
 		return err
 	}
 	activityCtx := withActivityOptions(ctx, 2*time.Minute, 3)
+	if workflow.GetVersion(ctx, "smart-evening-reminder", workflow.DefaultVersion, 1) != workflow.DefaultVersion {
+		var decision reminderDecision
+		err := workflow.ExecuteActivity(activityCtx, ChooseEveningReminderActivity, input, target).Get(ctx, &decision)
+		if err == nil && decision.Message != "" {
+			sendCtx := workflow.WithActivityOptions(ctx, workflow.ActivityOptions{
+				ScheduleToCloseTimeout: 2 * time.Minute,
+				RetryPolicy:            &temporal.RetryPolicy{MaximumAttempts: 1},
+			})
+			var attempted bool
+			err = workflow.ExecuteActivity(sendCtx, DeliverEveningReminderActivity, input, target, decision.Message).Get(ctx, &attempted)
+			// An ambiguous failure may already have delivered the message.
+			// Carry the decision forward unless delivery was explicitly skipped.
+			if attempted || err != nil {
+				input.State = decision.State
+			}
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if err != nil {
+			workflow.GetLogger(ctx).Warn("evening reminder check or delivery failed", "error", err)
+		}
+		return workflow.NewContinueAsNewError(ctx, EveningReminderWorkflow, input)
+	}
+
+	// Old histories may already contain these activity commands.
 	var logged bool
 	if err := workflow.ExecuteActivity(activityCtx, HasWorkoutTodayActivity, input.ZoneID).Get(ctx, &logged); err != nil {
 		return err

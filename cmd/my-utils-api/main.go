@@ -177,6 +177,7 @@ func run(ctx context.Context) error {
 	temporalActivities := &workflowtemporal.Activities{
 		Workout: workoutService, Health: healthService, Messenger: telegramClient,
 		Renderer: reportRenderer, Status: agentStatus, Metrics: metrics, Allowed: allowedUsers,
+		ReminderOn: func() bool { return runtimeSettings.Bool(settings.TemporalReminderEnabled) },
 	}
 	if cfg.Temporal.Enabled {
 		if telegramClient == nil {
@@ -186,7 +187,7 @@ func run(ctx context.Context) error {
 			Target: cfg.Temporal.Target, Namespace: cfg.Temporal.Namespace, TaskQueue: cfg.Temporal.TaskQueue,
 			AllowedChatIDs: cfg.Telegram.AllowedUserIDs,
 			ZoneID:         func() string { return runtimeSettings.String(settings.TemporalZoneID) },
-			ReminderOn:     func() bool { return runtimeSettings.Bool(settings.TemporalReminderEnabled) },
+			ReminderOn:     temporalActivities.ReminderOn,
 			ReminderHour:   func() int { return runtimeSettings.Int(settings.TemporalReminderHour) },
 			ReminderMinute: func() int { return runtimeSettings.Int(settings.TemporalReminderMinute) },
 		}, temporalActivities)

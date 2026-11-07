@@ -1,6 +1,47 @@
 package agent
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
+
+func TestSandboxWorkoutReceiptsShowTheSavedValues(t *testing.T) {
+	t.Parallel()
+	tools := &ToolService{}
+	state := sandboxState{Exercises: []sandboxExercise{{ID: "press", Name: "Жим"}}}
+	const date = "2026-11-07"
+	for _, check := range []struct {
+		tool string
+		args map[string]any
+		want string
+	}{
+		{"log_workout", map[string]any{"exercise_name": "Жим", "notation": "62.5 3*10/10", "date": date}, "Записал за 7 ноября 2026 года: Жим — 62,5 кг, 4×10."},
+		{"log_workout", map[string]any{"exercise_name": "Жим", "notation": "62.5 10/10", "date": date}, "Записал за 7 ноября 2026 года: Жим — 62,5 кг, 2×10."},
+		{"log_workout", map[string]any{"exercise_name": "Жим", "notation": "60/65 10/8", "date": date}, "Записал за 7 ноября 2026 года: Жим — 60 кг × 10, 65 кг × 8."},
+		{"log_body_weight", map[string]any{"weight_kg": 81.46, "date": date}, "Записал вес за 7 ноября 2026 года: 81,5 кг."},
+		{"log_body_weight", map[string]any{"weight_kg": 82.04, "date": date}, "Обновил вес за 7 ноября 2026 года: 82 кг."},
+	} {
+		got, err := tools.runSandboxTool(&state, check.tool, check.args)
+		if err != nil || got != check.want {
+			t.Fatalf("%s %v: reply = %q, want %q, err = %v", check.tool, check.args, got, check.want, err)
+		}
+	}
+}
+
+func TestExerciseClarificationShowsNamesInsteadOfIDs(t *testing.T) {
+	t.Parallel()
+	_, err := ResolveExercise("", "Бабочка", []ExerciseCandidate{
+		{ID: "secret-chest-id", Name: "Бабочка на грудь", MuscleGroup: "chest"},
+		{ID: "secret-shoulder-id", Name: "Обратная бабочка", MuscleGroup: "shoulders"},
+	})
+	if err == nil {
+		t.Fatal("expected ambiguous exercise")
+	}
+	got := visibleMutationError(plannedAction{}, err)
+	if strings.Contains(got, "secret-") || !strings.Contains(got, "Бабочка на грудь") || !strings.Contains(got, "Обратная бабочка") {
+		t.Fatalf("clarification = %q", got)
+	}
+}
 
 func TestNormalizeReplyForTelegram(t *testing.T) {
 	t.Parallel()

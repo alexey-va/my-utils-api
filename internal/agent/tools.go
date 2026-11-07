@@ -105,7 +105,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Записано: %s, %s — %s (кг; как %s).", exercise.Name, request.PerformedOn, workout.Display(request.WeightKg, request.SetReps, request.SetWeights, request.SetCount), sourceDate), nil
+		return workoutReceipt(exercise.Name, request.PerformedOn, sourceDate, request.WeightKg, request.SetReps, request.SetWeights), nil
 	case "list_exercises":
 		exercises, err := s.workout.ListExercises(ctx)
 		if err != nil {
@@ -129,7 +129,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Создано упражнение «%s» (%s).", exercise.Name, exercise.MuscleGroup), nil
+		return fmt.Sprintf("Добавил упражнение «%s» (%s).", exercise.Name, muscleGroupRU(exercise.MuscleGroup)), nil
 	case "rename_exercise":
 		exercise, err := s.findExercise(ctx, optionalString(args, "current_name"), optionalString(args, "exercise_id"))
 		if err != nil {
@@ -144,7 +144,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("«%s» переименовано в «%s».", exercise.Name, updated.Name), nil
+		return fmt.Sprintf("Переименовал «%s» в «%s».", exercise.Name, updated.Name), nil
 	case "log_workout":
 		exercise, err := s.findExercise(ctx, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
@@ -165,7 +165,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Записано: %s, %s — %s.", exercise.Name, date, workout.Display(parsed.WeightKg, parsed.Reps, parsed.Weights, parsed.SetCount)), nil
+		return workoutReceipt(exercise.Name, date, "", parsed.WeightKg, parsed.Reps, parsed.Weights), nil
 	case "delete_workout":
 		exercise, err := s.findExercise(ctx, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
@@ -181,7 +181,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		if err := s.workout.DeleteEntry(ctx, exercise.ID, date); err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("Удалена запись %s за %s.", exercise.Name, date), nil
+		return fmt.Sprintf("Убрал запись «%s» за %s.", exercise.Name, receiptDate(date)), nil
 	case "get_progress", "get_exercise_progresses":
 		nameArg := optionalString(args, "exercise")
 		if nameArg == "" {
@@ -234,11 +234,7 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 		if err != nil {
 			return "", err
 		}
-		verb := "обновлён"
-		if result.Created {
-			verb = "сохранён"
-		}
-		return fmt.Sprintf("Вес %.1f кг %s за %s.", result.WeightKg, verb, result.Date), nil
+		return bodyWeightReceipt(result.Date, result.WeightKg, result.Created), nil
 	case "get_body_weight":
 		days := optionalInt(args, "recent_days", 14, 1, 90)
 		history, err := s.health.WeightHistory(ctx, days, s.todayTime())
@@ -300,9 +296,9 @@ func (s *ToolService) executeReal(ctx context.Context, chatID int64, name string
 			return "", err
 		}
 		if !cancelled {
-			return "Workflow не найден: " + workflowID, nil
+			return "Не нашёл это напоминание.", nil
 		}
-		return "Напоминание отменено (" + workflowID + ").", nil
+		return "Отменил напоминание.", nil
 	case "send_weekly_health_report":
 		if s.scheduler == nil {
 			return "", errors.New("Temporal выключен — графики не отправлены")
@@ -503,7 +499,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 			}
 		}
 		state.Workouts = append(filtered, *previous)
-		return fmt.Sprintf("SANDBOX: записано %s, %s — %s (как %s).", exercise.Name, date, workout.Display(previous.WeightKg, previous.Reps, previous.Weights, previous.SetCount), sourceDate), nil
+		return workoutReceipt(exercise.Name, date, sourceDate, request.WeightKg, request.SetReps, request.SetWeights), nil
 	case "list_exercises":
 		if len(state.Exercises) == 0 {
 			return "В SANDBOX упражнений пока нет.", nil
@@ -523,7 +519,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 		}
 		group := workout.NormalizeMuscleGroup(optionalString(args, "muscle_group"))
 		state.Exercises = append(state.Exercises, sandboxExercise{ID: randomID("exercise"), Name: nameArg, MuscleGroup: group})
-		return fmt.Sprintf("SANDBOX: создано упражнение «%s» (%s).", nameArg, group), nil
+		return fmt.Sprintf("Добавил упражнение «%s» (%s).", nameArg, muscleGroupRU(group)), nil
 	case "rename_exercise":
 		exercise, err := sandboxExerciseByName(state, optionalString(args, "current_name"), optionalString(args, "exercise_id"))
 		if err != nil {
@@ -539,7 +535,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 				state.Workouts[index].ExerciseName = exercise.Name
 			}
 		}
-		return fmt.Sprintf("SANDBOX: «%s» переименовано в «%s».", previous, exercise.Name), nil
+		return fmt.Sprintf("Переименовал «%s» в «%s».", previous, exercise.Name), nil
 	case "log_workout":
 		exercise, err := sandboxExerciseByName(state, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
@@ -566,7 +562,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 			}
 		}
 		state.Workouts = append(filtered, sandboxWorkout{ExerciseID: exercise.ID, ExerciseName: exercise.Name, PerformedOn: date, WeightKg: parsed.WeightKg, SetCount: parsed.SetCount, Reps: parsed.Reps, Weights: parsed.Weights})
-		return fmt.Sprintf("SANDBOX: записано %s, %s — %s", exercise.Name, date, workout.Display(parsed.WeightKg, parsed.Reps, parsed.Weights, parsed.SetCount)), nil
+		return workoutReceipt(exercise.Name, date, "", parsed.WeightKg, parsed.Reps, parsed.Weights), nil
 	case "delete_workout":
 		exercise, err := sandboxExerciseByName(state, optionalString(args, "exercise_name"), optionalString(args, "exercise_id"))
 		if err != nil {
@@ -592,7 +588,7 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 			return "", fmt.Errorf("в SANDBOX нет записи за %s", date)
 		}
 		state.Workouts = filtered
-		return fmt.Sprintf("SANDBOX: удалена запись %s за %s.", exercise.Name, date), nil
+		return fmt.Sprintf("Убрал запись «%s» за %s.", exercise.Name, receiptDate(date)), nil
 	case "get_progress", "get_exercise_progresses":
 		exerciseName := optionalString(args, "exercise")
 		if exerciseName == "" {
@@ -649,13 +645,16 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 			return "", errors.New("Вес тела должен быть от 20 до 400 кг")
 		}
 		filtered := state.BodyWeights[:0]
+		created := true
 		for _, row := range state.BodyWeights {
 			if row.PerformedOn != date {
 				filtered = append(filtered, row)
+			} else {
+				created = false
 			}
 		}
 		state.BodyWeights = append(filtered, sandboxWeight{PerformedOn: date, WeightKg: value})
-		return fmt.Sprintf("SANDBOX: вес %.1f кг сохранён за %s.", value, date), nil
+		return bodyWeightReceipt(date, value, created), nil
 	case "get_body_weight":
 		if len(state.BodyWeights) == 0 {
 			return "В SANDBOX замеров веса пока нет.", nil
@@ -695,13 +694,13 @@ func (s *ToolService) runSandboxTool(state *sandboxState, name string, args map[
 		}
 		notification := sandboxNotification{ID: randomID("sandbox"), Status: status, Message: requiredString(args, "message")}
 		state.Notifications = append(state.Notifications, notification)
-		return fmt.Sprintf("SANDBOX: уведомление %s сохранено локально; наружу ничего не отправлено.", notification.ID), nil
+		return fmt.Sprintf("Тестовое уведомление сохранено; в Telegram ничего не отправлено (workflow %s).", notification.ID), nil
 	case "cancel_notification":
 		id := requiredString(args, "workflow_id")
 		for index := range state.Notifications {
 			if state.Notifications[index].ID == id {
 				state.Notifications[index].Status = "cancelled"
-				return "SANDBOX: уведомление " + id + " отменено локально.", nil
+				return "Отменил тестовое напоминание.", nil
 			}
 		}
 		return "", errors.New("sandbox-уведомление не найдено")

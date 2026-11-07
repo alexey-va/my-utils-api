@@ -57,7 +57,7 @@ func AppCatalog(reminderChanged ApplyFunc) Catalog {
 	)
 	prompt.Editor = "TEXTAREA"
 	return NewCatalog([]Definition{
-		Boolean(TemporalReminderEnabled, "Вечернее напоминание в Telegram, если дневник пуст (Temporal workflow).", []string{"temporal"}, false, reminderChanged),
+		Boolean(TemporalReminderEnabled, "Редкие вечерние напоминания в Telegram по дневнику тренировок и веса.", []string{"temporal"}, false, reminderChanged),
 		Int(TemporalReminderHour, "Час напоминания (0–23), часовой пояс temporal.zone-id.", []string{"temporal"}, 20, 0, 23, reminderChanged),
 		Int(TemporalReminderMinute, "Минута напоминания (0–59).", []string{"temporal"}, 0, 0, 59, reminderChanged),
 		String(TemporalZoneID, "Часовой пояс для напоминаний и снимка дневника (например Europe/Moscow).", []string{"temporal"}, "Europe/Moscow", validTimeZone, reminderChanged),
