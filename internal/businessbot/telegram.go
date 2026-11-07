@@ -15,24 +15,34 @@ import (
 type telegramSender interface {
 	SendProtectedMessage(context.Context, int64, string, string) (int, error)
 	SendProtectedDocument(context.Context, int64, []byte, string, string, string) error
+	EditHTMLMessageWithButtons(context.Context, int64, int, string, string) error
+}
+
+type telegramService interface {
+	Workspace(context.Context, string, string, string) (business.Workspace, error)
+	CreateInvoice(context.Context, string, business.CreateInvoiceRequest) (business.InvoiceView, error)
+	File(context.Context, string, string) (business.File, error)
+	ServiceActPDF(context.Context, string, string, string, string) (business.File, error)
+	ReconciliationPDF(context.Context, string, string, string, string) (business.File, error)
 }
 
 // Telegram is used by one serialized, private Telegram chat. Pending
 // confirmations are intentionally lost on restart and expire after 15 minutes.
 type Telegram struct {
-	owner        string
-	userID       int64
-	ready        func(context.Context) bool
-	bot          telegramSender
-	service      *business.Service
-	assistant    *Assistant
-	history      []openrouter.Message
-	pending      *Draft
-	pendingID    string
-	pendingUntil time.Time
+	owner          string
+	userID         int64
+	ready          func(context.Context) bool
+	bot            telegramSender
+	service        telegramService
+	assistant      *Assistant
+	history        []openrouter.Message
+	pending        *Draft
+	pendingID      string
+	pendingUntil   time.Time
+	reconciliation *reconciliationMenu
 }
 
-func NewTelegram(owner string, userID int64, ready func(context.Context) bool, bot telegramSender, service *business.Service, assistant *Assistant) *Telegram {
+func NewTelegram(owner string, userID int64, ready func(context.Context) bool, bot telegramSender, service telegramService, assistant *Assistant) *Telegram {
 	return &Telegram{owner: owner, userID: userID, ready: ready, bot: bot, service: service, assistant: assistant}
 }
 
@@ -63,6 +73,8 @@ func (t *Telegram) Dispatch(ctx context.Context, msg telegram.InboundMessage) er
 	defer cancel()
 	if msg.Callback {
 		switch msg.Text {
+		case "menu":
+			msg.Text = "/menu"
 		case "invoice":
 			t.history = nil
 			msg.Text = "Хочу выставить счёт. Уточни нужные данные."
@@ -70,25 +82,36 @@ func (t *Telegram) Dispatch(ctx context.Context, msg telegram.InboundMessage) er
 			t.history = nil
 			msg.Text = "Хочу сформировать акт оказанных услуг. Уточни нужные данные."
 		case "reconciliation":
-			t.history = nil
-			msg.Text = "Хочу получить акт сверки взаимных расчётов. Уточни нужные данные."
+			return t.startReconciliation(ctx)
 		case "contract":
 			t.history = nil
 			msg.Text = "Хочу подготовить договор аренды. Уточни нужные данные."
 		case "balances":
 			msg.Text = "Покажи текущее состояние расчётов по контрагентам."
 		default:
+			if strings.HasPrefix(msg.Text, "recon:") {
+				return t.reconciliationCallback(ctx, msg.Text)
+			}
 			return t.confirm(ctx, msg.Text)
 		}
+		t.reconciliation = nil
 	}
 	if msg.Text == "/start" || msg.Text == "/menu" {
-		t.history, t.pending = nil, nil
+		t.history, t.pending, t.reconciliation = nil, nil, nil
 		return t.reply(ctx, "Бизнес · документы и оплаты\nВыберите действие или напишите задачу сообщением.", menuKeyboard())
+	}
+	if msg.Text == "/cancel" {
+		menu := t.reconciliation
+		t.pending, t.reconciliation = nil, nil
+		return t.reconciliationMessage(ctx, menu, "Запрос отменён.", menuKeyboard())
+	}
+	if t.reconciliation != nil && t.reconciliation.step == "range" {
+		return t.reconciliationRange(ctx, msg.Text)
 	}
 	if msg.Text == "" {
 		return t.reply(ctx, "Напишите задачу текстом.", menuKeyboard())
 	}
-	t.pending = nil
+	t.pending, t.reconciliation = nil, nil
 	result, err := t.assistant.Answer(ctx, t.owner, t.history, msg.Text)
 	if err != nil {
 		return t.reply(ctx, "Не удалось получить ответ. Попробуйте повторить запрос.", menuKeyboard())
@@ -114,8 +137,10 @@ func (t *Telegram) confirm(ctx context.Context, action string) error {
 		return t.reply(ctx, "Эта кнопка относится к другому запросу.", "")
 	}
 	t.pending = nil
+	menu := t.reconciliation
+	t.reconciliation = nil
 	if strings.HasPrefix(action, "cancel:") {
-		return t.reply(ctx, "Запрос отменён.", menuKeyboard())
+		return t.reconciliationMessage(ctx, menu, "Запрос отменён.", menuKeyboard())
 	}
 	var file business.File
 	var err error
@@ -133,10 +158,13 @@ func (t *Telegram) confirm(ctx context.Context, action string) error {
 		return t.reply(ctx, "Выберите вид документа.", menuKeyboard())
 	}
 	if err != nil {
-		return t.reply(ctx, "Не удалось подготовить документ. Проверьте данные в «Счетах и оплатах».", menuKeyboard())
+		return t.reconciliationMessage(ctx, menu, "Не удалось подготовить документ. Проверьте данные в «Счетах и оплатах».", menuKeyboard())
 	}
 	if err := t.bot.SendProtectedDocument(ctx, t.userID, file.Data, file.Filename, file.MIMEType, ""); err != nil {
-		return t.reply(ctx, "Документ подготовлен, но Telegram не принял файл. Повторите запрос.", menuKeyboard())
+		return t.reconciliationMessage(ctx, menu, "Документ подготовлен, но Telegram не принял файл. Повторите запрос.", menuKeyboard())
+	}
+	if menu != nil {
+		return t.reconciliationMessage(ctx, menu, reconciliationSummary(draft)+"\n\nPDF готов.", menuKeyboard())
 	}
 	return nil
 }

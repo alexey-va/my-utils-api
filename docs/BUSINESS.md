@@ -250,9 +250,10 @@ The bot asks for any missing document parameters, then offers a one-use
 confirmation. A local invoice can be created or its existing PDF returned. A
 service act uses the existing invoice and adds no charge. The first successful
 generation stores the PDF on that invoice so it appears in the document check.
-An act of reconciliation uses an explicit inclusive date range and returns an unsigned
-PDF with opening balance, activity and closing balance from the current
-ledger. Older, unmatched and advance receipts are identified separately.
+The reconciliation button opens the workspace's counterparty list, then a
+period picker and a one-use PDF confirmation. The act uses an inclusive date
+range and returns an unsigned PDF with opening balance, activity and closing
+balance. Older, unmatched and advance receipts are identified separately.
 Lease contract intake is available for discussion; generation requires an
 approved template. PDFs and financial messages are sent only to the owner's
 private chat using Telegram's protected content flag.
