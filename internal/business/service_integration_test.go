@@ -61,6 +61,52 @@ func requireStatus(t *testing.T, err error, status int) {
 		t.Fatalf("error = %v, want status %d", err, status)
 	}
 }
+
+func TestBusinessCounterpartyActivitySurvivesImportAndPeriodScope(t *testing.T) {
+	s, owner := testService(t, nil)
+	_, otherOwner := testService(t, nil)
+	ctx := context.Background()
+	// It is already January in Moscow while the UTC date is still in December.
+	s.now = func() time.Time { return time.Date(2026, 12, 31, 21, 0, 0, 0, time.UTC) }
+	party, otherParty := fixtureParty(), fixtureParty()
+	otherParty.ID = "payer-two"
+	request := ImportRequest{Seller: fixtureSeller(), Counterparties: []Counterparty{party, otherParty}}
+	if _, err := s.Import(ctx, owner, request); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateInvoice(ctx, owner, CreateInvoiceRequest{
+		CounterpartyID: party.ID, TemplateID: "rent", Period: "2026-12", IssueDate: "2027-01-01", Items: fixtureItems(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := s.Workspace(ctx, owner, "all", "")
+	if err != nil || len(view.Counterparties) != 2 || view.Counterparties[0].Inactive {
+		t.Fatalf("import default activity = %+v, %v", view.Counterparties, err)
+	}
+	requireStatus(t, s.SetCounterpartyInactive(ctx, otherOwner, party.ID, true), http.StatusNotFound)
+	if err := s.SetCounterpartyInactive(ctx, owner, party.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	party.Name += " (обновлённые реквизиты)"
+	if _, err := s.Import(ctx, owner, ImportRequest{Counterparties: []Counterparty{party}}); err != nil {
+		t.Fatal(err)
+	}
+	view, err = s.Workspace(ctx, owner, "2026-11", otherParty.ID)
+	if err != nil || view.PreviousPeriod != "2026-12" || len(view.Invoices) != 0 || len(view.Counterparties) != 2 {
+		t.Fatalf("filtered workspace = %+v, %v", view, err)
+	}
+	if got := view.Counterparties[0]; !got.Inactive || got.Name != party.Name || got.PreviousPeriodDocuments != (PeriodDocuments{Invoice: true}) {
+		t.Fatalf("counterparty after reimport = %+v", got)
+	}
+	if err := s.SetCounterpartyInactive(ctx, owner, party.ID, false); err != nil {
+		t.Fatal(err)
+	}
+	view, err = s.Workspace(ctx, owner, "all", "")
+	if err != nil || len(view.Counterparties) != 2 || view.Counterparties[0].Inactive || len(view.Invoices) != 1 {
+		t.Fatalf("reactivated counterparty and its history = %+v, %v", view, err)
+	}
+}
+
 func TestBusinessImportIsolationIdempotencyAndAllocationTransactions(t *testing.T) {
 	s, owner := testService(t, nil)
 	ctx := context.Background()

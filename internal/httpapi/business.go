@@ -16,6 +16,7 @@ import (
 
 type BusinessService interface {
 	Workspace(context.Context, string, string, string) (business.Workspace, error)
+	SetCounterpartyInactive(context.Context, string, string, bool) error
 	CreateInvoice(context.Context, string, business.CreateInvoiceRequest) (business.InvoiceView, error)
 	File(context.Context, string, string) (business.File, error)
 	Allocate(context.Context, string, business.AllocateRequest) (business.Allocation, error)
@@ -32,6 +33,7 @@ func (a *API) registerBusinessRoutes(router chi.Router) {
 	}
 	router.Get("/api/admin/business", a.businessWorkspace)
 	router.Get("/api/admin/business/", a.businessWorkspace)
+	router.Put("/api/admin/business/counterparties/{counterpartyID}/status", a.updateBusinessCounterpartyStatus)
 	router.Post("/api/admin/business/invoices", a.createBusinessInvoice)
 	router.Get("/api/admin/business/files/{fileID}", a.businessFile)
 	router.Post("/api/admin/business/allocations", a.createBusinessAllocation)
@@ -49,6 +51,33 @@ func (a *API) businessWorkspace(w http.ResponseWriter, r *http.Request) {
 	result, err := a.business.Workspace(r.Context(), businessOwner(r), r.URL.Query().Get("period"), r.URL.Query().Get("counterpartyId"))
 	w.Header().Set("Cache-Control", "no-store")
 	writeDomainResult(w, result, err)
+}
+func (a *API) updateBusinessCounterpartyStatus(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "counterpartyID")
+	// Chi uses the already decoded path when RawPath is empty.
+	if r.URL.RawPath != "" {
+		var err error
+		id, err = url.PathUnescape(id)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "Неверный идентификатор плательщика")
+			return
+		}
+	}
+	var body struct {
+		Inactive *bool `json:"inactive"`
+	}
+	if !decodeJSON(w, r, &body) {
+		return
+	}
+	if body.Inactive == nil {
+		writeError(w, http.StatusBadRequest, "Укажите признак неактивности плательщика")
+		return
+	}
+	if err := a.business.SetCounterpartyInactive(r.Context(), businessOwner(r), id, *body.Inactive); err != nil {
+		writeDomainError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 func (a *API) createBusinessInvoice(w http.ResponseWriter, r *http.Request) {
 	var body business.CreateInvoiceRequest

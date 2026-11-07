@@ -43,16 +43,18 @@ type Counterparty struct {
 	EntityType string            `json:"entityType"`
 	INN        string            `json:"inn"`
 	Address    string            `json:"address"`
+	Inactive   bool              `json:"inactive"`
 	Contacts   []Contact         `json:"contacts"`
 	Templates  []InvoiceTemplate `json:"templates"`
 }
 type Document struct {
-	ID       string `json:"id"`
-	Kind     string `json:"kind"`
-	Filename string `json:"filename"`
-	MIMEType string `json:"mimeType"`
-	Size     int    `json:"size"`
-	SHA256   string `json:"sha256"`
+	ID                  string `json:"id"`
+	Kind                string `json:"kind"`
+	Filename            string `json:"filename"`
+	MIMEType            string `json:"mimeType"`
+	Size                int    `json:"size"`
+	SHA256              string `json:"sha256"`
+	GeneratedServiceAct bool   `json:"generatedServiceAct,omitempty"`
 }
 type Invoice struct {
 	ID             string     `json:"id"`
@@ -121,16 +123,21 @@ type PaymentView struct {
 	UnallocatedMinor    int64        `json:"unallocatedMinor"`
 	Allocations         []Allocation `json:"allocations"`
 }
+type PeriodDocuments struct {
+	Invoice bool `json:"invoice"`
+	Act     bool `json:"act"`
+}
 type CounterpartyView struct {
 	Counterparty
-	InvoicedMinor    int64  `json:"invoicedMinor"`
-	PaidMinor        int64  `json:"paidMinor"`
-	OutstandingMinor int64  `json:"outstandingMinor"`
-	ReceivedMinor    int64  `json:"receivedMinor"`
-	AdvanceMinor     int64  `json:"advanceMinor"`
-	InvoiceCount     int    `json:"invoiceCount"`
-	UnreviewedCount  int    `json:"unreviewedCount"`
-	LastPaymentAt    string `json:"lastPaymentAt"`
+	PreviousPeriodDocuments PeriodDocuments `json:"previousPeriodDocuments"`
+	InvoicedMinor           int64           `json:"invoicedMinor"`
+	PaidMinor               int64           `json:"paidMinor"`
+	OutstandingMinor        int64           `json:"outstandingMinor"`
+	ReceivedMinor           int64           `json:"receivedMinor"`
+	AdvanceMinor            int64           `json:"advanceMinor"`
+	InvoiceCount            int             `json:"invoiceCount"`
+	UnreviewedCount         int             `json:"unreviewedCount"`
+	LastPaymentAt           string          `json:"lastPaymentAt"`
 }
 type Summary struct {
 	InvoicedMinor           int64 `json:"invoicedMinor"`
@@ -154,6 +161,7 @@ type Workspace struct {
 	Payments          []PaymentView      `json:"payments"`
 	Summary           Summary            `json:"summary"`
 	Bank              Bank               `json:"bank"`
+	PreviousPeriod    string             `json:"previousPeriod"`
 	Periods           []string           `json:"periods"`
 	AccountingPeriods []string           `json:"accountingPeriods"`
 	NextInvoiceNumber string             `json:"nextInvoiceNumber"`

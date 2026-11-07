@@ -18,6 +18,11 @@ invoices contribute to totals. Archived/replaced versions remain downloadable.
 existing current `(counterpartyId, templateId, period)` returns 409 rather than
 silently billing twice. Creating an invoice never sends it to the payer.
 
+The previous-month document check uses the Moscow calendar and the service
+month, regardless of the current register filter. Current confirmed invoices
+contribute each typed attachment separately. An inactive counterparty is
+exempt. Re-importing billing data preserves the owner's activity choice.
+
 Payments are bank credits, deduplicated by account + provider transaction ID.
 Their stable ID is `tochka-` plus the full lowercase SHA-256 hex digest of
 `accountId + "\0" + transactionId` (fall back to paymentId only when transactionId
@@ -85,7 +90,7 @@ type InvoiceTemplate = { id: string; label: string; basis: string; items: LineIt
 type Seller = { name: string; inn: string; address: string; bankName: string;
   bankBik: string; bankAccount: string; bankCorrespondentAccount: string };
 type Counterparty = { id: string; name: string; entityType: 'company'|'ip'|'person';
-  inn: string; address: string; contacts: Contact[]; templates: InvoiceTemplate[] };
+  inn: string; address: string; inactive: boolean; contacts: Contact[]; templates: InvoiceTemplate[] };
 type Document = { id: string; kind: 'invoice'|'act'|'other'; filename: string;
   mimeType: string; size: number; sha256: string };
 type Invoice = { id: string; counterpartyId: string; templateId: string;
@@ -107,7 +112,8 @@ type InvoiceView = Invoice & { paidMinor: number; outstandingMinor: number;
 type PaymentView = Payment & { allocatedMinor: number; unallocatedMinor: number;
   advanceMinor: number; classification: 'rental'|'historical'|'outside_period'|'unclassified';
   allocations: Allocation[]; historicalInvoiceId?: string };
-type CounterpartyView = Counterparty & { invoicedMinor: number; paidMinor: number;
+type CounterpartyView = Counterparty & { previousPeriodDocuments: { invoice: boolean; act: boolean };
+  invoicedMinor: number; paidMinor: number;
   outstandingMinor: number; receivedMinor: number; advanceMinor: number; invoiceCount: number;
   unreviewedCount: number; lastPaymentAt: string };
 type Summary = { invoicedMinor: number; paidMinor: number; outstandingMinor: number;
@@ -117,7 +123,7 @@ type Summary = { invoicedMinor: number; paidMinor: number; outstandingMinor: num
   unreviewedInvoiceCount: number; reconciliationComplete: boolean };
 type Workspace = { seller: Seller; counterparties: CounterpartyView[];
   invoices: InvoiceView[]; payments: PaymentView[]; summary: Summary;
-  bank: Bank; periods: string[]; accountingPeriods: string[]; nextInvoiceNumber: string };
+  bank: Bank; previousPeriod: string; periods: string[]; accountingPeriods: string[]; nextInvoiceNumber: string };
 ```
 
 `paidMinor` is allocated to the selected invoice period, regardless of payment
@@ -159,6 +165,9 @@ archived rows while keeping them visibly distinct.
 * `GET /?period=YYYY-MM|all&counterpartyId=...` -> `Workspace` (query filters
   invoice period and optionally payer; omitted period means all). Return all
   payer metadata for create controls; summaries include only the selected scope.
+* `PUT /counterparties/{counterpartyID}/status` body `{inactive: boolean}` ->
+  204. Existing counterparties default to active. The status change affects
+  the document check. Historical balances and documents remain accessible.
 * `POST /invoices` -> 201 `InvoiceView`. Body `{ counterpartyId, templateId,
   period, issueDate, dueDate?, number?, basis?, items, provider }`. Default provider
   local. Number may be empty for atomic next-number allocation. Reject person
@@ -239,8 +248,9 @@ In the bot, `/start` and `/menu` open the menu. OpenRouter uses
 `openai/gpt-6.1-sol` and receives an allowlisted projection of the ledger.
 The bot asks for any missing document parameters, then offers a one-use
 confirmation. A local invoice can be created or its existing PDF returned. A
-service act uses the existing invoice and adds no charge. An act of
-reconciliation uses an explicit inclusive date range and returns an unsigned
+service act uses the existing invoice and adds no charge. The first successful
+generation stores the PDF on that invoice so it appears in the document check.
+An act of reconciliation uses an explicit inclusive date range and returns an unsigned
 PDF with opening balance, activity and closing balance from the current
 ledger. Older, unmatched and advance receipts are identified separately.
 Lease contract intake is available for discussion; generation requires an

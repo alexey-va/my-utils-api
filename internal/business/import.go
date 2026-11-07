@@ -34,6 +34,8 @@ func (s *Service) Import(ctx context.Context, owner string, request ImportReques
 			for i, old := range current.Counterparties {
 				if old.ID == party.ID {
 					index = i
+					// Activity is maintained separately from imported billing details.
+					party.Inactive = old.Inactive
 					for _, template := range old.Templates {
 						found := false
 						for _, updated := range party.Templates {
@@ -107,6 +109,15 @@ func (s *Service) Import(ctx context.Context, owner string, request ImportReques
 				invoice.Documents[i] = metadata
 			}
 			if exists {
+				// The service appends at most one generated act. Accept the original
+				// archive or its exact current version with that attachment included.
+				if last := len(old.Documents) - 1; last >= 0 && old.Documents[last].GeneratedServiceAct {
+					if len(invoice.Documents) == len(old.Documents) && invoice.Documents[last].ID == old.Documents[last].ID {
+						invoice.Documents[last].GeneratedServiceAct = true
+					} else {
+						old.Documents = old.Documents[:last]
+					}
+				}
 				if !reflect.DeepEqual(old, invoice) {
 					return conflict("Сохранённый счёт неизменяем: используйте отдельную архивную версию")
 				}

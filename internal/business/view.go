@@ -3,6 +3,7 @@ package business
 import (
 	"sort"
 	"strconv"
+	"time"
 )
 
 func nextNumber(s state) string {
@@ -242,4 +243,40 @@ func workspaceView(s state, period, counterpartyID string) Workspace {
 	})
 	sort.SliceStable(v.Payments, func(i, j int) bool { return v.Payments[i].Date > v.Payments[j].Date })
 	return v
+}
+
+func (v *Workspace) setPreviousPeriodDocuments(invoices []Invoice, now time.Time) {
+	v.PreviousPeriod = time.Date(now.Year(), now.Month()-1, 1, 0, 0, 0, 0, now.Location()).Format("2006-01")
+	byParty := map[string]PeriodDocuments{}
+	for _, invoice := range invoices {
+		if !invoice.IsCurrent || invoice.Period != v.PreviousPeriod || !confirmedInvoice(invoice) {
+			continue
+		}
+		documents := byParty[invoice.CounterpartyID]
+		for _, document := range invoice.Documents {
+			switch document.Kind {
+			case "invoice":
+				documents.Invoice = true
+			case "act":
+				documents.Act = true
+			}
+		}
+		byParty[invoice.CounterpartyID] = documents
+	}
+	for i := range v.Counterparties {
+		party := &v.Counterparties[i]
+		party.PreviousPeriodDocuments = byParty[party.ID]
+	}
+}
+
+func confirmedInvoice(invoice Invoice) bool {
+	switch invoice.Provider {
+	case "local":
+		return invoice.ProviderState == "created" || invoice.ProviderState == "imported"
+	case "tochka":
+		// The local PDF is already available when the bank's result is uncertain.
+		return invoice.ProviderState == "created" && invoice.BankDocumentID != ""
+	default:
+		return false
+	}
 }

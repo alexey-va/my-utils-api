@@ -10,16 +10,18 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Service struct {
-	pool   *pgxpool.Pool
-	bank   *BankClient
-	cipher *tokenCipher
-	now    func() time.Time
+	pool         *pgxpool.Pool
+	bank         *BankClient
+	cipher       *tokenCipher
+	now          func() time.Time
+	calendarZone *time.Location
 }
 
 func NewService(pool *pgxpool.Pool, jwtSecret string, bank *BankClient) (*Service, error) {
@@ -27,7 +29,11 @@ func NewService(pool *pgxpool.Pool, jwtSecret string, bank *BankClient) (*Servic
 	if err != nil {
 		return nil, err
 	}
-	return &Service{pool: pool, bank: bank, cipher: cipher, now: time.Now}, nil
+	calendarZone, err := time.LoadLocation("Europe/Moscow")
+	if err != nil {
+		return nil, err
+	}
+	return &Service{pool: pool, bank: bank, cipher: cipher, now: time.Now, calendarZone: calendarZone}, nil
 }
 
 // ponytail: one row lock serializes this owner's small ledger. Normalize the
@@ -103,7 +109,24 @@ func (s *Service) Workspace(ctx context.Context, owner, period, party string) (W
 			return Workspace{}, missing("Плательщик не найден")
 		}
 	}
-	return workspaceView(current, period, party), nil
+	view := workspaceView(current, period, party)
+	view.setPreviousPeriodDocuments(current.Invoices, s.now().In(s.calendarZone))
+	return view, nil
+}
+
+func (s *Service) SetCounterpartyInactive(ctx context.Context, owner, id string, inactive bool) error {
+	if !validID(id) {
+		return missing("Плательщик не найден")
+	}
+	return s.mutate(ctx, owner, func(current *state, _ pgx.Tx) error {
+		for i := range current.Counterparties {
+			if current.Counterparties[i].ID == id {
+				current.Counterparties[i].Inactive = inactive
+				return nil
+			}
+		}
+		return missing("Плательщик не найден")
+	})
 }
 
 func (s *Service) File(ctx context.Context, owner, id string) (File, error) {

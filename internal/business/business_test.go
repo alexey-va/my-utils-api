@@ -28,6 +28,52 @@ func fixtureInvoice(id, period string, current bool) Invoice {
 	}
 	return i
 }
+
+func TestBusinessPreviousPeriodDocumentsRequireCurrentConfirmedRecords(t *testing.T) {
+	issued := fixtureInvoice("december", "2026-12", true)
+	issued.IssueDate = "2027-01-01"
+	issued.Documents = []Document{{Kind: "invoice"}, {Kind: "act"}}
+	invoiceOnly := issued
+	invoiceOnly.Documents = []Document{{Kind: "invoice"}}
+	actOnly := issued
+	actOnly.Documents = []Document{{Kind: "act"}}
+	archived := issued
+	archived.IsCurrent = false
+	wrongPeriod := issued
+	wrongPeriod.Period = "2027-01"
+	bankConfirmed := invoiceOnly
+	bankConfirmed.Provider, bankConfirmed.ProviderState, bankConfirmed.BankDocumentID = "tochka", "created", "bank-document"
+	bankUnknown := bankConfirmed
+	bankUnknown.ProviderState, bankUnknown.BankDocumentID = "unknown", ""
+	bankPending := bankUnknown
+	bankPending.ProviderState = "pending"
+	bankRejected := bankUnknown
+	bankRejected.ProviderState = "rejected"
+	bankWithoutReceipt := bankConfirmed
+	bankWithoutReceipt.BankDocumentID = ""
+	now := time.Date(2027, 1, 1, 0, 0, 0, 0, time.FixedZone("MSK", 3*60*60))
+	for _, test := range []struct {
+		name     string
+		invoices []Invoice
+		want     PeriodDocuments
+	}{
+		{"imported pair", []Invoice{issued}, PeriodDocuments{Invoice: true, Act: true}},
+		{"current invoice without act", []Invoice{invoiceOnly, archived, wrongPeriod}, PeriodDocuments{Invoice: true}},
+		{"act without invoice", []Invoice{actOnly}, PeriodDocuments{Act: true}},
+		{"confirmed bank invoice", []Invoice{bankConfirmed}, PeriodDocuments{Invoice: true}},
+		{"unconfirmed bank invoice", []Invoice{bankUnknown, bankPending, bankRejected, bankWithoutReceipt}, PeriodDocuments{}},
+		{"no records", nil, PeriodDocuments{}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			view := Workspace{Counterparties: []CounterpartyView{{Counterparty: fixtureParty()}}}
+			view.setPreviousPeriodDocuments(test.invoices, now)
+			if got := view.Counterparties[0].PreviousPeriodDocuments; view.PreviousPeriod != "2026-12" || got != test.want {
+				t.Fatalf("previous period %q documents = %+v, want 2026-12 %+v", view.PreviousPeriod, got, test.want)
+			}
+		})
+	}
+}
+
 func TestBusinessExactMoneyRoundingAndLimits(t *testing.T) {
 	for _, test := range []struct {
 		quantity    string

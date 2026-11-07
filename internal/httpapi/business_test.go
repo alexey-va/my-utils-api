@@ -15,6 +15,8 @@ type businessRoutesService struct {
 	BusinessService
 	owner, period, party, fileID, token string
 	imported                            business.ImportRequest
+	inactive                            bool
+	statusUpdates                       int
 }
 
 func (s *businessRoutesService) Workspace(_ context.Context, owner, period, party string) (business.Workspace, error) {
@@ -33,8 +35,13 @@ func (s *businessRoutesService) Import(_ context.Context, owner string, body bus
 	s.owner, s.imported = owner, body
 	return business.ImportResult{InvoiceCount: len(body.Invoices)}, nil
 }
+func (s *businessRoutesService) SetCounterpartyInactive(_ context.Context, owner, party string, inactive bool) error {
+	s.owner, s.party, s.inactive = owner, party, inactive
+	s.statusUpdates++
+	return nil
+}
 func TestBusinessAllRoutesRequireReadyAdmin(t *testing.T) {
-	paths := []struct{ method, path string }{{"GET", ""}, {"POST", "/invoices"}, {"GET", "/files/private-id"}, {"POST", "/allocations"}, {"DELETE", "/allocations/private-id"}, {"POST", "/bank/connect"}, {"DELETE", "/bank/connect"}, {"POST", "/bank/sync"}, {"POST", "/import"}}
+	paths := []struct{ method, path string }{{"GET", ""}, {"PUT", "/counterparties/payer-one/status"}, {"POST", "/invoices"}, {"GET", "/files/private-id"}, {"POST", "/allocations"}, {"DELETE", "/allocations/private-id"}, {"POST", "/bank/connect"}, {"DELETE", "/bank/connect"}, {"POST", "/bank/sync"}, {"POST", "/import"}}
 	for _, route := range paths {
 		for _, token := range []string{"", "user", "bootstrap-admin"} {
 			t.Run(route.method+route.path+token, func(t *testing.T) {
@@ -56,6 +63,33 @@ func TestBusinessAllRoutesRequireReadyAdmin(t *testing.T) {
 		}
 	}
 }
+
+func TestBusinessCounterpartyStatusRequiresBooleanAndScopesOwner(t *testing.T) {
+	service := &businessRoutesService{}
+	router := NewRouter(Dependencies{Auth: fakeAuth{}, Business: service})
+	const path = "/api/admin/business/counterparties/payer%3Aone/status"
+	for _, body := range []string{`{}`, `{"inactive":null}`, `{"inactive":"false"}`, `{"inactive":true} {}`} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, wireGuardAdminRequest(http.MethodPut, path, body))
+		if response.Code != http.StatusBadRequest || service.statusUpdates != 0 {
+			t.Fatalf("invalid status %s = %d, updates %d", body, response.Code, service.statusUpdates)
+		}
+	}
+	for i, test := range []struct {
+		path, body, id string
+		inactive       bool
+	}{
+		{path, `{"inactive":true}`, "payer:one", true},
+		{"/api/admin/business/counterparties/payer%253Aone/status", `{"inactive":false}`, "payer%3Aone", false},
+	} {
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, wireGuardAdminRequest(http.MethodPut, test.path, test.body))
+		if response.Code != http.StatusNoContent || service.owner != "admin" || service.party != test.id || service.inactive != test.inactive || service.statusUpdates != i+1 {
+			t.Fatalf("valid status %s = %d %#v", test.body, response.Code, service)
+		}
+	}
+}
+
 func TestBusinessRoutesScopeToAuthenticatedOwnerAndKeepFilesPrivate(t *testing.T) {
 	service := &businessRoutesService{}
 	router := NewRouter(Dependencies{Auth: fakeAuth{}, Business: service})
