@@ -1,3 +1,6 @@
+labels:
+  deploy-host: vds
+
 when:
   - event: [push, manual]
     branch: main
@@ -37,37 +40,9 @@ steps:
 
   - name: deploy
     image: docker:27-cli
-    network_mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /home/freedeeml/ci:/opt/ci:ro
-      - /home/freedeeml/load-secrets.sh:/home/freedeeml/load-secrets.sh:ro
-      - /home/freedeeml/.secrets:/home/freedeeml/.secrets:ro
-    environment:
-      HOME: /home/freedeeml
-      MYUTILS_DATASTORE_HOST: 127.0.0.1
+      - /srv/my-utils-vds/runtime/api.env:/run/myutils-api.env:ro
     commands:
-      - apk add --no-cache bash git
-      # The checkout is mounted with a host-side owner. Without this, the
-      # deploy script's `git rev-parse HEAD` is rejected as dubious ownership
-      # and the image silently falls back to gitCommit=local.
-      - git config --global --add safe.directory "$${CI_WORKSPACE}"
-      - export WORKSPACE=$${CI_WORKSPACE}
-      - bash /opt/ci/deploy-my-utils-api.sh
-      - |
-        set -eu
-        container=my-utils-api-api-1
-        deadline=$$(($$(date +%s) + 180))
-        while [ "$$(date +%s)" -lt "$$deadline" ]; do
-          state=$$(docker inspect -f '{{.State.Status}}' "$$container" 2>/dev/null || true)
-          health=$$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$$container" 2>/dev/null || true)
-          restart=$$(docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' "$$container" 2>/dev/null || true)
-          revision=$$(docker inspect -f '{{index .Config.Labels "org.opencontainers.image.revision"}}' "$$container" 2>/dev/null || true)
-          if [ "$$state" = running ] && [ "$$health" = healthy ] && [ "$$restart" = unless-stopped ] && [ "$$revision" = "$${CI_COMMIT_SHA}" ]; then
-            echo "Backend deployed healthy at revision $$revision with restart=$$restart"
-            exit 0
-          fi
-          sleep 2
-        done
-        docker inspect "$$container" --format 'state={{.State.Status}} health={{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}} restarts={{.RestartCount}} restart={{.HostConfig.RestartPolicy.Name}} revision={{index .Config.Labels "org.opencontainers.image.revision"}}' >&2 || true
-        exit 1
+      - apk add --no-cache bash
+      - bash ./deploy-vds.sh "$${CI_COMMIT_SHA}"
