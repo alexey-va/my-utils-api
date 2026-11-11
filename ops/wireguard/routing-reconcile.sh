@@ -13,6 +13,20 @@ unit_active() {
   systemctl is-active --quiet "$1"
 }
 
+repair_public_hairpin() {
+  if unit_active my-utils-wireguard-public-hairpin.service; then
+    (
+      set -a
+      # shellcheck source=/dev/null
+      source "${WIREGUARD_ROUTING_ENV_FILE:-/etc/my-utils/wireguard-routing-ha.env}"
+      # shellcheck source=/dev/null
+      source "${WIREGUARD_PUBLIC_HAIRPIN_ENV_FILE:-/etc/my-utils/wireguard-public-hairpin.env}"
+      set +a
+      "$libexec_dir/my-utils-wireguard-public-hairpin" start
+    )
+  fi
+}
+
 routing_rules=$(ip -4 rule show)
 routing_routes=$(ip -4 route show table 51889)
 
@@ -37,6 +51,7 @@ if unit_active my-utils-api-proxy-routing.service &&
 fi
 
 if [[ "$repair_main" != true && "$repair_geo" != true && "$repair_proxy" != true ]]; then
+  repair_public_hairpin
   exit 0
 fi
 
@@ -92,3 +107,5 @@ fi
 if unit_active my-utils-api-proxy-routing.service; then
   grep -Eq '(^|[[:space:]])1087:.*fwmark 0x51891 lookup 51889([[:space:]]|$)' <<<"$routing_rules"
 fi
+
+repair_public_hairpin

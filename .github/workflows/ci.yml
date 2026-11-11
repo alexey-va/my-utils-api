@@ -54,6 +54,10 @@ jobs:
         run: go test ./... -count=1
       - name: Vet
         run: go vet ./...
+      - name: Test public-address VPN routing in isolated networks
+        run: |
+          sudo unshare --net -- bash ops/wireguard/tests/public-hairpin-netns.sh
+          sudo unshare --net -- python3 ops/wireguard/tests/public-hairpin-faults.py
       - name: Build
         env:
           CGO_ENABLED: "0"

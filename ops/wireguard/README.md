@@ -258,3 +258,52 @@ Install the script as `/usr/local/libexec/my-utils-api-proxy-routing` and the
 unit as `/etc/systemd/system/my-utils-api-proxy-routing.service`, then enable the
 unit only after `my-utils-wireguard-routing.service` is active. The unit owns
 priority `1087`, mark `0x51891`, and the `MYUTILS-API-PROXY*` iptables chains.
+
+## Requests to the relay's own public address
+
+VPN clients can reach services on the relay's public IPv4 address through the
+existing external exit, just as they reach another public server. This avoids
+the default priority-0 local lookup delivering those packets directly to the
+relay's VPN isolation firewall. It applies to the configured public `/32`,
+all IP protocols, and only packets entering the client WireGuard interface
+from its configured client subnet. Private DNS and host-originated requests
+retain local delivery. The chosen exit and failover remain owned by table
+`51889`; public services see the exit's public source address.
+
+On the relay, after its existing routing service is active:
+
+```sh
+sudo bash ops/wireguard/install-public-hairpin.sh --public-address 195.133.60.194
+sudo bash ops/wireguard/install-public-hairpin.sh --public-address 195.133.60.194 --apply
+```
+
+The installer adds a separate `my-utils-wireguard-public-hairpin.service`
+without cycling WireGuard or the game server. It preserves the installed
+main routing helper. The source reconciler is also installed atomically and
+reapplies this feature after networkd repairs when its service is active.
+An API deployment alone does not install these host files.
+
+The helper owns priorities `0` (scoped VPN lookup), `1` (scoped terminal
+unreachable), and `2` (backup generic local lookup). It refuses unrelated rules
+in those slots. The generic local lookup is staged before removing the original
+priority-0 lookup; protocol `kernel` keeps that backup protected from networkd's
+foreign-rule cleanup. The scoped rules use protocol `242`. Ownership is recorded
+in `/run/my-utils-wireguard-public-hairpin.json`. A missing VPN table blocks the
+selected destination instead of falling back to local delivery. Command failure
+rolls back with readback and never removes the last verified local lookup.
+
+Rollback restores the original local lookup before removing the feature:
+
+```sh
+sudo systemctl disable --now my-utils-wireguard-public-hairpin.service
+```
+
+The Linux regression checks exercise the actual helper in disposable network
+namespaces, including TCP/UDP/ICMP return traffic, private DNS, public SSH,
+foreign rule refusal, empty-table fail-closed behavior and failed rollback
+commands. They refuse to run in the host network namespace. CI runs both:
+
+```sh
+sudo unshare --net -- bash ops/wireguard/tests/public-hairpin-netns.sh
+sudo unshare --net -- python3 ops/wireguard/tests/public-hairpin-faults.py
+```

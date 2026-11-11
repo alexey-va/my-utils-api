@@ -877,8 +877,11 @@ func TestRoutingReconcilerRepairsMissingStateOnce(t *testing.T) {
 	}
 
 	writeExecutable(t, tempDir+"/systemctl", `#!/bin/sh
-test "$1" = is-active && exit 0
-exit 2
+test "$1" = is-active || exit 2
+case "$*" in
+  *my-utils-wireguard-routing.service|*my-utils-geo-routing.service|*my-utils-api-proxy-routing.service) exit 0 ;;
+  *) exit 3 ;;
+esac
 `)
 	writeExecutable(t, tempDir+"/flock", `#!/bin/sh
 exit 0
