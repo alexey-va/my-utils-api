@@ -26,8 +26,9 @@ func (s *reconciliationMenuService) Workspace(_ context.Context, owner, period, 
 func (s *reconciliationMenuService) ReconciliationPDF(_ context.Context, owner, party, from, to string) (business.File, error) {
 	s.generated = append(s.generated, [4]string{owner, party, from, to})
 	return business.File{
-		Document: business.Document{Filename: "reconciliation.pdf", MIMEType: "application/pdf"},
-		Data:     []byte("%PDF-synthetic"),
+		Document:    business.Document{Filename: "reconciliation.pdf", MIMEType: "application/pdf"},
+		Data:        []byte("%PDF-synthetic"),
+		ReviewNotes: []string{"Полная банковская выписка не подтверждена."},
 	}, nil
 }
 
@@ -41,6 +42,7 @@ type reconciliationMenuSender struct {
 	t        *testing.T
 	messages []reconciliationMenuMessage
 	pdfs     int
+	caption  string
 }
 
 func (s *reconciliationMenuSender) SendProtectedMessage(_ context.Context, chatID int64, text, buttons string) (int, error) {
@@ -67,12 +69,13 @@ func (s *reconciliationMenuSender) record(chatID int64, id int, text, buttons st
 	return nil
 }
 
-func (s *reconciliationMenuSender) SendProtectedDocument(_ context.Context, chatID int64, data []byte, filename, mimeType, _ string) error {
+func (s *reconciliationMenuSender) SendProtectedDocument(_ context.Context, chatID int64, data []byte, filename, mimeType, caption string) error {
 	s.t.Helper()
 	if chatID != 42 || string(data) != "%PDF-synthetic" || filename != "reconciliation.pdf" || mimeType != "application/pdf" {
 		s.t.Fatalf("unexpected PDF delivery to %d, filename %q, mime %q", chatID, filename, mimeType)
 	}
 	s.pdfs++
+	s.caption = caption
 	return nil
 }
 
@@ -130,6 +133,9 @@ func TestReconciliationButtonShowsWorkspacePartiesAndDeliversOnlyAfterConfirmati
 	want := [4]string{"workspace-owner", "alpha", first.AddDate(0, -1, 0).Format(time.DateOnly), first.AddDate(0, 0, -1).Format(time.DateOnly)}
 	if len(service.generated) != 1 || service.generated[0] != want || sender.pdfs != 1 {
 		t.Fatalf("generated %#v, sent %d PDF(s), wanted one generation %#v", service.generated, sender.pdfs, want)
+	}
+	if sender.caption != "Полная банковская выписка не подтверждена." {
+		t.Fatalf("owner did not receive the reconciliation warning with the PDF: %q", sender.caption)
 	}
 	if len(service.reads) == 0 {
 		t.Fatal("no scoped lookup")

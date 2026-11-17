@@ -205,7 +205,8 @@ type ImportResult struct {
 }
 type File struct {
 	Document
-	Data []byte
+	Data        []byte
+	ReviewNotes []string `json:"-"`
 }
 type Coverage struct {
 	From string `json:"from"`

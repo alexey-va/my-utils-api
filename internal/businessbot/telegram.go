@@ -160,7 +160,8 @@ func (t *Telegram) confirm(ctx context.Context, action string) error {
 	if err != nil {
 		return t.reconciliationMessage(ctx, menu, "Не удалось подготовить документ. Проверьте данные в «Счетах и оплатах».", menuKeyboard())
 	}
-	if err := t.bot.SendProtectedDocument(ctx, t.userID, file.Data, file.Filename, file.MIMEType, ""); err != nil {
+	caption := strings.Join(file.ReviewNotes, "\n")
+	if err := t.bot.SendProtectedDocument(ctx, t.userID, file.Data, file.Filename, file.MIMEType, caption); err != nil {
 		return t.reconciliationMessage(ctx, menu, "Документ подготовлен, но Telegram не принял файл. Повторите запрос.", menuKeyboard())
 	}
 	if menu != nil {

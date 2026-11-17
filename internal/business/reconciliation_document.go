@@ -60,7 +60,7 @@ func (s *Service) ReconciliationPDF(ctx context.Context, owner, party, from, to 
 	return File{Document: Document{
 		ID: "reconciliation-" + sha, Kind: "other", Filename: "Акт сверки " + from + "_" + to + ".pdf",
 		MIMEType: "application/pdf", Size: len(data), SHA256: sha,
-	}, Data: data}, nil
+	}, Data: data, ReviewNotes: statement.notes}, nil
 }
 
 func buildReconciliation(s state, party, from, to string, generatedAt time.Time) (reconciliationStatement, error) {
@@ -282,7 +282,7 @@ func renderReconciliation(r reconciliationStatement) ([]byte, error) {
 		pdf.Ln(2)
 	}
 	pdf.SetFont("Go", "", 9)
-	pdf.MultiCell(width, 4.6, "По данным поставщика. Валюта: российский рубль.\nДебет - начисления; кредит - поступления, распределённые по текущим счетам.", "", "L", false)
+	pdf.MultiCell(width, 4.6, "По данным поставщика. Валюта: российский рубль.", "", "L", false)
 	pdf.Ln(4)
 	// A fixed four-column grid leaves room for readable money and long references.
 	widths := []float64{23, 85, 37, 37}
@@ -368,9 +368,6 @@ func renderReconciliation(r reconciliationStatement) ([]byte, error) {
 		result += "0,00 руб."
 	}
 	pdf.MultiCell(width, 5, result, "", "L", false)
-	pdf.Ln(3)
-	pdf.SetFont("Go", "", 8)
-	pdf.MultiCell(width, 4.2, "Расчёт выполнен по текущим записям реестра на дату формирования. Начальное сальдо рассчитано по доступным операциям до начала периода; полнота расчётов до начала реестра не подтверждается. Счёт и акт учитываются один раз. Архивные версии, исторические поступления и нераспределённые суммы в сальдо не включены; авансы отдельно и между договорами не зачтены.", "", "L", false)
 	if len(r.excluded) > 0 {
 		ensure(38, nil)
 		pdf.Ln(5)
@@ -389,16 +386,6 @@ func renderReconciliation(r reconciliationStatement) ([]byte, error) {
 			height := max(9.0, float64(len(pdf.SplitText(receipt.description, extraWidths[1]-4)))*4.5+4)
 			ensure(height, extraHeader)
 			row([]string{reconciliationDate(receipt.date), receipt.description, reconciliationMoney(receipt.amount)}, extraWidths, "", false)
-		}
-	}
-	if len(r.notes) > 0 {
-		ensure(24, nil)
-		pdf.Ln(5)
-		pdf.SetFont("Go", "B", 9.5)
-		pdf.MultiCell(width, 5, "Перед согласованием требуется проверка", "", "L", false)
-		pdf.SetFont("Go", "", 8)
-		for _, note := range r.notes {
-			pdf.MultiCell(width, 4.2, "- "+note, "", "L", false)
 		}
 	}
 	ensure(45, nil)
