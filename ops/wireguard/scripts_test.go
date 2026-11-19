@@ -165,6 +165,21 @@ func TestGeoPrefixRendererRejectsUnsafeRanges(t *testing.T) {
 	}
 }
 
+func TestGeoRefreshRecoversAfterBootAndDownloadFailure(t *testing.T) {
+	timer := readFile(t, "systemd/my-utils-geo-routing-update.timer")
+	for _, directive := range []string{"OnActiveSec=15s", "OnCalendar=*-*-* 03:00:00", "Persistent=true", "WantedBy=timers.target"} {
+		if !strings.Contains(timer, "\n"+directive+"\n") {
+			t.Errorf("geo refresh timer is missing %s", directive)
+		}
+	}
+	service := readFile(t, "systemd/my-utils-geo-routing-update.service")
+	for _, directive := range []string{"Restart=on-failure", "RestartSec=5min"} {
+		if !strings.Contains(service, "\n"+directive+"\n") {
+			t.Errorf("geo refresh service is missing %s", directive)
+		}
+	}
+}
+
 func TestGeoInstallerPlanIsExplicitAndNonMutating(t *testing.T) {
 	output, err := run(t, "", "bash", "install-geo-routing.sh", "--client-cidr", "10.89.0.0/24", "--ingress-interface", "wg-users", "--direct-egress-interface", "eth0")
 	if err != nil {

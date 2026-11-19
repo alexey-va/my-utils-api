@@ -199,8 +199,10 @@ serializes repairs with the failover worker. The subsequent heartbeat reports
 healthy only after exact read-back of priorities `1087` through `1089`, table
 `51889`, nftables state, and client DNS.
 
-The updater runs daily through `my-utils-geo-routing-update.timer`. Its
-non-secret status file is read by the existing agent and shown in the admin UI.
+`my-utils-geo-routing-update.timer` starts a refresh 15 seconds after timer
+activation at boot and daily at 03:00 relay time. A missed daily run is
+caught up on activation. Failed updates retry every five minutes. The agent
+reports the last successful list update or AWG-only status in the admin UI.
 Country selection is IP-based: CDN placement can differ from a domain's
 business country.
 
